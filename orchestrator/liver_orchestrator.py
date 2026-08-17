@@ -1,3 +1,5 @@
+%%writefile /content/LiverAI-MultiAgent/orchestrator/liver_orchestrator.py
+
 # ==========================================================
 # LiverAI Multi-Agent Orchestrator
 # ==========================================================
@@ -5,12 +7,7 @@
 import os
 import sys
 import joblib
-import numpy as np
 
-
-# ==========================================================
-# PROJECT PATH
-# ==========================================================
 
 PROJECT_PATH = "/content/LiverAI-MultiAgent"
 
@@ -40,9 +37,9 @@ class LiverAIOrchestrator:
         print("INITIALIZING LIVERAI ORCHESTRATOR")
         print("=" * 70)
 
-        # --------------------------------------------------
-        # Check model files
-        # --------------------------------------------------
+        # ==================================================
+        # CHECK MODELS
+        # ==================================================
 
         paths = {
             "Fatty Liver": fatty_model_path,
@@ -59,10 +56,9 @@ class LiverAIOrchestrator:
 
             print(f"✓ {name} model found")
 
-
-        # --------------------------------------------------
-        # Load models
-        # --------------------------------------------------
+        # ==================================================
+        # LOAD MODELS
+        # ==================================================
 
         print("\nLoading models...")
 
@@ -74,14 +70,19 @@ class LiverAIOrchestrator:
             fibrosis_model_path
         )
 
-        cirrhosis_model = joblib.load(
+        # IMPORTANT:
+        # Cirrhosis model is a package/dictionary
+        cirrhosis_package = joblib.load(
             cirrhosis_model_path
         )
 
+        print("✓ Fatty Liver model loaded")
+        print("✓ Fibrosis model loaded")
+        print("✓ Cirrhosis package loaded")
 
-        # --------------------------------------------------
-        # Create agents
-        # --------------------------------------------------
+        # ==================================================
+        # CREATE AGENTS
+        # ==================================================
 
         self.fatty_agent = FattyLiverAgent(
             fatty_model
@@ -92,19 +93,17 @@ class LiverAIOrchestrator:
         )
 
         self.cirrhosis_agent = CirrhosisAgent(
-            cirrhosis_model
+            cirrhosis_package
         )
-
 
         print("\n✓ Fatty Liver Agent initialized")
         print("✓ Fibrosis Agent initialized")
         print("✓ Cirrhosis Agent initialized")
 
-        print("\n✓ Orchestrator ready")
-
+        print("\n✓ LiverAI Orchestrator ready")
 
     # ======================================================
-    # RUN ALL AGENTS
+    # PREDICTION
     # ======================================================
 
     def predict(
@@ -119,9 +118,7 @@ class LiverAIOrchestrator:
         print("LIVERAI MULTI-AGENT PREDICTION")
         print("=" * 70)
 
-
         results = {}
-
 
         # ==================================================
         # 1. FATTY LIVER
@@ -149,7 +146,6 @@ class LiverAIOrchestrator:
 
             print("✗ Fatty Liver error:", e)
 
-
         # ==================================================
         # 2. FIBROSIS
         # ==================================================
@@ -175,7 +171,6 @@ class LiverAIOrchestrator:
             }
 
             print("✗ Fibrosis error:", e)
-
 
         # ==================================================
         # 3. CIRRHOSIS
@@ -203,27 +198,19 @@ class LiverAIOrchestrator:
 
             print("✗ Cirrhosis error:", e)
 
-
         # ==================================================
-        # RETURN COMBINED RESULTS
+        # BUILD SUMMARY
         # ==================================================
 
-        return self._build_summary(
-            results
-        )
-
+        return self._build_summary(results)
 
     # ======================================================
-    # BUILD SUMMARY
+    # SUMMARY
     # ======================================================
 
-    def _build_summary(
-        self,
-        results
-    ):
+    def _build_summary(self, results):
 
         summary = {
-
             "fatty_liver": results.get(
                 "fatty_liver"
             ),
@@ -235,13 +222,7 @@ class LiverAIOrchestrator:
             "cirrhosis": results.get(
                 "cirrhosis"
             )
-
         }
-
-
-        # --------------------------------------------------
-        # Count successful agents
-        # --------------------------------------------------
 
         successful_agents = 0
 
@@ -254,13 +235,9 @@ class LiverAIOrchestrator:
 
                 successful_agents += 1
 
-
-        summary["agents_completed"] = (
-            successful_agents
-        )
+        summary["agents_completed"] = successful_agents
 
         summary["total_agents"] = 3
-
 
         return summary
 
@@ -276,94 +253,32 @@ def print_results(results):
     print("LIVERAI MULTI-AGENT RESULTS")
     print("=" * 70)
 
-
-    # ------------------------------------------------------
-    # Fatty Liver
-    # ------------------------------------------------------
-
-    fatty = results.get(
-        "fatty_liver"
-    )
-
-    print("\nFATTY LIVER AGENT")
-
-    if fatty:
-
-        print(
-            "Prediction :",
-            fatty.get("prediction")
-        )
-
-        print(
-            "Probability:",
-            fatty.get("probability")
-        )
-
-        print(
-            "Status     :",
-            fatty.get("status")
-        )
-
-
-    # ------------------------------------------------------
-    # Fibrosis
-    # ------------------------------------------------------
-
-    fibrosis = results.get(
-        "fibrosis"
-    )
-
-    print("\nFIBROSIS AGENT")
-
-    if fibrosis:
-
-        print(
-            "Prediction :",
-            fibrosis.get("prediction")
-        )
-
-        print(
-            "Probability:",
-            fibrosis.get("probability")
-        )
-
-        print(
-            "Status     :",
-            fibrosis.get("status")
-        )
-
-
-    # ------------------------------------------------------
-    # Cirrhosis
-    # ------------------------------------------------------
-
-    cirrhosis = results.get(
+    for name in [
+        "fatty_liver",
+        "fibrosis",
         "cirrhosis"
-    )
+    ]:
 
-    print("\nCIRRHOSIS AGENT")
+        result = results.get(name)
 
-    if cirrhosis:
+        print(f"\n{name.upper()}")
 
-        print(
-            "Prediction :",
-            cirrhosis.get("prediction")
-        )
+        if result:
 
-        print(
-            "Probability:",
-            cirrhosis.get("probability")
-        )
+            print(
+                "Prediction :",
+                result.get("prediction")
+            )
 
-        print(
-            "Status     :",
-            cirrhosis.get("status")
-        )
+            print(
+                "Probability:",
+                result.get("probability")
+            )
 
-
-    # ------------------------------------------------------
-    # Global status
-    # ------------------------------------------------------
+            print(
+                "Status     :",
+                result.get("status")
+            )
 
     print("\n" + "-" * 70)
 
