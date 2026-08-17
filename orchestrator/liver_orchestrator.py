@@ -1,161 +1,376 @@
-"""
-LiverAI Central Orchestrator
+# ==========================================================
+# LiverAI Multi-Agent Orchestrator
+# ==========================================================
 
-Coordinates the specialized liver disease agents
-and combines their results into a unified response.
-"""
+import os
+import sys
+import joblib
+import numpy as np
 
 
-class LiverOrchestrator:
+# ==========================================================
+# PROJECT PATH
+# ==========================================================
+
+PROJECT_PATH = "/content/LiverAI-MultiAgent"
+
+if PROJECT_PATH not in sys.path:
+    sys.path.insert(0, PROJECT_PATH)
+
+
+# ==========================================================
+# IMPORT AGENTS
+# ==========================================================
+
+from agents.fatty_liver_agent import FattyLiverAgent
+from agents.fibrosis_agent import FibrosisAgent
+from agents.cirrhosis_agent import CirrhosisAgent
+
+
+class LiverAIOrchestrator:
 
     def __init__(
         self,
-        cirrhosis_agent=None,
-        fatty_liver_agent=None,
-        clinical_reasoning_agent=None,
-        fibrosis_agent=None,
-        tumor_agent=None,
-        segmentation_agent=None
+        fatty_model_path,
+        fibrosis_model_path,
+        cirrhosis_model_path
     ):
-        """
-        Initialize the central orchestrator.
 
-        Each parameter represents one specialized agent.
-        """
+        print("=" * 70)
+        print("INITIALIZING LIVERAI ORCHESTRATOR")
+        print("=" * 70)
 
-        self.name = "LiverAI-Orchestrator"
+        # --------------------------------------------------
+        # Check model files
+        # --------------------------------------------------
 
-        self.agents = {
-            "cirrhosis": cirrhosis_agent,
-            "fatty_liver": fatty_liver_agent,
-            "clinical_reasoning": clinical_reasoning_agent,
-            "fibrosis": fibrosis_agent,
-            "tumor": tumor_agent,
-            "segmentation": segmentation_agent
+        paths = {
+            "Fatty Liver": fatty_model_path,
+            "Fibrosis": fibrosis_model_path,
+            "Cirrhosis": cirrhosis_model_path
         }
 
-    def run_tabular_agents(self, patient_data):
-        """
-        Run agents that work with tabular/clinical patient data.
-        """
+        for name, path in paths.items():
 
-        results = {}
-
-        if self.agents["cirrhosis"] is not None:
-            results["cirrhosis"] = (
-                self.agents["cirrhosis"].predict(patient_data)
-            )
-
-        if self.agents["fatty_liver"] is not None:
-            results["fatty_liver"] = (
-                self.agents["fatty_liver"].predict(patient_data)
-            )
-
-        if self.agents["clinical_reasoning"] is not None:
-            results["clinical_reasoning"] = (
-                self.agents["clinical_reasoning"].predict(patient_data)
-            )
-
-        if self.agents["fibrosis"] is not None:
-            results["fibrosis"] = (
-                self.agents["fibrosis"].predict(patient_data)
-            )
-
-        return results
-
-    def run_imaging_agents(
-        self,
-        image_tensor=None,
-        volume=None
-    ):
-        """
-        Run imaging-related agents.
-
-        image_tensor:
-            MRI/image input for the tumor classification agent.
-
-        volume:
-            3D medical image volume for the segmentation agent.
-        """
-
-        results = {}
-
-        if (
-            self.agents["tumor"] is not None
-            and image_tensor is not None
-        ):
-            results["tumor"] = (
-                self.agents["tumor"].predict(image_tensor)
-            )
-
-        if (
-            self.agents["segmentation"] is not None
-            and volume is not None
-        ):
-            results["segmentation"] = (
-                self.agents["segmentation"].predict(volume)
-            )
-
-        return results
-
-    def run(
-        self,
-        patient_data=None,
-        image_tensor=None,
-        volume=None
-    ):
-        """
-        Execute the complete LiverAI multi-agent pipeline.
-        """
-
-        final_results = {
-            "orchestrator": self.name,
-            "status": "started",
-            "tabular_results": {},
-            "imaging_results": {}
-        }
-
-        # Run clinical/tabular agents
-        if patient_data is not None:
-
-            final_results["tabular_results"] = (
-                self.run_tabular_agents(patient_data)
-            )
-
-        # Run imaging agents
-        if image_tensor is not None or volume is not None:
-
-            final_results["imaging_results"] = (
-                self.run_imaging_agents(
-                    image_tensor=image_tensor,
-                    volume=volume
+            if not os.path.exists(path):
+                raise FileNotFoundError(
+                    f"{name} model not found:\n{path}"
                 )
+
+            print(f"✓ {name} model found")
+
+
+        # --------------------------------------------------
+        # Load models
+        # --------------------------------------------------
+
+        print("\nLoading models...")
+
+        fatty_model = joblib.load(
+            fatty_model_path
+        )
+
+        fibrosis_model = joblib.load(
+            fibrosis_model_path
+        )
+
+        cirrhosis_model = joblib.load(
+            cirrhosis_model_path
+        )
+
+
+        # --------------------------------------------------
+        # Create agents
+        # --------------------------------------------------
+
+        self.fatty_agent = FattyLiverAgent(
+            fatty_model
+        )
+
+        self.fibrosis_agent = FibrosisAgent(
+            fibrosis_model
+        )
+
+        self.cirrhosis_agent = CirrhosisAgent(
+            cirrhosis_model
+        )
+
+
+        print("\n✓ Fatty Liver Agent initialized")
+        print("✓ Fibrosis Agent initialized")
+        print("✓ Cirrhosis Agent initialized")
+
+        print("\n✓ Orchestrator ready")
+
+
+    # ======================================================
+    # RUN ALL AGENTS
+    # ======================================================
+
+    def predict(
+        self,
+        fatty_data,
+        fibrosis_data,
+        cirrhosis_data
+    ):
+
+        print("\n")
+        print("=" * 70)
+        print("LIVERAI MULTI-AGENT PREDICTION")
+        print("=" * 70)
+
+
+        results = {}
+
+
+        # ==================================================
+        # 1. FATTY LIVER
+        # ==================================================
+
+        print("\n[1/3] Running Fatty Liver Agent...")
+
+        try:
+
+            fatty_result = self.fatty_agent.predict(
+                fatty_data
             )
 
-        final_results["status"] = "completed"
+            results["fatty_liver"] = fatty_result
 
-        return final_results
+            print("✓ Fatty Liver completed")
 
-    def get_summary(self, results):
-        """
-        Create a simple summary of the agents' results.
-        """
+        except Exception as e:
+
+            results["fatty_liver"] = {
+                "agent": "FattyLiverAgent",
+                "status": "error",
+                "error": str(e)
+            }
+
+            print("✗ Fatty Liver error:", e)
+
+
+        # ==================================================
+        # 2. FIBROSIS
+        # ==================================================
+
+        print("\n[2/3] Running Fibrosis Agent...")
+
+        try:
+
+            fibrosis_result = self.fibrosis_agent.predict(
+                fibrosis_data
+            )
+
+            results["fibrosis"] = fibrosis_result
+
+            print("✓ Fibrosis completed")
+
+        except Exception as e:
+
+            results["fibrosis"] = {
+                "agent": "FibrosisAgent",
+                "status": "error",
+                "error": str(e)
+            }
+
+            print("✗ Fibrosis error:", e)
+
+
+        # ==================================================
+        # 3. CIRRHOSIS
+        # ==================================================
+
+        print("\n[3/3] Running Cirrhosis Agent...")
+
+        try:
+
+            cirrhosis_result = self.cirrhosis_agent.predict(
+                cirrhosis_data
+            )
+
+            results["cirrhosis"] = cirrhosis_result
+
+            print("✓ Cirrhosis completed")
+
+        except Exception as e:
+
+            results["cirrhosis"] = {
+                "agent": "CirrhosisAgent",
+                "status": "error",
+                "error": str(e)
+            }
+
+            print("✗ Cirrhosis error:", e)
+
+
+        # ==================================================
+        # RETURN COMBINED RESULTS
+        # ==================================================
+
+        return self._build_summary(
+            results
+        )
+
+
+    # ======================================================
+    # BUILD SUMMARY
+    # ======================================================
+
+    def _build_summary(
+        self,
+        results
+    ):
 
         summary = {
-            "orchestrator": self.name,
-            "agents_completed": [],
-            "results": results
+
+            "fatty_liver": results.get(
+                "fatty_liver"
+            ),
+
+            "fibrosis": results.get(
+                "fibrosis"
+            ),
+
+            "cirrhosis": results.get(
+                "cirrhosis"
+            )
+
         }
 
-        for category in [
-            "tabular_results",
-            "imaging_results"
-        ]:
 
-            for agent_name in results.get(category, {}):
+        # --------------------------------------------------
+        # Count successful agents
+        # --------------------------------------------------
 
-                summary["agents_completed"].append(
-                    agent_name
-                )
+        successful_agents = 0
+
+        for result in summary.values():
+
+            if (
+                result is not None
+                and result.get("status") == "completed"
+            ):
+
+                successful_agents += 1
+
+
+        summary["agents_completed"] = (
+            successful_agents
+        )
+
+        summary["total_agents"] = 3
+
 
         return summary
+
+
+# ==========================================================
+# DISPLAY RESULTS
+# ==========================================================
+
+def print_results(results):
+
+    print("\n")
+    print("=" * 70)
+    print("LIVERAI MULTI-AGENT RESULTS")
+    print("=" * 70)
+
+
+    # ------------------------------------------------------
+    # Fatty Liver
+    # ------------------------------------------------------
+
+    fatty = results.get(
+        "fatty_liver"
+    )
+
+    print("\nFATTY LIVER AGENT")
+
+    if fatty:
+
+        print(
+            "Prediction :",
+            fatty.get("prediction")
+        )
+
+        print(
+            "Probability:",
+            fatty.get("probability")
+        )
+
+        print(
+            "Status     :",
+            fatty.get("status")
+        )
+
+
+    # ------------------------------------------------------
+    # Fibrosis
+    # ------------------------------------------------------
+
+    fibrosis = results.get(
+        "fibrosis"
+    )
+
+    print("\nFIBROSIS AGENT")
+
+    if fibrosis:
+
+        print(
+            "Prediction :",
+            fibrosis.get("prediction")
+        )
+
+        print(
+            "Probability:",
+            fibrosis.get("probability")
+        )
+
+        print(
+            "Status     :",
+            fibrosis.get("status")
+        )
+
+
+    # ------------------------------------------------------
+    # Cirrhosis
+    # ------------------------------------------------------
+
+    cirrhosis = results.get(
+        "cirrhosis"
+    )
+
+    print("\nCIRRHOSIS AGENT")
+
+    if cirrhosis:
+
+        print(
+            "Prediction :",
+            cirrhosis.get("prediction")
+        )
+
+        print(
+            "Probability:",
+            cirrhosis.get("probability")
+        )
+
+        print(
+            "Status     :",
+            cirrhosis.get("status")
+        )
+
+
+    # ------------------------------------------------------
+    # Global status
+    # ------------------------------------------------------
+
+    print("\n" + "-" * 70)
+
+    print(
+        f"Agents completed: "
+        f"{results.get('agents_completed')}/"
+        f"{results.get('total_agents')}"
+    )
+
+    print("=" * 70)
