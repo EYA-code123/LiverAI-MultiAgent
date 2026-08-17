@@ -324,33 +324,47 @@ class LiverAIOrchestrator:
         # 4. CLINICAL REASONING
         # ==================================================
 
-        print("\n[4/4] Running Clinical Reasoning Agent...")
+       # ==================================================
+# 4. CLINICAL REASONING
+# ==================================================
 
-        try:
+print(
+    "\n[4/4] Running Clinical Reasoning Agent..."
+)
 
-            reasoning_result = self.reasoning_agent.predict(
-                shared_context["agents"]
-            )
+try:
 
-            shared_context["clinical_reasoning"] = (
-                reasoning_result
-            )
+    reasoning_result = (
+        self.reasoning_agent.predict(
+            shared_context["agents"]
+        )
+    )
 
-            print("✓ Clinical Reasoning completed")
+    shared_context[
+        "clinical_reasoning"
+    ] = reasoning_result
 
-        except Exception as e:
+    print(
+        "✓ Clinical Reasoning completed"
+    )
 
-            shared_context["clinical_reasoning"] = {
+except Exception as e:
 
-                "agent": "ClinicalReasoningAgent",
+    shared_context[
+        "clinical_reasoning"
+    ] = {
 
-                "status": "error",
+        "agent": "ClinicalReasoningAgent",
 
-                "error": str(e)
-            }
+        "status": "error",
 
-            print("✗ Clinical Reasoning error:", e)
+        "error": str(e)
+    }
 
+    print(
+        "✗ Clinical Reasoning error:",
+        e
+    )
 
         # ==================================================
         # FINAL STATUS
@@ -367,14 +381,13 @@ class LiverAIOrchestrator:
 
         shared_context["agents_completed"] = completed
 
-        shared_context["total_agents"] = 3
+        shared_context["total_agents"] = 4
 
-        shared_context["reasoning_status"] = (
-            shared_context["clinical_reasoning"].get(
-                "status"
-            )
-        )
-
+       shared_context["reasoning_status"] = (
+    shared_context[
+        "clinical_reasoning"
+    ].get("status")
+)
         shared_context["status"] = (
 
             "completed"
