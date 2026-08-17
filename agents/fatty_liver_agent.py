@@ -1,3 +1,4 @@
+
 %%writefile /content/LiverAI-MultiAgent/agents/fatty_liver_agent.py
 
 import numpy as np
@@ -12,7 +13,7 @@ class FattyLiverAgent:
         self.model_name = "LightGBM"
         self.model = model
 
-        # Exact training features
+        # Features used during model training
         self.features = [
             "mcv",
             "alkphos",
@@ -25,7 +26,7 @@ class FattyLiverAgent:
     def predict(self, patient_data):
 
         # ==================================================
-        # CREATE DATAFRAME
+        # PREPARE INPUT
         # ==================================================
 
         if isinstance(patient_data, dict):
@@ -49,6 +50,23 @@ class FattyLiverAgent:
             )
 
         # ==================================================
+        # ENSURE FEATURE ORDER
+        # ==================================================
+
+        X = X[self.features].copy()
+
+        # ==================================================
+        # NUMERIC CONVERSION
+        # ==================================================
+
+        for col in self.features:
+
+            X[col] = pd.to_numeric(
+                X[col],
+                errors="coerce"
+            )
+
+        # ==================================================
         # LIGHTGBM PREDICTION
         # ==================================================
 
@@ -60,9 +78,14 @@ class FattyLiverAgent:
 
         probability = None
 
-        if hasattr(self.model, "predict_proba"):
+        if hasattr(
+            self.model,
+            "predict_proba"
+        ):
 
-            probabilities = self.model.predict_proba(X)[0]
+            probabilities = (
+                self.model.predict_proba(X)[0]
+            )
 
             probability = float(
                 np.max(probabilities)
@@ -78,9 +101,12 @@ class FattyLiverAgent:
 
             "model": self.model_name,
 
-            "prediction": str(prediction),
+            "prediction": str(
+                prediction
+            ),
 
             "probability": probability,
 
             "status": "completed"
         }
+```
