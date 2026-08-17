@@ -27,6 +27,7 @@ if PROJECT_PATH not in sys.path:
 from agents.fatty_liver_agent import FattyLiverAgent
 from agents.fibrosis_agent import FibrosisAgent
 from agents.cirrhosis_agent import CirrhosisAgent
+from agents.clinical_reasoning_agent import ClinicalReasoningAgent
 
 
 class LiverAIOrchestrator:
