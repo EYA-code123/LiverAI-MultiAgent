@@ -1,8 +1,6 @@
-"""
-Fatty Liver Agent
-BUPA Liver Disorders + LightGBM
-"""
+%%writefile /content/LiverAI-MultiAgent/agents/fatty_liver_agent.py
 
+import numpy as np
 import pandas as pd
 
 
@@ -25,13 +23,17 @@ class FattyLiverAgent:
 
     def predict(self, patient_data):
 
-        # Create DataFrame with the exact training feature names
+        # ==========================================================
+        # 1. Convert patient data to DataFrame
+        # ==========================================================
+
         if isinstance(patient_data, dict):
 
-            X = pd.DataFrame(
-                [patient_data],
-                columns=self.features
-            )
+            X = pd.DataFrame([patient_data])
+
+        elif isinstance(patient_data, pd.DataFrame):
+
+            X = patient_data.copy()
 
         else:
 
@@ -40,22 +42,61 @@ class FattyLiverAgent:
                 columns=self.features
             )
 
-        # Prediction
+        # ==========================================================
+        # 2. Verify / create required features
+        # ==========================================================
+
+        for feature in self.features:
+
+            if feature not in X.columns:
+                X[feature] = np.nan
+
+        # Keep ONLY the features used during training
+        X = X[self.features].copy()
+
+        # ==========================================================
+        # 3. Convert numerical values
+        # ==========================================================
+
+        for feature in self.features:
+
+            X[feature] = pd.to_numeric(
+                X[feature],
+                errors="coerce"
+            )
+
+        # ==========================================================
+        # 4. Prediction
+        # ==========================================================
+
         prediction = self.model.predict(X)[0]
 
-        # Probability
+        # ==========================================================
+        # 5. Probability
+        # ==========================================================
+
         probability = None
 
         if hasattr(self.model, "predict_proba"):
 
             probabilities = self.model.predict_proba(X)[0]
 
-            probability = float(max(probabilities))
+            probability = float(np.max(probabilities))
+
+        # ==========================================================
+        # 6. Return result
+        # ==========================================================
 
         return {
+
             "agent": self.name,
+
             "model": self.model_name,
+
             "prediction": str(prediction),
+
             "probability": probability,
+
             "status": "completed"
+
         }
