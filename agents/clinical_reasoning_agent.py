@@ -1,5 +1,4 @@
 
-
 # ==========================================================
 # Clinical Reasoning Agent
 # ==========================================================
@@ -48,9 +47,7 @@ class ClinicalReasoningAgent:
         ]
 
         if probabilities:
-            average_confidence = (
-                sum(probabilities) / len(probabilities)
-            )
+            average_confidence = sum(probabilities) / len(probabilities)
         else:
             average_confidence = 0.0
 
@@ -75,49 +72,33 @@ class ClinicalReasoningAgent:
 
         for result in completed:
 
-            prediction = str(
-                result.get("prediction", "")
-            )
-
-            probability = float(
-                result.get("probability", 0)
-            )
+            prediction = str(result.get("prediction", ""))
+            probability = float(result.get("probability", 0))
 
             # Prediction codes remain internal.
-            # They will NOT be displayed directly in the UI.
+            # They are NOT exposed to the final UI.
 
             if prediction in ["1", "2", "2.0"]:
                 risk_scores.append(probability)
-
             else:
-                risk_scores.append(
-                    1 - probability
-                )
+                risk_scores.append(1 - probability)
 
         # ==================================================
         # OVERALL RISK
         # ==================================================
 
         if risk_scores:
-
-            overall_score = (
-                sum(risk_scores) / len(risk_scores)
-            )
-
+            overall_score = sum(risk_scores) / len(risk_scores)
         else:
-
             overall_score = 0.0
 
         if overall_score >= 0.70:
-
             overall_risk = "High"
 
         elif overall_score >= 0.45:
-
             overall_risk = "Moderate"
 
         else:
-
             overall_risk = "Low"
 
         # ==================================================
