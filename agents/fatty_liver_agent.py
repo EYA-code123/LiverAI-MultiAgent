@@ -1,6 +1,5 @@
 %%writefile /content/LiverAI-MultiAgent/agents/fatty_liver_agent.py
 
-import numpy as np
 import pandas as pd
 
 
@@ -23,68 +22,68 @@ class FattyLiverAgent:
 
     def predict(self, patient_data):
 
-    # ==========================================================
-    # 1. Convertir en DataFrame
-    # ==========================================================
+        # ==================================================
+        # CREATE DATAFRAME WITH EXACT FEATURE NAMES
+        # ==================================================
 
-    if isinstance(patient_data, dict):
-        X = pd.DataFrame([patient_data])
+        if isinstance(patient_data, dict):
 
-    elif isinstance(patient_data, pd.DataFrame):
-        X = patient_data.copy()
+            X = pd.DataFrame(
+                [[
+                    patient_data.get(feature)
+                    for feature in self.features
+                ]],
+                columns=self.features
+            )
 
-    else:
-        X = pd.DataFrame(
-            [patient_data],
-            columns=self.features
-        )
+        elif isinstance(patient_data, pd.DataFrame):
 
-    # ==========================================================
-    # 2. Vérifier les features
-    # ==========================================================
+            X = patient_data[
+                self.features
+            ].copy()
 
-    for feature in self.features:
-        if feature not in X.columns:
-            X[feature] = np.nan
+        else:
 
-    X = X[self.features].copy()
+            X = pd.DataFrame(
+                [patient_data],
+                columns=self.features
+            )
 
-    # ==========================================================
-    # 3. Conversion numérique
-    # ==========================================================
+        # ==================================================
+        # PREDICTION
+        # ==================================================
 
-    for feature in self.features:
-        X[feature] = pd.to_numeric(
-            X[feature],
-            errors="coerce"
-        )
+        prediction = self.model.predict(X)[0]
 
-    # ==========================================================
-    # 4. Prediction
-    # ==========================================================
+        # ==================================================
+        # PROBABILITY
+        # ==================================================
 
-    prediction = self.model.predict(X)[0]
+        probability = None
 
-    # ==========================================================
-    # 5. Probability
-    # ==========================================================
+        if hasattr(self.model, "predict_proba"):
 
-    probability = None
+            probabilities = self.model.predict_proba(X)[0]
 
-    if hasattr(self.model, "predict_proba"):
+            probability = float(
+                max(probabilities)
+            )
 
-        probabilities = self.model.predict_proba(X)[0]
+        # ==================================================
+        # RESULT
+        # ==================================================
 
-        probability = float(np.max(probabilities))
+        return {
 
-    # ==========================================================
-    # 6. Résultat
-    # ==========================================================
+            "agent": self.name,
 
-    return {
-        "agent": self.name,
-        "model": self.model_name,
-        "prediction": str(prediction),
-        "probability": probability,
-        "status": "completed"
-    }
+            "model": self.model_name,
+
+            "prediction": str(
+                prediction
+            ),
+
+            "probability": probability,
+
+            "status": "completed"
+        }
