@@ -22,66 +22,31 @@ class FattyLiverAgent:
             "drinks"
         ]
 
-    def predict(self, patient_data):
+   def predict(self, patient_data):
 
-        # --------------------------------------------------
-        # Create DataFrame WITH feature names
-        # --------------------------------------------------
+    # Features exactes utilisées pendant l'entraînement
+    X = pd.DataFrame(
+        [patient_data],
+        columns=self.features
+    )
 
-        if isinstance(patient_data, dict):
+    # S'assurer que toutes les colonnes sont numériques
+    X = X.apply(pd.to_numeric, errors="coerce")
 
-            X = pd.DataFrame(
-                [[
-                    patient_data.get("mcv"),
-                    patient_data.get("alkphos"),
-                    patient_data.get("sgpt"),
-                    patient_data.get("sgot"),
-                    patient_data.get("gammagt"),
-                    patient_data.get("drinks")
-                ]],
-                columns=self.features
-            )
+    # Prediction
+    prediction = self.model.predict(X)[0]
 
-        else:
+    # Probability
+    probability = None
 
-            X = pd.DataFrame(
-                [patient_data],
-                columns=self.features
-            )
+    if hasattr(self.model, "predict_proba"):
+        probabilities = self.model.predict_proba(X)[0]
+        probability = float(max(probabilities))
 
-        # --------------------------------------------------
-        # Prediction
-        # --------------------------------------------------
-
-        prediction = self.model.predict(X)[0]
-
-        # --------------------------------------------------
-        # Probability
-        # --------------------------------------------------
-
-        probability = None
-
-        if hasattr(self.model, "predict_proba"):
-
-            probabilities = self.model.predict_proba(X)[0]
-
-            probability = float(
-                np.max(probabilities)
-            )
-
-        # --------------------------------------------------
-        # Result
-        # --------------------------------------------------
-
-        return {
-
-            "agent": self.name,
-
-            "model": self.model_name,
-
-            "prediction": str(prediction),
-
-            "probability": probability,
-
-            "status": "completed"
-        }
+    return {
+        "agent": self.name,
+        "model": self.model_name,
+        "prediction": str(prediction),
+        "probability": probability,
+        "status": "completed"
+    }
