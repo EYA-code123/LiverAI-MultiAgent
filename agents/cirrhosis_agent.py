@@ -1,215 +1,189 @@
 """
-Cirrhosis Agent
-Uses the trained XGBoost model and the preprocessing
-information saved in XGBoost_Cirrhosis.pkl.
+Cirrhosis Prediction Agent
+Uses the trained XGBoost model and preprocessing information.
 """
 
-import numpy as np
 import pandas as pd
+import numpy as np
 
 
 class CirrhosisAgent:
 
-    def __init__(self, artifact):
+    def __init__(self, model_package):
 
         self.name = "CirrhosisAgent"
         self.model_name = "XGBoost"
 
-        self.model = artifact["model"]
+        # Complete saved package
+        self.package = model_package
 
-        self.feature_names = artifact["feature_names"]
+        # XGBoost model
+        self.model = model_package["model"]
 
-        self.numerical_columns = artifact["numerical_columns"]
+        # Saved preprocessing information
+        self.feature_names = model_package["feature_names"]
+        self.numerical_columns = model_package["numerical_columns"]
+        self.categorical_columns = model_package["categorical_columns"]
 
-        self.categorical_columns = artifact["categorical_columns"]
+        self.encoders = model_package["encoders"]
 
-        self.encoders = artifact["encoders"]
+        self.target_encoder = model_package["target_encoder"]
 
-        self.target_encoder = artifact["target_encoder"]
+        self.numerical_imputer = model_package["numerical_imputer"]
+        self.categorical_imputer = model_package["categorical_imputer"]
 
-        self.numerical_imputer = artifact.get(
-            "numerical_imputer"
-        )
-
-        self.categorical_imputer = artifact.get(
-            "categorical_imputer"
-        )
 
     def predict(self, patient_data):
 
-        # ==========================================
-        # 1. Convert input to DataFrame
-        # ==========================================
+        # --------------------------------------------------
+        # Convert patient data to DataFrame
+        # --------------------------------------------------
 
         if isinstance(patient_data, dict):
 
-            df = pd.DataFrame([patient_data])
+            X = pd.DataFrame([patient_data])
 
         elif isinstance(patient_data, pd.DataFrame):
 
-            df = patient_data.copy()
+            X = patient_data.copy()
 
         else:
 
-            raise TypeError(
-                "patient_data must be a dictionary "
-                "or pandas DataFrame."
+            X = pd.DataFrame(
+                [patient_data],
+                columns=self.feature_names
             )
 
-        # ==========================================
-        # 2. Check features
-        # ==========================================
 
-        missing_features = [
-            feature
-            for feature in self.feature_names
-            if feature not in df.columns
-        ]
-
-        if missing_features:
-
-            raise ValueError(
-                f"Missing features: {missing_features}"
-            )
-
+        # --------------------------------------------------
         # Keep only model features
-        df = df[self.feature_names].copy()
+        # --------------------------------------------------
 
-        # ==========================================
-        # 3. Numerical preprocessing
-        # ==========================================
+        X = X[self.feature_names].copy()
 
-        # Remove target column if it was accidentally
-        # stored inside numerical_columns
-        numerical_columns = [
-            column
-            for column in self.numerical_columns
-            if column in self.feature_names
+
+        # --------------------------------------------------
+        # Numerical preprocessing
+        # --------------------------------------------------
+
+        numerical_features = [
+            col for col in self.numerical_columns
+            if col in self.feature_names
         ]
 
-        if numerical_columns:
+        if numerical_features:
 
-            # Fill missing numerical values
-            # using the statistics stored by the imputer
-            if self.numerical_imputer is not None:
+            X[numerical_features] = (
+                self.numerical_imputer
+                .transform(X[numerical_features])
+            )
 
-                for column in numerical_columns:
 
-                    if df[column].isna().any():
+        # --------------------------------------------------
+        # Categorical preprocessing
+        # --------------------------------------------------
 
-                        if column in self.numerical_columns:
-
-                            index = self.numerical_columns.index(
-                                column
-                            )
-
-                            median_value = (
-                                self.numerical_imputer.statistics_[
-                                    index
-                                ]
-                            )
-
-                            df[column] = df[column].fillna(
-                                median_value
-                            )
-
-        # ==========================================
-        # 4. Categorical preprocessing
-        # ==========================================
-
-        categorical_columns = [
-            column
-            for column in self.categorical_columns
-            if column in self.feature_names
+        categorical_features = [
+            col for col in self.categorical_columns
+            if col in self.feature_names
         ]
 
-        if categorical_columns:
+        if categorical_features:
 
-            for column in categorical_columns:
+            X[categorical_features] = (
+                self.categorical_imputer
+                .transform(X[categorical_features])
+            )
 
-                if df[column].isna().any():
 
-                    if self.categorical_imputer is not None:
+        # --------------------------------------------------
+        # Apply saved encoders
+        # --------------------------------------------------
 
-                        index = self.categorical_columns.index(
-                            column
-                        )
+        for col in categorical_features:
 
-                        most_frequent = (
-                            self.categorical_imputer.statistics_[
-                                index
-                            ]
-                        )
+            if col in self.encoders:
 
-                        df[column] = df[column].fillna(
-                            most_frequent
-                        )
+                encoder = self.encoders[col]
 
-        # ==========================================
-        # 5. Encode categorical variables
-        # ==========================================
+                values = X[col].astype(str)
 
-        for column in categorical_columns:
-
-            encoder = self.encoders[column]
-
-            df[column] = df[column].astype(str)
-
-            unknown_values = set(
-                df[column]
-            ) - set(encoder.classes_)
-
-            if unknown_values:
-
-                raise ValueError(
-                    f"Unknown value(s) in {column}: "
-                    f"{unknown_values}"
+                # Handle unknown categories
+                known_values = set(
+                    encoder.classes_
                 )
 
-            df[column] = encoder.transform(
-                df[column]
-            )
+                values = values.apply(
+                    lambda x:
+                    x if x in known_values
+                    else encoder.classes_[0]
+                )
 
-        # ==========================================
-        # 6. Prediction
-        # ==========================================
+                X[col] = encoder.transform(values)
 
-        prediction = self.model.predict(df)[0]
 
-        # ==========================================
-        # 7. Probability
-        # ==========================================
+        # --------------------------------------------------
+        # Prediction
+        # --------------------------------------------------
+
+        prediction_encoded = self.model.predict(X)[0]
+
+
+        # --------------------------------------------------
+        # Probability
+        # --------------------------------------------------
 
         probability = None
 
-        if hasattr(self.model, "predict_proba"):
+        if hasattr(
+            self.model,
+            "predict_proba"
+        ):
 
             probabilities = (
-                self.model.predict_proba(df)[0]
+                self.model
+                .predict_proba(X)[0]
             )
 
             probability = float(
                 np.max(probabilities)
             )
 
-        # ==========================================
-        # 8. Decode prediction
-        # ==========================================
 
-        predicted_stage = (
-            self.target_encoder.inverse_transform(
-                [prediction]
-            )[0]
-        )
+        # --------------------------------------------------
+        # Decode prediction
+        # --------------------------------------------------
 
-        # ==========================================
-        # 9. Return result
-        # ==========================================
+        try:
+
+            prediction = (
+                self.target_encoder
+                .inverse_transform(
+                    [prediction_encoded]
+                )[0]
+            )
+
+        except Exception:
+
+            prediction = prediction_encoded
+
+
+        # --------------------------------------------------
+        # Return result
+        # --------------------------------------------------
 
         return {
+
             "agent": self.name,
+
             "model": self.model_name,
-            "prediction": str(predicted_stage),
+
+            "prediction": str(
+                prediction
+            ),
+
             "probability": probability,
+
             "status": "completed"
+
         }
