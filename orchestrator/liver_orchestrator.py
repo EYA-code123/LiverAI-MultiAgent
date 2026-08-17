@@ -104,10 +104,13 @@ class LiverAIOrchestrator:
             cirrhosis_package
         )
 
+        self.reasoning_agent = ClinicalReasoningAgent()
+
 
         print("\n✓ Fatty Liver Agent initialized")
         print("✓ Fibrosis Agent initialized")
         print("✓ Cirrhosis Agent initialized")
+        print("✓ Clinical Reasoning Agent initialized")
 
         print("\n✓ LiverAI Orchestrator ready")
 
@@ -130,8 +133,19 @@ class LiverAIOrchestrator:
 
     def prepare_fibrosis_data(self, patient):
 
+        # IMPORTANT:
+        # The fibrosis model expects 17 features.
+
         return np.array([
+            patient["seqno"],
+            patient["instit"],
+            patient["histol"],
+            patient["stage"],
+            patient["study"],
+            patient["rel"],
+            patient["edrel"],
             patient["age"],
+            patient["in.subcohort"],
             patient["male"],
             patient["weight"],
             patient["height"],
@@ -197,7 +211,7 @@ class LiverAIOrchestrator:
         # 1. FATTY LIVER
         # ==================================================
 
-        print("\n[1/3] Running Fatty Liver Agent...")
+        print("\n[1/4] Running Fatty Liver Agent...")
 
         try:
 
@@ -233,12 +247,17 @@ class LiverAIOrchestrator:
         # 2. FIBROSIS
         # ==================================================
 
-        print("\n[2/3] Running Fibrosis Agent...")
+        print("\n[2/4] Running Fibrosis Agent...")
 
         try:
 
             fibrosis_data = self.prepare_fibrosis_data(
                 patient
+            )
+
+            print(
+                "Fibrosis input features:",
+                len(fibrosis_data)
             )
 
             fibrosis_result = self.fibrosis_agent.predict(
@@ -269,7 +288,7 @@ class LiverAIOrchestrator:
         # 3. CIRRHOSIS
         # ==================================================
 
-        print("\n[3/3] Running Cirrhosis Agent...")
+        print("\n[3/4] Running Cirrhosis Agent...")
 
         try:
 
@@ -302,6 +321,38 @@ class LiverAIOrchestrator:
 
 
         # ==================================================
+        # 4. CLINICAL REASONING
+        # ==================================================
+
+        print("\n[4/4] Running Clinical Reasoning Agent...")
+
+        try:
+
+            reasoning_result = self.reasoning_agent.predict(
+                shared_context["agents"]
+            )
+
+            shared_context["clinical_reasoning"] = (
+                reasoning_result
+            )
+
+            print("✓ Clinical Reasoning completed")
+
+        except Exception as e:
+
+            shared_context["clinical_reasoning"] = {
+
+                "agent": "ClinicalReasoningAgent",
+
+                "status": "error",
+
+                "error": str(e)
+            }
+
+            print("✗ Clinical Reasoning error:", e)
+
+
+        # ==================================================
         # FINAL STATUS
         # ==================================================
 
@@ -318,9 +369,22 @@ class LiverAIOrchestrator:
 
         shared_context["total_agents"] = 3
 
+        shared_context["reasoning_status"] = (
+            shared_context["clinical_reasoning"].get(
+                "status"
+            )
+        )
+
         shared_context["status"] = (
+
             "completed"
-            if completed == 3
+
+            if (
+                completed == 3
+                and shared_context["reasoning_status"]
+                == "completed"
+            )
+
             else "partial"
         )
 
@@ -370,12 +434,56 @@ def print_results(results):
         )
 
 
+    # ------------------------------------------------------
+    # Clinical Reasoning
+    # ------------------------------------------------------
+
+    print("\n" + "-" * 70)
+
+    print("CLINICAL REASONING")
+
+    reasoning = results.get(
+        "clinical_reasoning",
+        {}
+    )
+
+    print(
+        "Agent       :",
+        reasoning.get("agent")
+    )
+
+    print(
+        "Model       :",
+        reasoning.get("model")
+    )
+
+    print(
+        "Agents used :",
+        reasoning.get("agents_used")
+    )
+
+    print(
+        "Summary     :",
+        reasoning.get("summary")
+    )
+
+    print(
+        "Status      :",
+        reasoning.get("status")
+    )
+
+
     print("\n" + "-" * 70)
 
     print(
         "Agents completed:",
         f"{results['agents_completed']}/"
         f"{results['total_agents']}"
+    )
+
+    print(
+        "Reasoning status:",
+        results.get("reasoning_status")
     )
 
     print(
