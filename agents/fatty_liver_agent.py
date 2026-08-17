@@ -1,7 +1,5 @@
-
 %%writefile /content/LiverAI-MultiAgent/agents/fatty_liver_agent.py
 
-import numpy as np
 import pandas as pd
 
 
@@ -13,7 +11,7 @@ class FattyLiverAgent:
         self.model_name = "LightGBM"
         self.model = model
 
-        # Features used during model training
+        # Exact features used during training
         self.features = [
             "mcv",
             "alkphos",
@@ -26,7 +24,7 @@ class FattyLiverAgent:
     def predict(self, patient_data):
 
         # ==================================================
-        # PREPARE INPUT
+        # CREATE DATAFRAME WITH FEATURE NAMES
         # ==================================================
 
         if isinstance(patient_data, dict):
@@ -50,24 +48,15 @@ class FattyLiverAgent:
             )
 
         # ==================================================
-        # ENSURE FEATURE ORDER
+        # ENSURE CORRECT COLUMN ORDER
         # ==================================================
 
-        X = X[self.features].copy()
+        X = X[
+            self.features
+        ].copy()
 
         # ==================================================
-        # NUMERIC CONVERSION
-        # ==================================================
-
-        for col in self.features:
-
-            X[col] = pd.to_numeric(
-                X[col],
-                errors="coerce"
-            )
-
-        # ==================================================
-        # LIGHTGBM PREDICTION
+        # PREDICTION
         # ==================================================
 
         prediction = self.model.predict(X)[0]
@@ -78,17 +67,12 @@ class FattyLiverAgent:
 
         probability = None
 
-        if hasattr(
-            self.model,
-            "predict_proba"
-        ):
+        if hasattr(self.model, "predict_proba"):
 
-            probabilities = (
-                self.model.predict_proba(X)[0]
-            )
+            probabilities = self.model.predict_proba(X)[0]
 
             probability = float(
-                np.max(probabilities)
+                max(probabilities)
             )
 
         # ==================================================
@@ -109,4 +93,3 @@ class FattyLiverAgent:
 
             "status": "completed"
         }
-```
