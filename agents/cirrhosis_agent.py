@@ -1,285 +1,423 @@
+%%writefile /content/LiverAI-MultiAgent/agents/cirrhosis_agent.py
+
 # ==========================================================
-# FIX CIRRHOSIS MODEL PACKAGE
+# LiverAI - Cirrhosis Agent
 # ==========================================================
 
-import os
-import joblib
-import pandas as pd
 import numpy as np
+import pandas as pd
+
+
+class CirrhosisAgent:
+
+    def __init__(self, package):
+
+        self.name = "CirrhosisAgent"
+        self.model_name = "XGBoost"
+
+        # ==================================================
+        # LOAD PACKAGE
+        # ==================================================
+
+        self.package = package
+
+        self.model = package["model"]
+
+        # ==================================================
+        # FEATURES
+        # ==================================================
+
+        self.feature_names = [
+            "N_Days",
+            "Status",
+            "Drug",
+            "Age",
+            "Sex",
+            "Ascites",
+            "Hepatomegaly",
+            "Spiders",
+            "Edema",
+            "Bilirubin",
+            "Cholesterol",
+            "Albumin",
+            "Copper",
+            "Alk_Phos",
+            "SGOT",
+            "Tryglicerides",
+            "Platelets",
+            "Prothrombin"
+        ]
+
+        # ==================================================
+        # NUMERICAL FEATURES
+        # IMPORTANT:
+        # Stage is NEVER used here
+        # ==================================================
+
+        self.numerical_columns = [
+            "N_Days",
+            "Age",
+            "Bilirubin",
+            "Cholesterol",
+            "Albumin",
+            "Copper",
+            "Alk_Phos",
+            "SGOT",
+            "Tryglicerides",
+            "Platelets",
+            "Prothrombin"
+        ]
+
+        # ==================================================
+        # CATEGORICAL FEATURES
+        # ==================================================
+
+        self.categorical_columns = [
+            "Status",
+            "Drug",
+            "Sex",
+            "Ascites",
+            "Hepatomegaly",
+            "Spiders",
+            "Edema"
+        ]
+
+        # ==================================================
+        # PREPROCESSING OBJECTS
+        # ==================================================
+
+        self.encoders = package.get(
+            "encoders",
+            {}
+        )
+
+        self.target_encoder = package.get(
+            "target_encoder",
+            None
+        )
+
+        self.numerical_imputer = package.get(
+            "numerical_imputer",
+            None
+        )
+
+        self.categorical_imputer = package.get(
+            "categorical_imputer",
+            None
+        )
+
+        print("✓ CirrhosisAgent initialized")
 
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import LabelEncoder
+        print(
+            "Numerical features:",
+            self.numerical_columns
+        )
 
+        print(
+            "Categorical features:",
+            self.categorical_columns
+        )
 
-# ==========================================================
-# PATHS
-# ==========================================================
+    # ======================================================
+    # PREDICT
+    # ======================================================
+
+    def predict(self, patient_data):
+
+        # ==================================================
+        # CONVERT INPUT TO DATAFRAME
+        # ==================================================
+
+        if isinstance(patient_data, dict):
+
+            X = pd.DataFrame(
+                [patient_data]
+            )
+
+        elif isinstance(
+            patient_data,
+            pd.DataFrame
+        ):
+
+            X = patient_data.copy()
+
+        else:
+
+            X = pd.DataFrame(
+                [patient_data],
+                columns=self.feature_names
+            )
+
+        # ==================================================
+        # CHECK REQUIRED FEATURES
+        # ==================================================
+
+        missing_features = [
+            col
+            for col in self.feature_names
+            if col not in X.columns
+        ]
+
+        if missing_features:
+
+            raise ValueError(
+                "Missing Cirrhosis features: "
+                + str(missing_features)
+            )
+
+        # ==================================================
+        # KEEP ONLY MODEL FEATURES
+        # ==================================================
+
+        X = X[
+            self.feature_names
+        ].copy()
+
+        # ==================================================
+        # NUMERICAL PREPROCESSING
+        # ==================================================
+
+        numerical_X = X[
+            self.numerical_columns
+        ].copy()
+
+        # --------------------------------------------------
+        # IMPORTANT FIX
+        # Do NOT use an imputer trained with Stage
+        # --------------------------------------------------
+
+        if self.numerical_imputer is not None:
+
+            expected_features = getattr(
+                self.numerical_imputer,
+                "feature_names_in_",
+                None
+            )
+
+            # If old imputer contains Stage,
+            # use manual median filling instead.
+            if (
+                expected_features is not None
+                and "Stage" in expected_features
+            ):
+
+                print(
+                    "⚠️ Old imputer contains Stage."
+                )
+
+                print(
+                    "→ Using safe numerical preprocessing."
+                )
+
+                numerical_X = (
+                    numerical_X.apply(
+                        pd.to_numeric,
+                        errors="coerce"
+                    )
+                )
+
+                numerical_X = (
+                    numerical_X.fillna(
+                        numerical_X.median()
+                    )
+                )
+
+            else:
+
+                numerical_X = (
+                    self.numerical_imputer.transform(
+                        numerical_X
+                    )
+                )
+
+                numerical_X = pd.DataFrame(
+                    numerical_X,
+                    columns=self.numerical_columns,
+                    index=X.index
+                )
+
+        else:
+
+            numerical_X = (
+                numerical_X.apply(
+                    pd.to_numeric,
+                    errors="coerce"
+                )
+            )
+
+            numerical_X = (
+                numerical_X.fillna(
+                    numerical_X.median()
+                )
+            )
+
+        # ==================================================
+        # CATEGORICAL PREPROCESSING
+        # ==================================================
+
+        categorical_X = X[
+            self.categorical_columns
+        ].copy()
+
+        if self.categorical_imputer is not None:
+
+            categorical_X = (
+                self.categorical_imputer.transform(
+                    categorical_X
+                )
+            )
+
+            categorical_X = pd.DataFrame(
+                categorical_X,
+                columns=self.categorical_columns,
+                index=X.index
+            )
+
+        else:
+
+            categorical_X = (
+                categorical_X.fillna(
+                    "Unknown"
+                )
+            )
+
+        # ==================================================
+        # APPLY LABEL ENCODERS
+        # ==================================================
+
+        for col in self.categorical_columns:
+
+            if col in self.encoders:
+
+                encoder = self.encoders[col]
+
+                values = (
+                    categorical_X[col]
+                    .astype(str)
+                )
+
+                known_values = set(
+                    encoder.classes_
+                )
+
+                values = values.apply(
+                    lambda x:
+                    x
+                    if x in known_values
+                    else encoder.classes_[0]
+                )
+
+                categorical_X[col] = (
+                    encoder.transform(values)
+                )
+
+            else:
+
+                categorical_X[col] = (
+                    pd.to_numeric(
+                        categorical_X[col],
+                        errors="coerce"
+                    ).fillna(0)
+                )
 
-MODEL_PATH = "/content/LiverAI-MultiAgent/models/cirrhosis/XGBoost_Cirrhosis.pkl"
+        # ==================================================
+        # COMBINE FEATURES
+        # ==================================================
 
-print("=" * 70)
-print("REPAIRING CIRRHOSIS MODEL PACKAGE")
-print("=" * 70)
+        X_processed = pd.concat(
+            [
+                numerical_X,
+                categorical_X
+            ],
+            axis=1
+        )
 
+        # ==================================================
+        # RESTORE EXACT MODEL ORDER
+        # ==================================================
 
-# ==========================================================
-# LOAD EXISTING PACKAGE
-# ==========================================================
+        X_processed = X_processed[
+            self.feature_names
+        ]
 
-package = joblib.load(MODEL_PATH)
+        # ==================================================
+        # FINAL SAFETY CHECK
+        # ==================================================
 
-print("\n✓ Package loaded")
-print("Package type:", type(package))
+        if "Stage" in X_processed.columns:
 
+            raise RuntimeError(
+                "ERROR: Stage detected in prediction features."
+            )
 
-# ==========================================================
-# EXTRACT MODEL
-# ==========================================================
+        # ==================================================
+        # PREDICTION
+        # ==================================================
 
-model = package["model"]
+        prediction_encoded = (
+            self.model.predict(
+                X_processed
+            )[0]
+        )
 
-print("\nModel type:")
-print(type(model))
+        # ==================================================
+        # PROBABILITY
+        # ==================================================
 
+        probability = None
 
-# ==========================================================
-# CORRECT FEATURE NAMES
-# ==========================================================
+        if hasattr(
+            self.model,
+            "predict_proba"
+        ):
 
-FEATURE_NAMES = [
-    "N_Days",
-    "Status",
-    "Drug",
-    "Age",
-    "Sex",
-    "Ascites",
-    "Hepatomegaly",
-    "Spiders",
-    "Edema",
-    "Bilirubin",
-    "Cholesterol",
-    "Albumin",
-    "Copper",
-    "Alk_Phos",
-    "SGOT",
-    "Tryglicerides",
-    "Platelets",
-    "Prothrombin"
-]
+            probabilities = (
+                self.model
+                .predict_proba(
+                    X_processed
+                )[0]
+            )
 
+            probability = float(
+                np.max(probabilities)
+            )
 
-# ==========================================================
-# CORRECT NUMERICAL FEATURES
-# IMPORTANT: Stage IS NOT HERE
-# ==========================================================
+        # ==================================================
+        # DECODE PREDICTION
+        # ==================================================
 
-NUMERICAL_COLUMNS = [
-    "N_Days",
-    "Age",
-    "Bilirubin",
-    "Cholesterol",
-    "Albumin",
-    "Copper",
-    "Alk_Phos",
-    "SGOT",
-    "Tryglicerides",
-    "Platelets",
-    "Prothrombin"
-]
+        prediction = prediction_encoded
 
+        if self.target_encoder is not None:
 
-# ==========================================================
-# CORRECT CATEGORICAL FEATURES
-# ==========================================================
+            try:
 
-CATEGORICAL_COLUMNS = [
-    "Status",
-    "Drug",
-    "Sex",
-    "Ascites",
-    "Hepatomegaly",
-    "Spiders",
-    "Edema"
-]
+                prediction = (
+                    self.target_encoder
+                    .inverse_transform(
+                        [prediction_encoded]
+                    )[0]
+                )
 
+            except Exception:
 
-# ==========================================================
-# VERIFY MODEL FEATURES
-# ==========================================================
+                prediction = prediction_encoded
 
-model_features = model.get_booster().feature_names
+        # ==================================================
+        # RETURN
+        # ==================================================
 
-print("\nModel features:")
-print(model_features)
+        return {
 
-print("\nExpected features:")
-print(FEATURE_NAMES)
+            "agent": self.name,
 
+            "model": self.model_name,
 
-if list(model_features) != FEATURE_NAMES:
+            "prediction": str(
+                prediction
+            ),
 
-    print("\n⚠️ Model feature names/order differs.")
+            "probability": probability,
 
-    # If XGBoost has the correct number of features,
-    # force the expected names.
-    model.get_booster().feature_names = FEATURE_NAMES
-
-    print("✓ Model feature names corrected")
-
-else:
-
-    print("\n✓ Model feature names are correct")
-
-
-# ==========================================================
-# LOAD ORIGINAL DATASET
-# ==========================================================
-
-DATASET_PATH = "/content/drive/MyDrive/cirrhosis.csv"
-
-print("\nLoading dataset:")
-print(DATASET_PATH)
-
-df = pd.read_csv(DATASET_PATH)
-
-df.columns = df.columns.str.strip()
-
-print("Dataset shape:", df.shape)
-
-
-# ==========================================================
-# PREPARE DATA
-# ==========================================================
-
-X = df[FEATURE_NAMES].copy()
-
-y = df["Stage"].copy()
-
-
-# ==========================================================
-# CREATE NEW IMPUTERS
-# IMPORTANT:
-# THEY ARE FIT ONLY ON INPUT FEATURES
-# ==========================================================
-
-numerical_imputer = SimpleImputer(
-    strategy="median"
-)
-
-categorical_imputer = SimpleImputer(
-    strategy="most_frequent"
-)
-
-
-# ==========================================================
-# FIT IMPUTERS
-# ==========================================================
-
-numerical_imputer.fit(
-    X[NUMERICAL_COLUMNS]
-)
-
-categorical_imputer.fit(
-    X[CATEGORICAL_COLUMNS]
-)
-
-print("\n✓ Numerical imputer fitted")
-print("Features:")
-print(numerical_imputer.feature_names_in_)
-
-print("\n✓ Categorical imputer fitted")
-print("Features:")
-print(categorical_imputer.feature_names_in_)
-
-
-# ==========================================================
-# REUSE EXISTING ENCODERS
-# ==========================================================
-
-encoders = package.get(
-    "encoders",
-    {}
-)
-
-print("\nEncoders:")
-print(encoders.keys())
-
-
-# ==========================================================
-# REUSE TARGET ENCODER
-# ==========================================================
-
-target_encoder = package.get(
-    "target_encoder",
-    LabelEncoder()
-)
-
-print("\n✓ Target encoder loaded")
-
-
-# ==========================================================
-# CREATE CORRECT PACKAGE
-# ==========================================================
-
-new_package = {
-
-    "model": model,
-
-    "feature_names": FEATURE_NAMES,
-
-    "numerical_columns": NUMERICAL_COLUMNS,
-
-    "categorical_columns": CATEGORICAL_COLUMNS,
-
-    "encoders": encoders,
-
-    "target_encoder": target_encoder,
-
-    "numerical_imputer": numerical_imputer,
-
-    "categorical_imputer": categorical_imputer
-}
-
-
-# ==========================================================
-# BACKUP OLD PACKAGE
-# ==========================================================
-
-BACKUP_PATH = MODEL_PATH.replace(
-    ".pkl",
-    "_backup.pkl"
-)
-
-joblib.dump(
-    package,
-    BACKUP_PATH
-)
-
-print("\n✓ Old package backed up:")
-print(BACKUP_PATH)
-
-
-# ==========================================================
-# SAVE CORRECTED PACKAGE
-# ==========================================================
-
-joblib.dump(
-    new_package,
-    MODEL_PATH
-)
-
-print("\n" + "=" * 70)
-print("✅ CIRRHOSIS PACKAGE REPAIRED")
-print("=" * 70)
-
-print("\nSaved:")
-print(MODEL_PATH)
-
-print("\nFeature count:")
-print(len(FEATURE_NAMES))
-
-print("\nNumerical features:")
-print(NUMERICAL_COLUMNS)
-
-print("\nCategorical features:")
-print(CATEGORICAL_COLUMNS)
+            "status": "completed"
+        }
