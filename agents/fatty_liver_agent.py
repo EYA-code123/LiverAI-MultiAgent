@@ -1,10 +1,7 @@
-```python
-# ==========================================================
-# Fatty Liver Agent
-# ==========================================================
+%%writefile /content/LiverAI-MultiAgent/agents/fatty_liver_agent.py
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 
 class FattyLiverAgent:
@@ -15,90 +12,75 @@ class FattyLiverAgent:
         self.model_name = "LightGBM"
         self.model = model
 
-        # Features EXACTEMENT utilisées pendant l'entraînement
-      self.features = [
-    "mcv",
-    "alkphos",
-    "sgpt",
-    "sgot",
-    "gammagt",
-    "drinks"
-]
+        # Exact training features
+        self.features = [
+            "mcv",
+            "alkphos",
+            "sgpt",
+            "sgot",
+            "gammagt",
+            "drinks"
+        ]
 
-   def predict(self, patient_data):
+    def predict(self, patient_data):
 
-    import pandas as pd
-    import numpy as np
+        # ==================================================
+        # CREATE DATAFRAME
+        # ==================================================
 
-    # ======================================================
-    # PREPARE INPUT AS DATAFRAME
-    # ======================================================
+        if isinstance(patient_data, dict):
 
-    if isinstance(patient_data, dict):
+            X = pd.DataFrame(
+                [patient_data],
+                columns=self.features
+            )
 
-        X = pd.DataFrame([patient_data])
+        elif isinstance(patient_data, pd.DataFrame):
 
-    elif isinstance(patient_data, pd.DataFrame):
+            X = patient_data[
+                self.features
+            ].copy()
 
-        X = patient_data.copy()
+        else:
 
-    else:
+            X = pd.DataFrame(
+                [patient_data],
+                columns=self.features
+            )
 
-        X = pd.DataFrame(
-            [patient_data],
-            columns=self.features
-        )
+        # ==================================================
+        # LIGHTGBM PREDICTION
+        # ==================================================
 
-    # ======================================================
-    # ENSURE CORRECT FEATURE ORDER
-    # ======================================================
+        prediction = self.model.predict(X)[0]
 
-    X = X[self.features].copy()
+        # ==================================================
+        # PROBABILITY
+        # ==================================================
 
-    # ======================================================
-    # CONVERT NUMERIC FEATURES
-    # ======================================================
+        probability = None
 
-    for col in self.features:
+        if hasattr(self.model, "predict_proba"):
 
-        X[col] = pd.to_numeric(
-            X[col],
-            errors="coerce"
-        )
+            probabilities = self.model.predict_proba(X)[0]
 
-    # ======================================================
-    # PREDICTION
-    # ======================================================
+            probability = float(
+                np.max(probabilities)
+            )
 
-    prediction = self.model.predict(X)[0]
+        # ==================================================
+        # RESULT
+        # ==================================================
 
-    # ======================================================
-    # PROBABILITY
-    # ======================================================
+        return {
 
-    probability = None
+            "agent": self.name,
 
-    if hasattr(self.model, "predict_proba"):
+            "model": self.model_name,
 
-        probabilities = self.model.predict_proba(X)[0]
+            "prediction": str(prediction),
 
-        probability = float(
-            np.max(probabilities)
-        )
+            "probability": probability,
 
-    # ======================================================
-    # RESULT
-    # ======================================================
-
-    return {
-
-        "agent": self.name,
-
-        "model": self.model_name,
-
-        "prediction": str(prediction),
-
-        "probability": probability,
-
-        "status": "completed"
-    }
+            "status": "completed"
+        }
