@@ -1,4 +1,3 @@
-
 """
 Cirrhosis Agent
 Uses the trained XGBoost model and the preprocessing
@@ -12,9 +11,6 @@ import pandas as pd
 class CirrhosisAgent:
 
     def __init__(self, artifact):
-        """
-        artifact = dictionary loaded from XGBoost_Cirrhosis.pkl
-        """
 
         self.name = "CirrhosisAgent"
         self.model_name = "XGBoost"
@@ -31,21 +27,19 @@ class CirrhosisAgent:
 
         self.target_encoder = artifact["target_encoder"]
 
-        self.numerical_imputer = artifact["numerical_imputer"]
+        self.numerical_imputer = artifact.get(
+            "numerical_imputer"
+        )
 
-        self.categorical_imputer = artifact["categorical_imputer"]
+        self.categorical_imputer = artifact.get(
+            "categorical_imputer"
+        )
 
     def predict(self, patient_data):
-        """
-        Predict cirrhosis stage.
 
-        patient_data must be a dictionary containing
-        the 18 features expected by the model.
-        """
-
-        # --------------------------------------------------
+        # ==========================================
         # 1. Convert input to DataFrame
-        # --------------------------------------------------
+        # ==========================================
 
         if isinstance(patient_data, dict):
 
@@ -62,9 +56,9 @@ class CirrhosisAgent:
                 "or pandas DataFrame."
             )
 
-        # --------------------------------------------------
-        # 2. Check required features
-        # --------------------------------------------------
+        # ==========================================
+        # 2. Check features
+        # ==========================================
 
         missing_features = [
             feature
@@ -78,56 +72,113 @@ class CirrhosisAgent:
                 f"Missing features: {missing_features}"
             )
 
-        # Keep exactly the training order
+        # Keep only model features
         df = df[self.feature_names].copy()
 
-        # --------------------------------------------------
-        # 3. Numerical imputation
-        # --------------------------------------------------
+        # ==========================================
+        # 3. Numerical preprocessing
+        # ==========================================
 
-        if self.numerical_columns:
+        # Remove target column if it was accidentally
+        # stored inside numerical_columns
+        numerical_columns = [
+            column
+            for column in self.numerical_columns
+            if column in self.feature_names
+        ]
 
-            df[self.numerical_columns] = (
-                self.numerical_imputer.transform(
-                    df[self.numerical_columns]
-                )
-            )
+        if numerical_columns:
 
-        # --------------------------------------------------
-        # 4. Categorical imputation
-        # --------------------------------------------------
+            # Fill missing numerical values
+            # using the statistics stored by the imputer
+            if self.numerical_imputer is not None:
 
-        if self.categorical_columns:
+                for column in numerical_columns:
 
-            df[self.categorical_columns] = (
-                self.categorical_imputer.transform(
-                    df[self.categorical_columns]
-                )
-            )
+                    if df[column].isna().any():
 
-        # --------------------------------------------------
+                        if column in self.numerical_columns:
+
+                            index = self.numerical_columns.index(
+                                column
+                            )
+
+                            median_value = (
+                                self.numerical_imputer.statistics_[
+                                    index
+                                ]
+                            )
+
+                            df[column] = df[column].fillna(
+                                median_value
+                            )
+
+        # ==========================================
+        # 4. Categorical preprocessing
+        # ==========================================
+
+        categorical_columns = [
+            column
+            for column in self.categorical_columns
+            if column in self.feature_names
+        ]
+
+        if categorical_columns:
+
+            for column in categorical_columns:
+
+                if df[column].isna().any():
+
+                    if self.categorical_imputer is not None:
+
+                        index = self.categorical_columns.index(
+                            column
+                        )
+
+                        most_frequent = (
+                            self.categorical_imputer.statistics_[
+                                index
+                            ]
+                        )
+
+                        df[column] = df[column].fillna(
+                            most_frequent
+                        )
+
+        # ==========================================
         # 5. Encode categorical variables
-        # --------------------------------------------------
+        # ==========================================
 
-        for column in self.categorical_columns:
+        for column in categorical_columns:
 
             encoder = self.encoders[column]
 
             df[column] = df[column].astype(str)
 
+            unknown_values = set(
+                df[column]
+            ) - set(encoder.classes_)
+
+            if unknown_values:
+
+                raise ValueError(
+                    f"Unknown value(s) in {column}: "
+                    f"{unknown_values}"
+                )
+
             df[column] = encoder.transform(
                 df[column]
             )
 
-        # --------------------------------------------------
-        # 6. XGBoost prediction
-        # --------------------------------------------------
+        # ==========================================
+        # 6. Prediction
+        # ==========================================
 
         prediction = self.model.predict(df)[0]
 
-        # --------------------------------------------------
-        # 7. Prediction probability
-        # --------------------------------------------------
+        # ==========================================
+        # 7. Probability
+        # ==========================================
 
         probability = None
 
@@ -141,9 +192,9 @@ class CirrhosisAgent:
                 np.max(probabilities)
             )
 
-        # --------------------------------------------------
-        # 8. Convert encoded class to original class
-        # --------------------------------------------------
+        # ==========================================
+        # 8. Decode prediction
+        # ==========================================
 
         predicted_stage = (
             self.target_encoder.inverse_transform(
@@ -151,9 +202,9 @@ class CirrhosisAgent:
             )[0]
         )
 
-        # --------------------------------------------------
-        # 9. Return structured result
-        # --------------------------------------------------
+        # ==========================================
+        # 9. Return result
+        # ==========================================
 
         return {
             "agent": self.name,
