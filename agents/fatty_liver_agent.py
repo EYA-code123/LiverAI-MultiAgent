@@ -1,6 +1,6 @@
 """
 Fatty Liver Agent
-Uses the trained LightGBM model for BUPA Liver Disorders classification.
+BUPA Liver Disorders + LightGBM
 """
 
 import pandas as pd
@@ -25,10 +25,7 @@ class FattyLiverAgent:
 
     def predict(self, patient_data):
 
-        # --------------------------------------------------
-        # Convert input to DataFrame
-        # --------------------------------------------------
-
+        # Create DataFrame with the exact training feature names
         if isinstance(patient_data, dict):
 
             X = pd.DataFrame(
@@ -43,16 +40,10 @@ class FattyLiverAgent:
                 columns=self.features
             )
 
-        # --------------------------------------------------
         # Prediction
-        # --------------------------------------------------
-
         prediction = self.model.predict(X)[0]
 
-        # --------------------------------------------------
         # Probability
-        # --------------------------------------------------
-
         probability = None
 
         if hasattr(self.model, "predict_proba"):
@@ -60,10 +51,6 @@ class FattyLiverAgent:
             probabilities = self.model.predict_proba(X)[0]
 
             probability = float(max(probabilities))
-
-        # --------------------------------------------------
-        # Result
-        # --------------------------------------------------
 
         return {
             "agent": self.name,
