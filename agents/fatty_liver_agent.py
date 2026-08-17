@@ -1,16 +1,18 @@
 %%writefile /content/LiverAI-MultiAgent/agents/fatty_liver_agent.py
 
 import pandas as pd
+import numpy as np
 
 
 class FattyLiverAgent:
 
     def __init__(self, model):
 
+        self.model = model
         self.name = "FattyLiverAgent"
         self.model_name = "LightGBM"
-        self.model = model
 
+        # Exact features used during training
         self.features = [
             "mcv",
             "alkphos",
@@ -22,25 +24,23 @@ class FattyLiverAgent:
 
     def predict(self, patient_data):
 
-        # ==================================================
-        # CREATE DATAFRAME WITH EXACT FEATURE NAMES
-        # ==================================================
+        # --------------------------------------------------
+        # Create DataFrame WITH feature names
+        # --------------------------------------------------
 
         if isinstance(patient_data, dict):
 
             X = pd.DataFrame(
                 [[
-                    patient_data.get(feature)
-                    for feature in self.features
+                    patient_data.get("mcv"),
+                    patient_data.get("alkphos"),
+                    patient_data.get("sgpt"),
+                    patient_data.get("sgot"),
+                    patient_data.get("gammagt"),
+                    patient_data.get("drinks")
                 ]],
                 columns=self.features
             )
-
-        elif isinstance(patient_data, pd.DataFrame):
-
-            X = patient_data[
-                self.features
-            ].copy()
 
         else:
 
@@ -49,15 +49,15 @@ class FattyLiverAgent:
                 columns=self.features
             )
 
-        # ==================================================
-        # PREDICTION
-        # ==================================================
+        # --------------------------------------------------
+        # Prediction
+        # --------------------------------------------------
 
         prediction = self.model.predict(X)[0]
 
-        # ==================================================
-        # PROBABILITY
-        # ==================================================
+        # --------------------------------------------------
+        # Probability
+        # --------------------------------------------------
 
         probability = None
 
@@ -66,12 +66,12 @@ class FattyLiverAgent:
             probabilities = self.model.predict_proba(X)[0]
 
             probability = float(
-                max(probabilities)
+                np.max(probabilities)
             )
 
-        # ==================================================
-        # RESULT
-        # ==================================================
+        # --------------------------------------------------
+        # Result
+        # --------------------------------------------------
 
         return {
 
@@ -79,9 +79,7 @@ class FattyLiverAgent:
 
             "model": self.model_name,
 
-            "prediction": str(
-                prediction
-            ),
+            "prediction": str(prediction),
 
             "probability": probability,
 
