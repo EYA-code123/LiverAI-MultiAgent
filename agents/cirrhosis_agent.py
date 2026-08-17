@@ -1,9 +1,5 @@
 %%writefile /content/LiverAI-MultiAgent/agents/cirrhosis_agent.py
 
-# ==========================================================
-# CIRRHOSIS AGENT - CORRECTED VERSION
-# ==========================================================
-
 import pandas as pd
 import numpy as np
 
@@ -15,9 +11,9 @@ class CirrhosisAgent:
         self.name = "CirrhosisAgent"
         self.model_name = "XGBoost"
 
-        # --------------------------------------------------
-        # Load package
-        # --------------------------------------------------
+        # ==================================================
+        # LOAD PACKAGE
+        # ==================================================
 
         self.package = package
 
@@ -37,56 +33,45 @@ class CirrhosisAgent:
 
         self.encoders = package["encoders"]
 
-        self.target_encoder = package["target_encoder"]
-
-        self.numerical_imputer = (
-            package["numerical_imputer"]
-        )
-
-        self.categorical_imputer = (
-            package["categorical_imputer"]
-        )
-
-        # --------------------------------------------------
-        # IMPORTANT FIX
-        # --------------------------------------------------
-        # Stage exists in the saved numerical imputer
-        # but NOT in the XGBoost model features.
-        #
-        # Therefore Stage must NOT be sent to the model.
-        # We only use the columns expected by the model.
-        # --------------------------------------------------
-
-        self.imputer_numerical_features = [
-            col
-            for col in self.numerical_columns
-            if col in self.numerical_imputer.feature_names_in_
+        self.target_encoder = package[
+            "target_encoder"
         ]
 
-        print("=" * 70)
-        print("CIRRHOSIS AGENT INITIALIZED")
-        print("=" * 70)
+        self.numerical_imputer = package[
+            "numerical_imputer"
+        ]
 
-        print("Model features:")
-        print(self.feature_names)
+        self.categorical_imputer = package[
+            "categorical_imputer"
+        ]
 
-        print("\nNumerical columns:")
-        print(self.numerical_columns)
+        # ==================================================
+        # IMPORTANT
+        # ==================================================
+        # The saved numerical imputer expects Stage,
+        # but the XGBoost model does NOT use Stage.
+        #
+        # Therefore:
+        #
+        # 1. Imputer receives its original 12 columns
+        # 2. Stage is removed before XGBoost prediction
+        # ==================================================
 
-        print("\nCategorical columns:")
-        print(self.categorical_columns)
+        if hasattr(
+            self.numerical_imputer,
+            "feature_names_in_"
+        ):
 
-        print("\nImputer numerical features:")
-        print(self.imputer_numerical_features)
+            self.imputer_numerical_features = list(
+                self.numerical_imputer.feature_names_in_
+            )
 
-        print("\nStage in model features:",
-              "Stage" in self.feature_names)
+        else:
 
-        print("Stage in numerical columns:",
-              "Stage" in self.numerical_columns)
-
-        print("=" * 70)
-
+            self.imputer_numerical_features = [
+                col
+                for col in self.numerical_columns
+            ]
 
     # ======================================================
     # PREDICT
@@ -94,15 +79,23 @@ class CirrhosisAgent:
 
     def predict(self, patient_data):
 
-        # --------------------------------------------------
-        # Convert input to DataFrame
-        # --------------------------------------------------
+        # ==================================================
+        # CONVERT INPUT TO DATAFRAME
+        # ==================================================
 
-        if isinstance(patient_data, dict):
+        if isinstance(
+            patient_data,
+            dict
+        ):
 
-            X = pd.DataFrame([patient_data])
+            X = pd.DataFrame(
+                [patient_data]
+            )
 
-        elif isinstance(patient_data, pd.DataFrame):
+        elif isinstance(
+            patient_data,
+            pd.DataFrame
+        ):
 
             X = patient_data.copy()
 
@@ -113,56 +106,32 @@ class CirrhosisAgent:
                 columns=self.feature_names
             )
 
-
-        # --------------------------------------------------
-        # Check required model features
-        # --------------------------------------------------
-
-        missing_features = [
-            col
-            for col in self.feature_names
-            if col not in X.columns
-        ]
-
-        if missing_features:
-
-            raise ValueError(
-                "Missing cirrhosis features: "
-                + str(missing_features)
-            )
-
-
-        # --------------------------------------------------
-        # Keep ONLY model features
-        # --------------------------------------------------
-
-        X = X[self.feature_names].copy()
-
-
         # ==================================================
-        # NUMERICAL PREPROCESSING
+        # ADD MISSING INPUT FEATURES
         # ==================================================
 
-        # IMPORTANT:
-        # Do NOT use all numerical_columns here.
-        #
-        # Stage is present in numerical_columns but absent
-        # from feature_names and therefore absent from X.
-        #
-        # The imputer expects Stage because it was fitted with it.
-        #
-        # We therefore create a temporary DataFrame containing
-        # exactly the columns expected by the imputer.
+        for col in self.feature_names:
 
-        imputer_columns = list(
-            self.numerical_imputer.feature_names_in_
+            if col not in X.columns:
+
+                X[col] = np.nan
+
+        # ==================================================
+        # NUMERICAL IMPUTATION
+        # ==================================================
+
+        # The saved imputer expects 12 columns,
+        # including Stage.
+
+        imputer_features = (
+            self.imputer_numerical_features
         )
 
         X_imputer = pd.DataFrame(
             index=X.index
         )
 
-        for col in imputer_columns:
+        for col in imputer_features:
 
             if col in X.columns:
 
@@ -171,46 +140,44 @@ class CirrhosisAgent:
             else:
 
                 # Stage is not a model feature.
-                # Use NaN so the saved imputer can fill it.
+                # Give it NaN so the saved imputer
+                # can use its learned median.
                 X_imputer[col] = np.nan
 
-
-        # --------------------------------------------------
-        # Apply saved numerical imputer
-        # --------------------------------------------------
-
-        X_imputed = self.numerical_imputer.transform(
-            X_imputer
+        X_imputer = (
+            self.numerical_imputer
+            .transform(X_imputer)
         )
 
-        X_imputed = pd.DataFrame(
-            X_imputed,
-            columns=imputer_columns,
+        X_imputer = pd.DataFrame(
+            X_imputer,
+            columns=imputer_features,
             index=X.index
         )
 
-
-        # --------------------------------------------------
-        # Copy imputed values ONLY for model features
-        # --------------------------------------------------
+        # ==================================================
+        # KEEP ONLY MODEL NUMERICAL FEATURES
+        # ==================================================
 
         for col in self.feature_names:
 
-            if col in X_imputed.columns:
+            if col in imputer_features:
 
-                X[col] = X_imputed[col]
-
+                X[col] = X_imputer[col]
 
         # ==================================================
-        # CATEGORICAL PREPROCESSING
+        # CATEGORICAL IMPUTATION
         # ==================================================
 
         categorical_features = [
-            col
-            for col in self.categorical_columns
-            if col in self.feature_names
-        ]
 
+            col
+
+            for col in self.categorical_columns
+
+            if col in self.feature_names
+
+        ]
 
         if categorical_features:
 
@@ -218,8 +185,9 @@ class CirrhosisAgent:
                 categorical_features
             ].copy()
 
-            X_cat = self.categorical_imputer.transform(
-                X_cat
+            X_cat = (
+                self.categorical_imputer
+                .transform(X_cat)
             )
 
             X_cat = pd.DataFrame(
@@ -228,11 +196,12 @@ class CirrhosisAgent:
                 index=X.index
             )
 
-            X[categorical_features] = X_cat
-
+            X[
+                categorical_features
+            ] = X_cat
 
         # ==================================================
-        # APPLY SAVED LABEL ENCODERS
+        # ENCODE CATEGORICAL FEATURES
         # ==================================================
 
         for col in categorical_features:
@@ -242,41 +211,56 @@ class CirrhosisAgent:
 
             encoder = self.encoders[col]
 
-            values = X[col].astype(str)
+            values = (
+                X[col]
+                .astype(str)
+            )
 
             known_values = set(
                 encoder.classes_
             )
 
-            # Handle unknown categories
             values = values.apply(
-                lambda x:
-                x if x in known_values
+
+                lambda value:
+
+                value
+                if value in known_values
                 else encoder.classes_[0]
+
             )
 
-            X[col] = encoder.transform(
-                values
+            X[col] = (
+                encoder.transform(
+                    values
+                )
             )
 
-
         # ==================================================
-        # FINAL COLUMN ORDER
+        # FINAL MODEL INPUT
         # ==================================================
 
-        X = X[
+        # IMPORTANT:
+        # Use ONLY the 18 features expected
+        # by XGBoost.
+
+        X_model = X[
             self.feature_names
         ].copy()
 
+        # Force exact order
+        X_model = X_model[
+            self.feature_names
+        ]
 
         # ==================================================
         # PREDICTION
         # ==================================================
 
-        prediction_encoded = self.model.predict(
-            X
-        )[0]
-
+        prediction_encoded = (
+            self.model
+            .predict(X_model)[0]
+        )
 
         # ==================================================
         # PROBABILITY
@@ -291,16 +275,19 @@ class CirrhosisAgent:
 
             probabilities = (
                 self.model
-                .predict_proba(X)[0]
+                .predict_proba(
+                    X_model
+                )[0]
             )
 
             probability = float(
-                np.max(probabilities)
+                np.max(
+                    probabilities
+                )
             )
 
-
         # ==================================================
-        # DECODE PREDICTION
+        # DECODE TARGET
         # ==================================================
 
         try:
@@ -314,8 +301,9 @@ class CirrhosisAgent:
 
         except Exception:
 
-            prediction = prediction_encoded
-
+            prediction = (
+                prediction_encoded
+            )
 
         # ==================================================
         # RESULT
@@ -323,16 +311,19 @@ class CirrhosisAgent:
 
         return {
 
-            "agent": self.name,
+            "agent":
+                self.name,
 
-            "model": self.model_name,
+            "model":
+                self.model_name,
 
-            "prediction": str(
-                prediction
-            ),
+            "prediction":
+                str(prediction),
 
-            "probability": probability,
+            "probability":
+                probability,
 
-            "status": "completed"
+            "status":
+                "completed"
 
         }
