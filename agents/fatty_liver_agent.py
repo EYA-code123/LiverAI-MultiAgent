@@ -1,4 +1,7 @@
-%%writefile /content/LiverAI-MultiAgent/agents/fatty_liver_agent.py
+```python
+# ==========================================================
+# Fatty Liver Agent
+# ==========================================================
 
 import pandas as pd
 import numpy as np
@@ -8,11 +11,11 @@ class FattyLiverAgent:
 
     def __init__(self, model):
 
-        self.model = model
         self.name = "FattyLiverAgent"
         self.model_name = "LightGBM"
+        self.model = model
 
-        # Exact features used during training
+        # Features EXACTEMENT utilisées pendant l'entraînement
         self.features = [
             "mcv",
             "alkphos",
@@ -22,31 +25,81 @@ class FattyLiverAgent:
             "drinks"
         ]
 
-   def predict(self, patient_data):
+    def predict(self, patient_data):
 
-    # Features exactes utilisées pendant l'entraînement
-    X = pd.DataFrame(
-        [patient_data],
-        columns=self.features
-    )
+        # --------------------------------------------------
+        # Create DataFrame with feature names
+        # --------------------------------------------------
 
-    # S'assurer que toutes les colonnes sont numériques
-    X = X.apply(pd.to_numeric, errors="coerce")
+        if isinstance(patient_data, dict):
 
-    # Prediction
-    prediction = self.model.predict(X)[0]
+            X = pd.DataFrame(
+                [patient_data],
+                columns=self.features
+            )
 
-    # Probability
-    probability = None
+        elif isinstance(patient_data, pd.DataFrame):
 
-    if hasattr(self.model, "predict_proba"):
-        probabilities = self.model.predict_proba(X)[0]
-        probability = float(max(probabilities))
+            X = patient_data[self.features].copy()
 
-    return {
-        "agent": self.name,
-        "model": self.model_name,
-        "prediction": str(prediction),
-        "probability": probability,
-        "status": "completed"
-    }
+        else:
+
+            X = pd.DataFrame(
+                [patient_data],
+                columns=self.features
+            )
+
+        # --------------------------------------------------
+        # Ensure correct column order
+        # --------------------------------------------------
+
+        X = X[self.features].copy()
+
+        # --------------------------------------------------
+        # Convert values to numeric
+        # --------------------------------------------------
+
+        for col in self.features:
+
+            X[col] = pd.to_numeric(
+                X[col],
+                errors="coerce"
+            )
+
+        # --------------------------------------------------
+        # Prediction
+        # --------------------------------------------------
+
+        prediction = self.model.predict(X)[0]
+
+        # --------------------------------------------------
+        # Probability
+        # --------------------------------------------------
+
+        probability = None
+
+        if hasattr(self.model, "predict_proba"):
+
+            probabilities = self.model.predict_proba(X)[0]
+
+            probability = float(
+                np.max(probabilities)
+            )
+
+        # --------------------------------------------------
+        # Result
+        # --------------------------------------------------
+
+        return {
+
+            "agent": self.name,
+
+            "model": self.model_name,
+
+            "prediction": str(prediction),
+
+            "probability": probability,
+
+            "status": "completed"
+        }
+```
