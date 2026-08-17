@@ -16,90 +16,89 @@ class FattyLiverAgent:
         self.model = model
 
         # Features EXACTEMENT utilisées pendant l'entraînement
-        self.features = [
-            "mcv",
-            "alkphos",
-            "sgpt",
-            "sgot",
-            "gammagt",
-            "drinks"
-        ]
+      self.features = [
+    "mcv",
+    "alkphos",
+    "sgpt",
+    "sgot",
+    "gammagt",
+    "drinks"
+]
 
-    def predict(self, patient_data):
+   def predict(self, patient_data):
 
-        # --------------------------------------------------
-        # Create DataFrame with feature names
-        # --------------------------------------------------
+    import pandas as pd
+    import numpy as np
 
-        if isinstance(patient_data, dict):
+    # ======================================================
+    # PREPARE INPUT AS DATAFRAME
+    # ======================================================
 
-            X = pd.DataFrame(
-                [patient_data],
-                columns=self.features
-            )
+    if isinstance(patient_data, dict):
 
-        elif isinstance(patient_data, pd.DataFrame):
+        X = pd.DataFrame([patient_data])
 
-            X = patient_data[self.features].copy()
+    elif isinstance(patient_data, pd.DataFrame):
 
-        else:
+        X = patient_data.copy()
 
-            X = pd.DataFrame(
-                [patient_data],
-                columns=self.features
-            )
+    else:
 
-        # --------------------------------------------------
-        # Ensure correct column order
-        # --------------------------------------------------
+        X = pd.DataFrame(
+            [patient_data],
+            columns=self.features
+        )
 
-        X = X[self.features].copy()
+    # ======================================================
+    # ENSURE CORRECT FEATURE ORDER
+    # ======================================================
 
-        # --------------------------------------------------
-        # Convert values to numeric
-        # --------------------------------------------------
+    X = X[self.features].copy()
 
-        for col in self.features:
+    # ======================================================
+    # CONVERT NUMERIC FEATURES
+    # ======================================================
 
-            X[col] = pd.to_numeric(
-                X[col],
-                errors="coerce"
-            )
+    for col in self.features:
 
-        # --------------------------------------------------
-        # Prediction
-        # --------------------------------------------------
+        X[col] = pd.to_numeric(
+            X[col],
+            errors="coerce"
+        )
 
-        prediction = self.model.predict(X)[0]
+    # ======================================================
+    # PREDICTION
+    # ======================================================
 
-        # --------------------------------------------------
-        # Probability
-        # --------------------------------------------------
+    prediction = self.model.predict(X)[0]
 
-        probability = None
+    # ======================================================
+    # PROBABILITY
+    # ======================================================
 
-        if hasattr(self.model, "predict_proba"):
+    probability = None
 
-            probabilities = self.model.predict_proba(X)[0]
+    if hasattr(self.model, "predict_proba"):
 
-            probability = float(
-                np.max(probabilities)
-            )
+        probabilities = self.model.predict_proba(X)[0]
 
-        # --------------------------------------------------
-        # Result
-        # --------------------------------------------------
+        probability = float(
+            np.max(probabilities)
+        )
 
-        return {
+    # ======================================================
+    # RESULT
+    # ======================================================
 
-            "agent": self.name,
+    return {
 
-            "model": self.model_name,
+        "agent": self.name,
 
-            "prediction": str(prediction),
+        "model": self.model_name,
 
-            "probability": probability,
+        "prediction": str(prediction),
 
-            "status": "completed"
-        }
-```
+        "probability": probability,
+
+        "status": "completed"
+    }
