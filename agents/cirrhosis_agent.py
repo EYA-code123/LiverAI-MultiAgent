@@ -16,7 +16,7 @@ class CirrhosisAgent:
         self.model_name = "XGBoost"
 
         # ==================================================
-        # LOAD PACKAGE
+        # PACKAGE
         # ==================================================
 
         self.package = package
@@ -24,7 +24,7 @@ class CirrhosisAgent:
         self.model = package["model"]
 
         # ==================================================
-        # FEATURES
+        # MODEL FEATURES
         # ==================================================
 
         self.feature_names = [
@@ -50,8 +50,7 @@ class CirrhosisAgent:
 
         # ==================================================
         # NUMERICAL FEATURES
-        # IMPORTANT:
-        # Stage is NEVER used here
+        # IMPORTANT: Stage is NOT included
         # ==================================================
 
         self.numerical_columns = [
@@ -83,7 +82,7 @@ class CirrhosisAgent:
         ]
 
         # ==================================================
-        # PREPROCESSING OBJECTS
+        # ENCODERS
         # ==================================================
 
         self.encoders = package.get(
@@ -96,7 +95,11 @@ class CirrhosisAgent:
             None
         )
 
-        self.numerical_imputer = package.get(
+        # ==================================================
+        # OLD IMPUTERS
+        # ==================================================
+
+        self.old_numerical_imputer = package.get(
             "numerical_imputer",
             None
         )
@@ -108,15 +111,135 @@ class CirrhosisAgent:
 
         print("✓ CirrhosisAgent initialized")
 
-        print(
-            "Numerical features:",
-            self.numerical_columns
-        )
+    # ======================================================
+    # NUMERICAL IMPUTATION
+    # ======================================================
 
-        print(
-            "Categorical features:",
-            self.categorical_columns
-        )
+    def _impute_numerical(self, X):
+
+        X = X.copy()
+
+        # Convert to numeric
+        for col in self.numerical_columns:
+
+            X[col] = pd.to_numeric(
+                X[col],
+                errors="coerce"
+            )
+
+        # --------------------------------------------------
+        # IMPORTANT:
+        # Never call old_imputer.transform()
+        # because it expects Stage.
+        # --------------------------------------------------
+
+        old_imputer = self.old_numerical_imputer
+
+        if old_imputer is not None:
+
+            statistics = getattr(
+                old_imputer,
+                "statistics_",
+                None
+            )
+
+            feature_names = getattr(
+                old_imputer,
+                "feature_names_in_",
+                None
+            )
+
+            if (
+                statistics is not None
+                and feature_names is not None
+            ):
+
+                statistics_dict = dict(
+                    zip(
+                        feature_names,
+                        statistics
+                    )
+                )
+
+                for col in self.numerical_columns:
+
+                    if col in statistics_dict:
+
+                        X[col] = X[col].fillna(
+                            statistics_dict[col]
+                        )
+
+                    else:
+
+                        X[col] = X[col].fillna(
+                            X[col].median()
+                        )
+
+            else:
+
+                X = X.fillna(
+                    X.median()
+                )
+
+        else:
+
+            X = X.fillna(
+                X.median()
+            )
+
+        return X
+
+    # ======================================================
+    # CATEGORICAL IMPUTATION
+    # ======================================================
+
+    def _impute_categorical(self, X):
+
+        X = X.copy()
+
+        if self.categorical_imputer is not None:
+
+            expected = getattr(
+                self.categorical_imputer,
+                "feature_names_in_",
+                None
+            )
+
+            if expected is not None:
+
+                # Use only columns expected by imputer
+                expected = [
+                    col
+                    for col in expected
+                    if col in self.categorical_columns
+                ]
+
+                if expected:
+
+                    temp = X[expected].copy()
+
+                    temp = (
+                        self.categorical_imputer
+                        .transform(temp)
+                    )
+
+                    temp = pd.DataFrame(
+                        temp,
+                        columns=expected,
+                        index=X.index
+                    )
+
+                    for col in expected:
+                        X[col] = temp[col]
+
+        # Final fallback
+        for col in self.categorical_columns:
+
+            X[col] = X[col].fillna(
+                "Unknown"
+            )
+
+        return X
 
     # ======================================================
     # PREDICT
@@ -125,10 +248,13 @@ class CirrhosisAgent:
     def predict(self, patient_data):
 
         # ==================================================
-        # CONVERT INPUT TO DATAFRAME
+        # INPUT → DATAFRAME
         # ==================================================
 
-        if isinstance(patient_data, dict):
+        if isinstance(
+            patient_data,
+            dict
+        ):
 
             X = pd.DataFrame(
                 [patient_data]
@@ -149,24 +275,24 @@ class CirrhosisAgent:
             )
 
         # ==================================================
-        # CHECK REQUIRED FEATURES
+        # CHECK FEATURES
         # ==================================================
 
-        missing_features = [
+        missing = [
             col
             for col in self.feature_names
             if col not in X.columns
         ]
 
-        if missing_features:
+        if missing:
 
             raise ValueError(
                 "Missing Cirrhosis features: "
-                + str(missing_features)
+                + str(missing)
             )
 
         # ==================================================
-        # KEEP ONLY MODEL FEATURES
+        # KEEP ONLY INPUT FEATURES
         # ==================================================
 
         X = X[
@@ -174,115 +300,23 @@ class CirrhosisAgent:
         ].copy()
 
         # ==================================================
-        # NUMERICAL PREPROCESSING
+        # NUMERICAL IMPUTATION
         # ==================================================
 
-        numerical_X = X[
-            self.numerical_columns
-        ].copy()
-
-        # --------------------------------------------------
-        # IMPORTANT FIX
-        # Do NOT use an imputer trained with Stage
-        # --------------------------------------------------
-
-        if self.numerical_imputer is not None:
-
-            expected_features = getattr(
-                self.numerical_imputer,
-                "feature_names_in_",
-                None
-            )
-
-            # If old imputer contains Stage,
-            # use manual median filling instead.
-            if (
-                expected_features is not None
-                and "Stage" in expected_features
-            ):
-
-                print(
-                    "⚠️ Old imputer contains Stage."
-                )
-
-                print(
-                    "→ Using safe numerical preprocessing."
-                )
-
-                numerical_X = (
-                    numerical_X.apply(
-                        pd.to_numeric,
-                        errors="coerce"
-                    )
-                )
-
-                numerical_X = (
-                    numerical_X.fillna(
-                        numerical_X.median()
-                    )
-                )
-
-            else:
-
-                numerical_X = (
-                    self.numerical_imputer.transform(
-                        numerical_X
-                    )
-                )
-
-                numerical_X = pd.DataFrame(
-                    numerical_X,
-                    columns=self.numerical_columns,
-                    index=X.index
-                )
-
-        else:
-
-            numerical_X = (
-                numerical_X.apply(
-                    pd.to_numeric,
-                    errors="coerce"
-                )
-            )
-
-            numerical_X = (
-                numerical_X.fillna(
-                    numerical_X.median()
-                )
-            )
+        numerical_X = self._impute_numerical(
+            X[self.numerical_columns]
+        )
 
         # ==================================================
-        # CATEGORICAL PREPROCESSING
+        # CATEGORICAL IMPUTATION
         # ==================================================
 
-        categorical_X = X[
-            self.categorical_columns
-        ].copy()
-
-        if self.categorical_imputer is not None:
-
-            categorical_X = (
-                self.categorical_imputer.transform(
-                    categorical_X
-                )
-            )
-
-            categorical_X = pd.DataFrame(
-                categorical_X,
-                columns=self.categorical_columns,
-                index=X.index
-            )
-
-        else:
-
-            categorical_X = (
-                categorical_X.fillna(
-                    "Unknown"
-                )
-            )
+        categorical_X = self._impute_categorical(
+            X[self.categorical_columns]
+        )
 
         # ==================================================
-        # APPLY LABEL ENCODERS
+        # ENCODE CATEGORICAL VARIABLES
         # ==================================================
 
         for col in self.categorical_columns:
@@ -301,9 +335,9 @@ class CirrhosisAgent:
                 )
 
                 values = values.apply(
-                    lambda x:
-                    x
-                    if x in known_values
+                    lambda value:
+                    value
+                    if value in known_values
                     else encoder.classes_[0]
                 )
 
@@ -313,15 +347,13 @@ class CirrhosisAgent:
 
             else:
 
-                categorical_X[col] = (
-                    pd.to_numeric(
-                        categorical_X[col],
-                        errors="coerce"
-                    ).fillna(0)
-                )
+                categorical_X[col] = pd.to_numeric(
+                    categorical_X[col],
+                    errors="coerce"
+                ).fillna(0)
 
         # ==================================================
-        # COMBINE FEATURES
+        # COMBINE
         # ==================================================
 
         X_processed = pd.concat(
@@ -333,7 +365,7 @@ class CirrhosisAgent:
         )
 
         # ==================================================
-        # RESTORE EXACT MODEL ORDER
+        # EXACT FEATURE ORDER
         # ==================================================
 
         X_processed = X_processed[
@@ -341,17 +373,18 @@ class CirrhosisAgent:
         ]
 
         # ==================================================
-        # FINAL SAFETY CHECK
+        # SAFETY CHECK
         # ==================================================
 
         if "Stage" in X_processed.columns:
 
             raise RuntimeError(
-                "ERROR: Stage detected in prediction features."
+                "Stage must NEVER be used "
+                "as a prediction feature."
             )
 
         # ==================================================
-        # PREDICTION
+        # PREDICT
         # ==================================================
 
         prediction_encoded = (
@@ -383,7 +416,7 @@ class CirrhosisAgent:
             )
 
         # ==================================================
-        # DECODE PREDICTION
+        # DECODE TARGET
         # ==================================================
 
         prediction = prediction_encoded
@@ -404,7 +437,7 @@ class CirrhosisAgent:
                 prediction = prediction_encoded
 
         # ==================================================
-        # RETURN
+        # RESULT
         # ==================================================
 
         return {
