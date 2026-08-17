@@ -23,80 +23,68 @@ class FattyLiverAgent:
 
     def predict(self, patient_data):
 
-        # ==========================================================
-        # 1. Convert patient data to DataFrame
-        # ==========================================================
+    # ==========================================================
+    # 1. Convertir en DataFrame
+    # ==========================================================
 
-        if isinstance(patient_data, dict):
+    if isinstance(patient_data, dict):
+        X = pd.DataFrame([patient_data])
 
-            X = pd.DataFrame([patient_data])
+    elif isinstance(patient_data, pd.DataFrame):
+        X = patient_data.copy()
 
-        elif isinstance(patient_data, pd.DataFrame):
+    else:
+        X = pd.DataFrame(
+            [patient_data],
+            columns=self.features
+        )
 
-            X = patient_data.copy()
+    # ==========================================================
+    # 2. Vérifier les features
+    # ==========================================================
 
-        else:
+    for feature in self.features:
+        if feature not in X.columns:
+            X[feature] = np.nan
 
-            X = pd.DataFrame(
-                [patient_data],
-                columns=self.features
-            )
+    X = X[self.features].copy()
 
-        # ==========================================================
-        # 2. Verify / create required features
-        # ==========================================================
+    # ==========================================================
+    # 3. Conversion numérique
+    # ==========================================================
 
-        for feature in self.features:
+    for feature in self.features:
+        X[feature] = pd.to_numeric(
+            X[feature],
+            errors="coerce"
+        )
 
-            if feature not in X.columns:
-                X[feature] = np.nan
+    # ==========================================================
+    # 4. Prediction
+    # ==========================================================
 
-        # Keep ONLY the features used during training
-        X = X[self.features].copy()
+    prediction = self.model.predict(X)[0]
 
-        # ==========================================================
-        # 3. Convert numerical values
-        # ==========================================================
+    # ==========================================================
+    # 5. Probability
+    # ==========================================================
 
-        for feature in self.features:
+    probability = None
 
-            X[feature] = pd.to_numeric(
-                X[feature],
-                errors="coerce"
-            )
+    if hasattr(self.model, "predict_proba"):
 
-        # ==========================================================
-        # 4. Prediction
-        # ==========================================================
+        probabilities = self.model.predict_proba(X)[0]
 
-        prediction = self.model.predict(X)[0]
+        probability = float(np.max(probabilities))
 
-        # ==========================================================
-        # 5. Probability
-        # ==========================================================
+    # ==========================================================
+    # 6. Résultat
+    # ==========================================================
 
-        probability = None
-
-        if hasattr(self.model, "predict_proba"):
-
-            probabilities = self.model.predict_proba(X)[0]
-
-            probability = float(np.max(probabilities))
-
-        # ==========================================================
-        # 6. Return result
-        # ==========================================================
-
-        return {
-
-            "agent": self.name,
-
-            "model": self.model_name,
-
-            "prediction": str(prediction),
-
-            "probability": probability,
-
-            "status": "completed"
-
-        }
+    return {
+        "agent": self.name,
+        "model": self.model_name,
+        "prediction": str(prediction),
+        "probability": probability,
+        "status": "completed"
+    }
