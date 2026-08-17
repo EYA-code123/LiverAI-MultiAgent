@@ -1,17 +1,40 @@
 %%writefile /content/LiverAI-MultiAgent/agents/clinical_reasoning_agent.py
 
+# ==========================================================
+# LiverAI - Clinical Reasoning Agent
+# ==========================================================
+
 class ClinicalReasoningAgent:
 
     def __init__(self):
 
         self.name = "ClinicalReasoningAgent"
-        self.model_name = "Rule-Based Synthesis"
+        self.model_name = "Rule-Based Clinical Synthesis"
+
+    # ======================================================
+    # PREDICT / SYNTHESIS
+    # ======================================================
 
     def predict(self, agent_results):
 
-        fatty = agent_results.get("fatty_liver", {})
-        fibrosis = agent_results.get("fibrosis", {})
-        cirrhosis = agent_results.get("cirrhosis", {})
+        fatty = agent_results.get(
+            "fatty_liver",
+            {}
+        )
+
+        fibrosis = agent_results.get(
+            "fibrosis",
+            {}
+        )
+
+        cirrhosis = agent_results.get(
+            "cirrhosis",
+            {}
+        )
+
+        # --------------------------------------------------
+        # Check completed agents
+        # --------------------------------------------------
 
         results = [
             fatty,
@@ -30,29 +53,32 @@ class ClinicalReasoningAgent:
                 "agent": self.name,
                 "model": self.model_name,
                 "status": "error",
-                "error": "No agent results available"
+                "error": "No valid agent results available"
             }
 
-        # ==================================================
-        # CONFIDENCE VALUES
-        # ==================================================
+        # --------------------------------------------------
+        # Extract probabilities
+        # --------------------------------------------------
 
         probabilities = []
 
         for result in completed:
 
-            probability = result.get("probability")
+            probability = result.get(
+                "probability"
+            )
 
             if probability is not None:
+
                 probabilities.append(
                     float(probability)
                 )
 
-        # ==================================================
-        # AVERAGE CONFIDENCE
-        # ==================================================
+        # --------------------------------------------------
+        # Average confidence
+        # --------------------------------------------------
 
-        if probabilities:
+        if len(probabilities) > 0:
 
             average_confidence = (
                 sum(probabilities)
@@ -61,43 +87,62 @@ class ClinicalReasoningAgent:
 
         else:
 
-            average_confidence = None
+            average_confidence = 0.0
 
-        # ==================================================
-        # CONFIDENCE CATEGORY
-        # ==================================================
+        # --------------------------------------------------
+        # Determine risk level
+        # --------------------------------------------------
 
-        if average_confidence is None:
+        if average_confidence >= 0.80:
 
-            confidence_level = "UNDETERMINED"
-
-        elif average_confidence >= 0.80:
-
-            confidence_level = "HIGH"
+            risk_level = "High confidence"
 
         elif average_confidence >= 0.60:
 
-            confidence_level = "MODERATE"
+            risk_level = "Moderate confidence"
 
         else:
 
-            confidence_level = "LOW"
+            risk_level = "Low confidence"
 
-        # ==================================================
-        # CLINICAL SAFETY
-        # ==================================================
+        # --------------------------------------------------
+        # Agent availability
+        # --------------------------------------------------
 
-        clinical_summary = (
-            "The system successfully integrated the outputs "
-            "of the three liver assessment models. "
-            "These outputs are model predictions and confidence "
-            "scores and must not be interpreted as a clinical "
-            "diagnosis."
+        agent_status = {
+
+            "fatty_liver":
+                fatty.get("status") == "completed",
+
+            "fibrosis":
+                fibrosis.get("status") == "completed",
+
+            "cirrhosis":
+                cirrhosis.get("status") == "completed"
+        }
+
+        # --------------------------------------------------
+        # Clinical summary
+        # --------------------------------------------------
+
+        summary = (
+            f"{len(completed)} liver assessment agents "
+            f"successfully contributed to the clinical synthesis."
         )
 
-        # ==================================================
-        # FINAL RESULT
-        # ==================================================
+        # --------------------------------------------------
+        # Recommendation
+        # --------------------------------------------------
+
+        recommendation = (
+            "The results should be interpreted together "
+            "with clinical history, laboratory findings, "
+            "imaging and evaluation by a qualified healthcare professional."
+        )
+
+        # --------------------------------------------------
+        # Final result
+        # --------------------------------------------------
 
         return {
 
@@ -109,24 +154,48 @@ class ClinicalReasoningAgent:
 
             "agents_used": len(completed),
 
+            "average_confidence":
+                round(
+                    average_confidence,
+                    4
+                ),
+
+            "risk_level":
+                risk_level,
+
+            "agent_status":
+                agent_status,
+
             "fatty_liver": {
-                "prediction": fatty.get("prediction"),
-                "probability": fatty.get("probability")
+
+                "prediction":
+                    fatty.get("prediction"),
+
+                "probability":
+                    fatty.get("probability")
             },
 
             "fibrosis": {
-                "prediction": fibrosis.get("prediction"),
-                "probability": fibrosis.get("probability")
+
+                "prediction":
+                    fibrosis.get("prediction"),
+
+                "probability":
+                    fibrosis.get("probability")
             },
 
             "cirrhosis": {
-                "prediction": cirrhosis.get("prediction"),
-                "probability": cirrhosis.get("probability")
+
+                "prediction":
+                    cirrhosis.get("prediction"),
+
+                "probability":
+                    cirrhosis.get("probability")
             },
 
-            "average_confidence": average_confidence,
+            "clinical_summary":
+                summary,
 
-            "confidence_level": confidence_level,
-
-            "clinical_summary": clinical_summary
+            "recommendation":
+                recommendation
         }
