@@ -1,507 +1,346 @@
-%%writefile /content/LiverAI-MultiAgent/orchestrator/liver_orchestrator.py
+%%writefile /content/LiverAI-MultiAgent/agents/clinical_reasoning_agent.py
 
 # ==========================================================
-# LiverAI Multi-Agent Orchestrator
+# LiverAI - Clinical Reasoning Agent
 # ==========================================================
 
-import os
-import sys
-import joblib
-import numpy as np
+class ClinicalReasoningAgent:
 
+    def __init__(self):
 
-# ==========================================================
-# PROJECT PATH
-# ==========================================================
+        self.name = "ClinicalReasoningAgent"
 
-PROJECT_PATH = "/content/LiverAI-MultiAgent"
-
-if PROJECT_PATH not in sys.path:
-    sys.path.insert(0, PROJECT_PATH)
-
-
-# ==========================================================
-# IMPORT AGENTS
-# ==========================================================
-
-from agents.fatty_liver_agent import FattyLiverAgent
-from agents.fibrosis_agent import FibrosisAgent
-from agents.cirrhosis_agent import CirrhosisAgent
-from agents.clinical_reasoning_agent import ClinicalReasoningAgent
-
-
-class LiverAIOrchestrator:
+        self.model_name = (
+            "Rule-Based Clinical Synthesis"
+        )
 
     # ======================================================
-    # INITIALIZATION
+    # INTERPRETATION
     # ======================================================
 
-    def __init__(
-        self,
-        fatty_model_path,
-        fibrosis_model_path,
-        cirrhosis_model_path
-    ):
+    def _interpret_fatty_liver(self, result):
 
-        print("=" * 70)
-        print("INITIALIZING LIVERAI ORCHESTRATOR")
-        print("=" * 70)
+        if result.get("status") != "completed":
+            return "Assessment unavailable"
 
-        # --------------------------------------------------
-        # Check models
-        # --------------------------------------------------
-
-        paths = {
-            "Fatty Liver": fatty_model_path,
-            "Fibrosis": fibrosis_model_path,
-            "Cirrhosis": cirrhosis_model_path
-        }
-
-        for name, path in paths.items():
-
-            if not os.path.exists(path):
-
-                raise FileNotFoundError(
-                    f"{name} model not found:\n{path}"
-                )
-
-            print(f"✓ {name} model found")
-
-
-        # --------------------------------------------------
-        # Load models
-        # --------------------------------------------------
-
-        print("\nLoading models...")
-
-        fatty_model = joblib.load(
-            fatty_model_path
-        )
-
-        fibrosis_model = joblib.load(
-            fibrosis_model_path
-        )
-
-        # Cirrhosis model is a package/dictionary
-        cirrhosis_package = joblib.load(
-            cirrhosis_model_path
-        )
-
-
-        # --------------------------------------------------
-        # Create agents
-        # --------------------------------------------------
-
-        self.fatty_agent = FattyLiverAgent(
-            fatty_model
-        )
-
-        self.fibrosis_agent = FibrosisAgent(
-            fibrosis_model
-        )
-
-        self.cirrhosis_agent = CirrhosisAgent(
-            cirrhosis_package
-        )
-
-        self.reasoning_agent = ClinicalReasoningAgent()
-
-
-        print("\n✓ Fatty Liver Agent initialized")
-        print("✓ Fibrosis Agent initialized")
-        print("✓ Cirrhosis Agent initialized")
-        print("✓ Clinical Reasoning Agent initialized")
-
-        print("\n✓ LiverAI Orchestrator ready")
-
-
-    # ======================================================
-    # PATIENT DATA PREPARATION
-    # ======================================================
-
-    def prepare_fatty_data(self, patient):
-
-        return {
-            "mcv": patient["mcv"],
-            "alkphos": patient["alkphos"],
-            "sgpt": patient["sgpt"],
-            "sgot": patient["sgot"],
-            "gammagt": patient["gammagt"],
-            "drinks": patient["drinks"]
-        }
-
-
-    def prepare_fibrosis_data(self, patient):
-
-        # IMPORTANT:
-        # The fibrosis model expects 17 features.
-
-        return np.array([
-            patient["seqno"],
-            patient["instit"],
-            patient["histol"],
-            patient["stage"],
-            patient["study"],
-            patient["rel"],
-            patient["edrel"],
-            patient["age"],
-            patient["in.subcohort"],
-            patient["male"],
-            patient["weight"],
-            patient["height"],
-            patient["bmi"],
-            patient["futime"],
-            patient["days"],
-            patient["test"],
-            patient["value"]
-        ])
-
-
-    def prepare_cirrhosis_data(self, patient):
-
-        return {
-            "N_Days": patient["N_Days"],
-            "Status": patient["Status"],
-            "Drug": patient["Drug"],
-            "Age": patient["Age"],
-            "Sex": patient["Sex"],
-            "Ascites": patient["Ascites"],
-            "Hepatomegaly": patient["Hepatomegaly"],
-            "Spiders": patient["Spiders"],
-            "Edema": patient["Edema"],
-            "Bilirubin": patient["Bilirubin"],
-            "Cholesterol": patient["Cholesterol"],
-            "Albumin": patient["Albumin"],
-            "Copper": patient["Copper"],
-            "Alk_Phos": patient["Alk_Phos"],
-            "SGOT": patient["SGOT"],
-            "Tryglicerides": patient["Tryglicerides"],
-            "Platelets": patient["Platelets"],
-            "Prothrombin": patient["Prothrombin"]
-        }
-
-
-    # ======================================================
-    # RUN MULTI-AGENT SYSTEM
-    # ======================================================
-
-    def predict(self, patient):
-
-        print("\n")
-        print("=" * 70)
-        print("LIVERAI MULTI-AGENT PREDICTION")
-        print("=" * 70)
-
-
-        # ==================================================
-        # SHARED KNOWLEDGE CONTEXT
-        # ==================================================
-
-        shared_context = {
-
-            "patient": patient,
-
-            "agents": {},
-
-            "status": "running"
-        }
-
-
-        # ==================================================
-        # 1. FATTY LIVER
-        # ==================================================
-
-        print("\n[1/4] Running Fatty Liver Agent...")
-
-        try:
-
-            fatty_data = self.prepare_fatty_data(
-                patient
-            )
-
-            fatty_result = self.fatty_agent.predict(
-                fatty_data
-            )
-
-            shared_context["agents"]["fatty_liver"] = (
-                fatty_result
-            )
-
-            print("✓ Fatty Liver completed")
-
-        except Exception as e:
-
-            shared_context["agents"]["fatty_liver"] = {
-
-                "agent": "FattyLiverAgent",
-
-                "status": "error",
-
-                "error": str(e)
-            }
-
-            print("✗ Fatty Liver error:", e)
-
-
-        # ==================================================
-        # 2. FIBROSIS
-        # ==================================================
-
-        print("\n[2/4] Running Fibrosis Agent...")
-
-        try:
-
-            fibrosis_data = self.prepare_fibrosis_data(
-                patient
-            )
-
-            print(
-                "Fibrosis input features:",
-                len(fibrosis_data)
-            )
-
-            fibrosis_result = self.fibrosis_agent.predict(
-                fibrosis_data
-            )
-
-            shared_context["agents"]["fibrosis"] = (
-                fibrosis_result
-            )
-
-            print("✓ Fibrosis completed")
-
-        except Exception as e:
-
-            shared_context["agents"]["fibrosis"] = {
-
-                "agent": "FibrosisAgent",
-
-                "status": "error",
-
-                "error": str(e)
-            }
-
-            print("✗ Fibrosis error:", e)
-
-
-        # ==================================================
-        # 3. CIRRHOSIS
-        # ==================================================
-
-        print("\n[3/4] Running Cirrhosis Agent...")
-
-        try:
-
-            cirrhosis_data = self.prepare_cirrhosis_data(
-                patient
-            )
-
-            cirrhosis_result = self.cirrhosis_agent.predict(
-                cirrhosis_data
-            )
-
-            shared_context["agents"]["cirrhosis"] = (
-                cirrhosis_result
-            )
-
-            print("✓ Cirrhosis completed")
-
-        except Exception as e:
-
-            shared_context["agents"]["cirrhosis"] = {
-
-                "agent": "CirrhosisAgent",
-
-                "status": "error",
-
-                "error": str(e)
-            }
-
-            print("✗ Cirrhosis error:", e)
-
-
-        # ==================================================
-        # 4. CLINICAL REASONING
-        # ==================================================
-
-       # ==================================================
-# 4. CLINICAL REASONING
-# ==================================================
-
-print(
-    "\n[4/4] Running Clinical Reasoning Agent..."
-)
-
-try:
-
-    reasoning_result = (
-        self.reasoning_agent.predict(
-            shared_context["agents"]
-        )
-    )
-
-    shared_context[
-        "clinical_reasoning"
-    ] = reasoning_result
-
-    print(
-        "✓ Clinical Reasoning completed"
-    )
-
-except Exception as e:
-
-    shared_context[
-        "clinical_reasoning"
-    ] = {
-
-        "agent": "ClinicalReasoningAgent",
-
-        "status": "error",
-
-        "error": str(e)
-    }
-
-    print(
-        "✗ Clinical Reasoning error:",
-        e
-    )
-
-        # ==================================================
-        # FINAL STATUS
-        # ==================================================
-
-        completed = 0
-
-        for result in shared_context["agents"].values():
-
-            if result.get("status") == "completed":
-
-                completed += 1
-
-
-        shared_context["agents_completed"] = completed
-
-        shared_context["total_agents"] = 4
-
-       shared_context["reasoning_status"] = (
-    shared_context[
-        "clinical_reasoning"
-    ].get("status")
-)
-        shared_context["status"] = (
-
-            "completed"
-
-            if (
-                completed == 3
-                and shared_context["reasoning_status"]
-                == "completed"
-            )
-
-            else "partial"
-        )
-
-
-        return shared_context
-
-
-# ==========================================================
-# DISPLAY RESULTS
-# ==========================================================
-
-def print_results(results):
-
-    print("\n")
-    print("=" * 70)
-    print("LIVERAI MULTI-AGENT RESULTS")
-    print("=" * 70)
-
-
-    for name, result in results["agents"].items():
-
-        print("\n" + name.upper())
-
-        print(
-            "Agent       :",
-            result.get("agent")
-        )
-
-        print(
-            "Model       :",
-            result.get("model")
-        )
-
-        print(
-            "Prediction  :",
+        prediction = str(
             result.get("prediction")
         )
 
-        print(
-            "Probability :",
-            result.get("probability")
+        if prediction == "1":
+            return "Fatty liver pattern detected"
+
+        return "No fatty liver pattern detected"
+
+
+    def _interpret_fibrosis(self, result):
+
+        if result.get("status") != "completed":
+            return "Assessment unavailable"
+
+        prediction = str(
+            result.get("prediction")
         )
 
-        print(
-            "Status      :",
-            result.get("status")
+        if prediction == "1":
+            return "Fibrosis pattern detected"
+
+        return "No fibrosis pattern detected"
+
+
+    def _interpret_cirrhosis(self, result):
+
+        if result.get("status") != "completed":
+            return "Assessment unavailable"
+
+        prediction = str(
+            result.get("prediction")
+        )
+
+        if prediction == "0":
+
+            return (
+                "Lower-risk cirrhosis category"
+            )
+
+        elif prediction == "1":
+
+            return (
+                "Intermediate cirrhosis category"
+            )
+
+        elif prediction == "2.0":
+
+            return (
+                "Advanced cirrhosis category"
+            )
+
+        return "Cirrhosis category detected"
+
+
+    # ======================================================
+    # PREDICTION
+    # ======================================================
+
+    def predict(self, agent_results):
+
+        fatty = agent_results.get(
+            "fatty_liver",
+            {}
+        )
+
+        fibrosis = agent_results.get(
+            "fibrosis",
+            {}
+        )
+
+        cirrhosis = agent_results.get(
+            "cirrhosis",
+            {}
+        )
+
+        results = [
+            fatty,
+            fibrosis,
+            cirrhosis
+        ]
+
+        completed = [
+            result
+            for result in results
+            if result.get("status") == "completed"
+        ]
+
+        # --------------------------------------------------
+        # No completed agents
+        # --------------------------------------------------
+
+        if len(completed) == 0:
+
+            return {
+
+                "agent":
+                    self.name,
+
+                "model":
+                    self.model_name,
+
+                "status":
+                    "error",
+
+                "error":
+                    "No completed agent results available"
+            }
+
+
+        # --------------------------------------------------
+        # Confidence
+        # --------------------------------------------------
+
+        probabilities = []
+
+        for result in completed:
+
+            probability = result.get(
+                "probability"
+            )
+
+            if probability is not None:
+
+                probabilities.append(
+                    float(probability)
+                )
+
+
+        if probabilities:
+
+            average_confidence = (
+                sum(probabilities)
+                / len(probabilities)
+            )
+
+        else:
+
+            average_confidence = 0.0
+
+
+        # --------------------------------------------------
+        # Risk calculation
+        # --------------------------------------------------
+
+        abnormal_findings = 0
+
+        if str(
+            fatty.get("prediction")
+        ) == "1":
+
+            abnormal_findings += 1
+
+
+        if str(
+            fibrosis.get("prediction")
+        ) == "1":
+
+            abnormal_findings += 1
+
+
+        if str(
+            cirrhosis.get("prediction")
+        ) == "2.0":
+
+            abnormal_findings += 1
+
+
+        if abnormal_findings >= 2:
+
+            overall_risk = "High"
+
+        elif abnormal_findings == 1:
+
+            overall_risk = "Moderate"
+
+        else:
+
+            overall_risk = "Low"
+
+
+        # --------------------------------------------------
+        # Confidence level
+        # --------------------------------------------------
+
+        if average_confidence >= 0.80:
+
+            confidence_level = "High"
+
+        elif average_confidence >= 0.60:
+
+            confidence_level = "Moderate"
+
+        else:
+
+            confidence_level = "Low"
+
+
+        # --------------------------------------------------
+        # Clinical decision
+        # --------------------------------------------------
+
+        if overall_risk == "High":
+
+            clinical_decision = (
+                "Multiple liver-related abnormalities "
+                "were identified. Further clinical "
+                "evaluation is recommended."
+            )
+
+        elif overall_risk == "Moderate":
+
+            clinical_decision = (
+                "The multi-agent assessment identified "
+                "a potential liver abnormality. Clinical "
+                "correlation and follow-up are recommended."
+            )
+
+        else:
+
+            clinical_decision = (
+                "No major abnormal pattern was identified "
+                "by the available assessment agents. "
+                "Clinical correlation remains necessary."
+            )
+
+
+        # --------------------------------------------------
+        # Agent findings
+        # --------------------------------------------------
+
+        findings = {
+
+            "fatty_liver": {
+
+                "assessment":
+                    self._interpret_fatty_liver(
+                        fatty
+                    ),
+
+                "confidence":
+                    fatty.get("probability")
+            },
+
+
+            "fibrosis": {
+
+                "assessment":
+                    self._interpret_fibrosis(
+                        fibrosis
+                    ),
+
+                "confidence":
+                    fibrosis.get("probability")
+            },
+
+
+            "cirrhosis": {
+
+                "assessment":
+                    self._interpret_cirrhosis(
+                        cirrhosis
+                    ),
+
+                "confidence":
+                    cirrhosis.get("probability")
+            }
+        }
+
+
+        # --------------------------------------------------
+        # Recommendation
+        # --------------------------------------------------
+
+        recommendation = (
+            "This AI-generated assessment is intended "
+            "for clinical decision support only and "
+            "should be interpreted by a qualified "
+            "healthcare professional."
         )
 
 
-    # ------------------------------------------------------
-    # Clinical Reasoning
-    # ------------------------------------------------------
+        # --------------------------------------------------
+        # FINAL RESULT
+        # --------------------------------------------------
 
-    print("\n" + "-" * 70)
+        return {
 
-    print("CLINICAL REASONING")
+            "agent":
+                self.name,
 
-    reasoning = results.get(
-        "clinical_reasoning",
-        {}
-    )
+            "model":
+                self.model_name,
 
-    print(
-        "Agent       :",
-        reasoning.get("agent")
-    )
+            "status":
+                "completed",
 
-    print(
-        "Model       :",
-        reasoning.get("model")
-    )
+            "agents_used":
+                len(completed),
 
-    print(
-        "Agents used :",
-        reasoning.get("agents_used")
-    )
+            "average_confidence":
+                average_confidence,
 
-    print(
-        "Summary     :",
-        reasoning.get("summary")
-    )
+            "overall_risk":
+                overall_risk,
 
-    print(
-        "Status      :",
-        reasoning.get("status")
-    )
+            "confidence_level":
+                confidence_level,
 
+            "abnormal_findings":
+                abnormal_findings,
 
-    print("\n" + "-" * 70)
+            "findings":
+                findings,
 
-    print(
-        "Agents completed:",
-        f"{results['agents_completed']}/"
-        f"{results['total_agents']}"
-    )
+            "clinical_decision":
+                clinical_decision,
 
-    print(
-        "Reasoning status:",
-        results.get("reasoning_status")
-    )
-
-    print(
-        "Global status:",
-        results["status"]
-    )
-
-    print("=" * 70)
+            "recommendation":
+                recommendation
+        }
