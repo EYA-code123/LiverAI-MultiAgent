@@ -1,6 +1,7 @@
+%%writefile /content/LiverAI-MultiAgent/agents/clinical_reasoning_agent.py
 
 # ==========================================================
-# LiverAI - Clinical Reasoning Agent
+# Clinical Reasoning Agent
 # ==========================================================
 
 class ClinicalReasoningAgent:
@@ -11,35 +12,16 @@ class ClinicalReasoningAgent:
         self.model_name = "Rule-Based Clinical Synthesis"
 
     # ======================================================
-    # PREDICT / SYNTHESIS
+    # PREDICT
     # ======================================================
 
     def predict(self, agent_results):
 
-        fatty = agent_results.get(
-            "fatty_liver",
-            {}
-        )
+        fatty = agent_results.get("fatty_liver", {})
+        fibrosis = agent_results.get("fibrosis", {})
+        cirrhosis = agent_results.get("cirrhosis", {})
 
-        fibrosis = agent_results.get(
-            "fibrosis",
-            {}
-        )
-
-        cirrhosis = agent_results.get(
-            "cirrhosis",
-            {}
-        )
-
-        # --------------------------------------------------
-        # Check completed agents
-        # --------------------------------------------------
-
-        results = [
-            fatty,
-            fibrosis,
-            cirrhosis
-        ]
+        results = [fatty, fibrosis, cirrhosis]
 
         completed = [
             r for r in results
@@ -52,96 +34,178 @@ class ClinicalReasoningAgent:
                 "agent": self.name,
                 "model": self.model_name,
                 "status": "error",
-                "error": "No valid agent results available"
+                "error": "No completed agent results"
             }
 
-        # --------------------------------------------------
-        # Extract probabilities
-        # --------------------------------------------------
+        # ==================================================
+        # CONFIDENCE
+        # ==================================================
 
-        probabilities = []
+        probabilities = [
+            float(r["probability"])
+            for r in completed
+            if r.get("probability") is not None
+        ]
+
+        if probabilities:
+            average_confidence = (
+                sum(probabilities) / len(probabilities)
+            )
+        else:
+            average_confidence = 0.0
+
+        # ==================================================
+        # CONFIDENCE LEVEL
+        # ==================================================
+
+        if average_confidence >= 0.80:
+            confidence_level = "High"
+
+        elif average_confidence >= 0.60:
+            confidence_level = "Moderate"
+
+        else:
+            confidence_level = "Low"
+
+        # ==================================================
+        # INTERNAL RISK ASSESSMENT
+        # ==================================================
+
+        risk_scores = []
 
         for result in completed:
 
-            probability = result.get(
-                "probability"
+            prediction = str(
+                result.get("prediction", "")
             )
 
-            if probability is not None:
+            probability = float(
+                result.get("probability", 0)
+            )
 
-                probabilities.append(
-                    float(probability)
+            # Prediction codes remain internal.
+            # They will NOT be displayed directly in the UI.
+
+            if prediction in ["1", "2", "2.0"]:
+                risk_scores.append(probability)
+
+            else:
+                risk_scores.append(
+                    1 - probability
                 )
 
-        # --------------------------------------------------
-        # Average confidence
-        # --------------------------------------------------
+        # ==================================================
+        # OVERALL RISK
+        # ==================================================
 
-        if len(probabilities) > 0:
+        if risk_scores:
 
-            average_confidence = (
-                sum(probabilities)
-                / len(probabilities)
+            overall_score = (
+                sum(risk_scores) / len(risk_scores)
             )
 
         else:
 
-            average_confidence = 0.0
+            overall_score = 0.0
 
-        # --------------------------------------------------
-        # Determine risk level
-        # --------------------------------------------------
+        if overall_score >= 0.70:
 
-        if average_confidence >= 0.80:
+            overall_risk = "High"
 
-            risk_level = "High confidence"
+        elif overall_score >= 0.45:
 
-        elif average_confidence >= 0.60:
-
-            risk_level = "Moderate confidence"
+            overall_risk = "Moderate"
 
         else:
 
-            risk_level = "Low confidence"
+            overall_risk = "Low"
 
-        # --------------------------------------------------
-        # Agent availability
-        # --------------------------------------------------
+        # ==================================================
+        # ABNORMAL FINDINGS
+        # ==================================================
 
-        agent_status = {
+        abnormal_findings = []
 
-            "fatty_liver":
-                fatty.get("status") == "completed",
+        if str(fatty.get("prediction")) == "1":
 
-            "fibrosis":
-                fibrosis.get("status") == "completed",
+            abnormal_findings.append(
+                "Fatty liver assessment requires attention."
+            )
 
-            "cirrhosis":
-                cirrhosis.get("status") == "completed"
-        }
+        if str(fibrosis.get("prediction")) != "0":
 
-        # --------------------------------------------------
-        # Clinical summary
-        # --------------------------------------------------
+            abnormal_findings.append(
+                "Fibrosis assessment requires attention."
+            )
 
-        summary = (
-            f"{len(completed)} liver assessment agents "
-            f"successfully contributed to the clinical synthesis."
-        )
+        if str(cirrhosis.get("prediction")) in ["1", "2", "2.0"]:
 
-        # --------------------------------------------------
-        # Recommendation
-        # --------------------------------------------------
+            abnormal_findings.append(
+                "Cirrhosis assessment requires attention."
+            )
 
-        recommendation = (
-            "The results should be interpreted together "
-            "with clinical history, laboratory findings, "
-            "imaging and evaluation by a qualified healthcare professional."
-        )
+        if not abnormal_findings:
 
-        # --------------------------------------------------
-        # Final result
-        # --------------------------------------------------
+            abnormal_findings = [
+                "No major abnormal finding identified by the available agents."
+            ]
+
+        # ==================================================
+        # CLINICAL DECISION
+        # ==================================================
+
+        if overall_risk == "High":
+
+            clinical_decision = (
+                "The multi-agent assessment indicates "
+                "a high level of concern. Clinical evaluation "
+                "and appropriate follow-up are recommended."
+            )
+
+        elif overall_risk == "Moderate":
+
+            clinical_decision = (
+                "The multi-agent assessment indicates "
+                "a moderate level of concern. Clinical "
+                "correlation and follow-up are recommended."
+            )
+
+        else:
+
+            clinical_decision = (
+                "The multi-agent assessment indicates "
+                "a relatively low level of concern based "
+                "on the available inputs."
+            )
+
+        # ==================================================
+        # RECOMMENDATION
+        # ==================================================
+
+        if overall_risk == "High":
+
+            recommendation = (
+                "Consider further clinical assessment "
+                "and specialist evaluation."
+            )
+
+        elif overall_risk == "Moderate":
+
+            recommendation = (
+                "Consider clinical follow-up and, when "
+                "appropriate, additional laboratory or "
+                "imaging assessment."
+            )
+
+        else:
+
+            recommendation = (
+                "Continue appropriate clinical monitoring."
+            )
+
+        # ==================================================
+        # FINAL RESULT
+        # ==================================================
 
         return {
 
@@ -153,48 +217,38 @@ class ClinicalReasoningAgent:
 
             "agents_used": len(completed),
 
-            "average_confidence":
-                round(
-                    average_confidence,
-                    4
-                ),
+            "average_confidence": average_confidence,
 
-            "risk_level":
-                risk_level,
+            "confidence_level": confidence_level,
 
-            "agent_status":
-                agent_status,
+            "overall_risk": overall_risk,
+
+            "risk_score": overall_score,
+
+            "abnormal_findings": abnormal_findings,
+
+            "clinical_decision": clinical_decision,
+
+            "recommendation": recommendation,
 
             "fatty_liver": {
-
-                "prediction":
-                    fatty.get("prediction"),
-
-                "probability":
-                    fatty.get("probability")
+                "prediction": fatty.get("prediction"),
+                "probability": fatty.get("probability")
             },
 
             "fibrosis": {
-
-                "prediction":
-                    fibrosis.get("prediction"),
-
-                "probability":
-                    fibrosis.get("probability")
+                "prediction": fibrosis.get("prediction"),
+                "probability": fibrosis.get("probability")
             },
 
             "cirrhosis": {
-
-                "prediction":
-                    cirrhosis.get("prediction"),
-
-                "probability":
-                    cirrhosis.get("probability")
+                "prediction": cirrhosis.get("prediction"),
+                "probability": cirrhosis.get("probability")
             },
 
-            "clinical_summary":
-                summary,
-
-            "recommendation":
-                recommendation
+            "summary": (
+                "The three specialized liver agents were "
+                "successfully integrated by the clinical "
+                "reasoning agent."
+            )
         }
