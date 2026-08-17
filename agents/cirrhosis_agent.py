@@ -1,11 +1,5 @@
-from pathlib import Path
-
-agent_path = "/content/LiverAI-MultiAgent/agents/cirrhosis_agent.py"
-
-code = r'''
 import pandas as pd
 import numpy as np
-import joblib
 
 
 class CirrhosisAgent:
@@ -15,11 +9,9 @@ class CirrhosisAgent:
         self.name = "CirrhosisAgent"
         self.model_name = "XGBoost"
 
-        # --------------------------------------------------
-        # Load package
-        # --------------------------------------------------
-
-        self.package = model_package
+        # ==========================================================
+        # LOAD PACKAGE
+        # ==========================================================
 
         self.model = model_package["model"]
 
@@ -35,11 +27,15 @@ class CirrhosisAgent:
             model_package["categorical_columns"]
         )
 
-        self.encoders = model_package["encoders"]
+        self.encoders = model_package.get(
+            "encoders",
+            {}
+        )
 
-        self.target_encoder = model_package[
-            "target_encoder"
-        ]
+        self.target_encoder = model_package.get(
+            "target_encoder",
+            None
+        )
 
         self.numerical_imputer = model_package[
             "numerical_imputer"
@@ -49,62 +45,79 @@ class CirrhosisAgent:
             "categorical_imputer"
         ]
 
-        # --------------------------------------------------
-        # IMPORTANT FIX
-        # --------------------------------------------------
+        # ==========================================================
+        # MODEL FEATURES
+        # ==========================================================
 
-        # The old imputer contains "Stage", but Stage is NOT
-        # a feature used by the final XGBoost model.
+        self.model_features = list(
+            self.feature_names
+        )
 
-        self.model_numerical_features = [
-            col
-            for col in self.feature_names
-            if col in self.numerical_columns
-        ]
+        # ==========================================================
+        # FEATURES EXPECTED BY NUMERICAL IMPUTER
+        # ==========================================================
 
-        # Remove Stage automatically
-        self.model_numerical_features = [
-            col
-            for col in self.model_numerical_features
-            if col != "Stage"
-        ]
+        if hasattr(
+            self.numerical_imputer,
+            "feature_names_in_"
+        ):
 
-        self.model_categorical_features = [
-            col
-            for col in self.feature_names
-            if col in self.categorical_columns
-        ]
+            self.imputer_numerical_features = list(
+                self.numerical_imputer.feature_names_in_
+            )
 
-        print("=" * 70)
-        print("CIRRHOSIS AGENT INITIALIZED")
-        print("=" * 70)
+        else:
 
-        print("\nModel features:")
-        print(self.feature_names)
+            self.imputer_numerical_features = list(
+                self.numerical_columns
+            )
 
-        print("\nNumerical features used:")
-        print(self.model_numerical_features)
+        # ==========================================================
+        # FEATURES EXPECTED BY CATEGORICAL IMPUTER
+        # ==========================================================
 
-        print("\nCategorical features used:")
-        print(self.model_categorical_features)
+        if hasattr(
+            self.categorical_imputer,
+            "feature_names_in_"
+        ):
 
-        print("\nStage removed from prediction pipeline.")
+            self.imputer_categorical_features = list(
+                self.categorical_imputer.feature_names_in_
+            )
 
-    # ======================================================
+        else:
+
+            self.imputer_categorical_features = list(
+                self.categorical_columns
+            )
+
+    # ==============================================================
     # PREDICT
-    # ======================================================
+    # ==============================================================
 
     def predict(self, patient_data):
 
-        # --------------------------------------------------
-        # Convert input to DataFrame
-        # --------------------------------------------------
+        print("=" * 70)
+        print("CIRRHOSIS AGENT")
+        print("=" * 70)
 
-        if isinstance(patient_data, dict):
+        # ==========================================================
+        # 1. CREATE DATAFRAME
+        # ==========================================================
 
-            X = pd.DataFrame([patient_data])
+        if isinstance(
+            patient_data,
+            dict
+        ):
 
-        elif isinstance(patient_data, pd.DataFrame):
+            X = pd.DataFrame(
+                [patient_data]
+            )
+
+        elif isinstance(
+            patient_data,
+            pd.DataFrame
+        ):
 
             X = patient_data.copy()
 
@@ -115,9 +128,9 @@ class CirrhosisAgent:
                 columns=self.feature_names
             )
 
-        # --------------------------------------------------
-        # Add missing model features
-        # --------------------------------------------------
+        # ==========================================================
+        # 2. ADD MISSING MODEL FEATURES
+        # ==========================================================
 
         for col in self.feature_names:
 
@@ -125,159 +138,186 @@ class CirrhosisAgent:
 
                 X[col] = np.nan
 
-        # --------------------------------------------------
-        # Keep EXACTLY model features
-        # --------------------------------------------------
+        # ==========================================================
+        # 3. TEMPORARY STAGE FOR IMPUTER
+        # ==========================================================
+        #
+        # IMPORTANT:
+        # Stage is required by the saved numerical imputer,
+        # but Stage is NOT a model feature.
+        #
+        # We add it ONLY for the imputer and remove it afterwards.
+        # ==========================================================
 
-        X = X[self.feature_names].copy()
+        for col in self.imputer_numerical_features:
 
-        # --------------------------------------------------
-        # NUMERICAL PREPROCESSING
-        # --------------------------------------------------
+            if col not in X.columns:
 
-        numerical_features = (
-            self.model_numerical_features
-        )
-
-        if numerical_features:
-
-            # --------------------------------------------------
-            # IMPORTANT:
-            # The saved imputer incorrectly contains Stage.
-            #
-            # Therefore we manually use the corresponding
-            # statistics for the 11 model numerical features.
-            # --------------------------------------------------
-
-            imputer_features = list(
-                getattr(
-                    self.numerical_imputer,
-                    "feature_names_in_",
-                    []
+                # Use the statistic learned by the imputer
+                imputer_index = (
+                    self.imputer_numerical_features.index(col)
                 )
-            )
 
-            statistics = np.asarray(
-                self.numerical_imputer.statistics_
-            )
+                if hasattr(
+                    self.numerical_imputer,
+                    "statistics_"
+                ):
 
-            values = []
-
-            for col in numerical_features:
-
-                if col in imputer_features:
-
-                    index = imputer_features.index(
-                        col
-                    )
-
-                    statistic = statistics[index]
+                    value = self.numerical_imputer.statistics_[
+                        imputer_index
+                    ]
 
                 else:
 
-                    statistic = np.nan
+                    value = np.nan
 
-                values.append(statistic)
+                X[col] = value
 
-            # --------------------------------------------------
-            # Fill missing numerical values
-            # --------------------------------------------------
-
-            for col, statistic in zip(
-                numerical_features,
-                values
-            ):
-
-                X[col] = pd.to_numeric(
-                    X[col],
-                    errors="coerce"
+                print(
+                    f"Temporary feature added for imputer: "
+                    f"{col} = {value}"
                 )
 
-                X[col] = X[col].fillna(
-                    statistic
+        # ==========================================================
+        # 4. NUMERICAL IMPUTATION
+        # ==========================================================
+
+        if len(
+            self.imputer_numerical_features
+        ) > 0:
+
+            numerical_data = X[
+                self.imputer_numerical_features
+            ].copy()
+
+            numerical_data = (
+                self.numerical_imputer.transform(
+                    numerical_data
                 )
+            )
 
-        # --------------------------------------------------
-        # CATEGORICAL PREPROCESSING
-        # --------------------------------------------------
+            numerical_data = pd.DataFrame(
+                numerical_data,
+                columns=self.imputer_numerical_features,
+                index=X.index
+            )
 
-        categorical_features = (
-            self.model_categorical_features
-        )
+            X[
+                self.imputer_numerical_features
+            ] = numerical_data
 
-        if categorical_features:
+        # ==========================================================
+        # 5. REMOVE STAGE
+        # ==========================================================
+        #
+        # Stage must NEVER enter the XGBoost model.
+        # ==========================================================
 
-            # Use saved categorical imputer
-            try:
+        if "Stage" in X.columns:
 
-                X[categorical_features] = (
-                    self.categorical_imputer.transform(
-                        X[categorical_features]
-                    )
+            X = X.drop(
+                columns=["Stage"]
+            )
+
+        # ==========================================================
+        # 6. CATEGORICAL IMPUTATION
+        # ==========================================================
+
+        categorical_features = [
+            col
+            for col in self.categorical_columns
+            if col in self.feature_names
+        ]
+
+        if len(categorical_features) > 0:
+
+            categorical_data = X[
+                categorical_features
+            ].copy()
+
+            categorical_data = (
+                self.categorical_imputer.transform(
+                    categorical_data
                 )
+            )
 
-            except Exception:
+            categorical_data = pd.DataFrame(
+                categorical_data,
+                columns=categorical_features,
+                index=X.index
+            )
 
-                # Safe fallback
-                for col in categorical_features:
+            X[
+                categorical_features
+            ] = categorical_data
 
-                    X[col] = X[col].fillna(
-                        "Unknown"
-                    )
-
-        # --------------------------------------------------
-        # APPLY ENCODERS
-        # --------------------------------------------------
+        # ==========================================================
+        # 7. ENCODE CATEGORICAL VARIABLES
+        # ==========================================================
 
         for col in categorical_features:
 
-            if col not in self.encoders:
-                continue
+            if col in self.encoders:
 
-            encoder = self.encoders[col]
+                encoder = self.encoders[col]
 
-            values = X[col].astype(str)
+                values = X[col].astype(str)
 
-            known_values = set(
-                encoder.classes_
-            )
+                known_values = set(
+                    encoder.classes_
+                )
 
-            # Replace unknown categories
-            values = values.apply(
-                lambda x:
-                x if x in known_values
-                else encoder.classes_[0]
-            )
+                # Replace unknown categories
+                # by first known category
+                values = values.apply(
+                    lambda value:
+                    value
+                    if value in known_values
+                    else encoder.classes_[0]
+                )
 
-            X[col] = encoder.transform(
-                values
-            )
+                X[col] = encoder.transform(
+                    values
+                )
 
-        # --------------------------------------------------
-        # FINAL FEATURE ORDER
-        # --------------------------------------------------
+        # ==========================================================
+        # 8. FINAL MODEL FEATURES
+        # ==========================================================
 
-        X = X[self.feature_names]
+        X = X[
+            self.model_features
+        ].copy()
 
-        # Make sure numeric data are numeric
-        for col in self.feature_names:
+        # ==========================================================
+        # 9. FINAL CHECK
+        # ==========================================================
 
-            X[col] = pd.to_numeric(
-                X[col],
-                errors="coerce"
-            )
+        print("\nModel features:")
+        print(
+            X.columns.tolist()
+        )
 
-        # --------------------------------------------------
-        # PREDICTION
-        # --------------------------------------------------
+        print(
+            "\nNumber of model features:",
+            len(X.columns)
+        )
+
+        print(
+            "Expected:",
+            len(self.model_features)
+        )
+
+        # ==========================================================
+        # 10. XGBOOST PREDICTION
+        # ==========================================================
 
         prediction_encoded = (
             self.model.predict(X)[0]
         )
 
-        # --------------------------------------------------
-        # PROBABILITY
-        # --------------------------------------------------
+        # ==========================================================
+        # 11. PROBABILITY
+        # ==========================================================
 
         probability = None
 
@@ -294,28 +334,31 @@ class CirrhosisAgent:
                 np.max(probabilities)
             )
 
-        # --------------------------------------------------
-        # DECODE TARGET
-        # --------------------------------------------------
+        # ==========================================================
+        # 12. DECODE TARGET
+        # ==========================================================
 
-        try:
+        prediction = prediction_encoded
 
-            prediction = (
-                self.target_encoder
-                .inverse_transform(
-                    [prediction_encoded]
-                )[0]
-            )
+        if self.target_encoder is not None:
 
-        except Exception:
+            try:
 
-            prediction = prediction_encoded
+                prediction = (
+                    self.target_encoder.inverse_transform(
+                        [prediction_encoded]
+                    )[0]
+                )
 
-        # --------------------------------------------------
-        # RESULT
-        # --------------------------------------------------
+            except Exception:
 
-        return {
+                prediction = prediction_encoded
+
+        # ==========================================================
+        # 13. RESULT
+        # ==========================================================
+
+        result = {
 
             "agent": self.name,
 
@@ -330,12 +373,22 @@ class CirrhosisAgent:
             "status": "completed"
 
         }
-'''
 
-Path(agent_path).write_text(
-    code,
-    encoding="utf-8"
-)
+        print("\nPrediction:")
+        print(
+            result["prediction"]
+        )
 
-print("✅ cirrhosis_agent.py replaced successfully")
-print(agent_path)
+        print(
+            "Probability:",
+            result["probability"]
+        )
+
+        print(
+            "Status:",
+            result["status"]
+        )
+
+        print("=" * 70)
+
+        return result
