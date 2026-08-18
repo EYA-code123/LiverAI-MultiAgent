@@ -1,4 +1,4 @@
-%%writefile /content/LiverAI-MultiAgent/orchestrator/liver_orchestrator.py
+
 
 # ==========================================================
 # LiverAI - Multi-Agent Orchestrator
@@ -26,7 +26,7 @@ class LiverAIOrchestrator:
         print("=" * 70)
 
         # --------------------------------------------------
-        # Initialize specialized agents
+        # Specialized agents
         # --------------------------------------------------
 
         print("\nLoading models...")
@@ -34,28 +34,23 @@ class LiverAIOrchestrator:
         self.fatty_agent = FattyLiverAgent(
             fatty_model_path
         )
-
         print("✓ Fatty Liver Agent initialized")
 
         self.fibrosis_agent = FibrosisAgent(
             fibrosis_model_path
         )
-
         print("✓ Fibrosis Agent initialized")
 
         self.cirrhosis_agent = CirrhosisAgent(
             cirrhosis_model_path
         )
-
         print("✓ Cirrhosis Agent initialized")
 
         # --------------------------------------------------
-        # Clinical reasoning agent
+        # Clinical reasoning
         # --------------------------------------------------
 
-        self.clinical_reasoning_agent = (
-            ClinicalReasoningAgent()
-        )
+        self.clinical_reasoning_agent = ClinicalReasoningAgent()
 
         print("✓ Clinical Reasoning Agent initialized")
 
@@ -73,7 +68,7 @@ class LiverAIOrchestrator:
         print("=" * 70)
 
         # --------------------------------------------------
-        # 1. Fatty Liver
+        # 1. Fatty Liver Agent
         # --------------------------------------------------
 
         print("\n[1/4] Running Fatty Liver Agent...")
@@ -85,7 +80,7 @@ class LiverAIOrchestrator:
         print("✓ Fatty Liver completed")
 
         # --------------------------------------------------
-        # 2. Fibrosis
+        # 2. Fibrosis Agent
         # --------------------------------------------------
 
         print("\n[2/4] Running Fibrosis Agent...")
@@ -97,7 +92,7 @@ class LiverAIOrchestrator:
         print("✓ Fibrosis completed")
 
         # --------------------------------------------------
-        # 3. Cirrhosis
+        # 3. Cirrhosis Agent
         # --------------------------------------------------
 
         print("\n[3/4] Running Cirrhosis Agent...")
@@ -113,17 +108,13 @@ class LiverAIOrchestrator:
         # --------------------------------------------------
 
         agent_results = {
-
             "fatty_liver": fatty_result,
-
             "fibrosis": fibrosis_result,
-
             "cirrhosis": cirrhosis_result
-
         }
 
         # --------------------------------------------------
-        # 4. Clinical Reasoning
+        # 4. Clinical Reasoning Agent
         # --------------------------------------------------
 
         print("\n[4/4] Running Clinical Reasoning Agent...")
@@ -141,13 +132,8 @@ class LiverAIOrchestrator:
         # --------------------------------------------------
 
         return {
-
             "fatty_liver": fatty_result,
-
             "fibrosis": fibrosis_result,
-
             "cirrhosis": cirrhosis_result,
-
             "clinical_reasoning": clinical_result
-
         }
