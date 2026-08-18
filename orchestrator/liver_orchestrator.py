@@ -41,9 +41,15 @@ class LiverAIOrchestrator:
         )
         print("✓ Fibrosis Agent initialized")
 
-        self.cirrhosis_agent = CirrhosisAgent(
-            cirrhosis_model_path
-        )
+       import joblib
+
+cirrhosis_model_package = joblib.load(
+    cirrhosis_model_path
+)
+
+self.cirrhosis_agent = CirrhosisAgent(
+    cirrhosis_model_package
+)
         print("✓ Cirrhosis Agent initialized")
 
         # --------------------------------------------------
