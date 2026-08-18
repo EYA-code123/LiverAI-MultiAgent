@@ -1,4 +1,4 @@
-
+%%writefile /content/LiverAI-MultiAgent/agents/clinical_reasoning_agent.py
 
 class ClinicalReasoningAgent:
 
@@ -24,7 +24,7 @@ class ClinicalReasoningAgent:
                 "agent": self.name,
                 "model": self.model_name,
                 "status": "error",
-                "error": "No completed agent results"
+                "error": "No agent results available"
             }
 
         probabilities = [
@@ -86,39 +86,41 @@ class ClinicalReasoningAgent:
                 "Cirrhosis assessment requires attention."
             )
 
+        if not abnormal_findings:
+            abnormal_findings.append(
+                "No major abnormal finding identified by the available agents."
+            )
+
         if overall_risk == "High":
 
             clinical_decision = (
-                "The multi-agent assessment indicates "
-                "a high level of concern. Clinical evaluation "
-                "and appropriate follow-up are recommended."
+                "The multi-agent assessment indicates a high level "
+                "of concern. Clinical evaluation and appropriate "
+                "follow-up are recommended."
             )
 
             recommendation = (
-                "Consider further clinical assessment "
-                "and specialist evaluation."
+                "Consider further clinical assessment and specialist evaluation."
             )
 
         elif overall_risk == "Moderate":
 
             clinical_decision = (
-                "The multi-agent assessment indicates "
-                "a moderate level of concern. Clinical "
-                "correlation and follow-up are recommended."
+                "The multi-agent assessment indicates a moderate "
+                "level of concern. Clinical correlation and follow-up "
+                "are recommended."
             )
 
             recommendation = (
-                "Consider clinical follow-up and, when "
-                "appropriate, additional laboratory or "
-                "imaging assessment."
+                "Consider clinical follow-up and, when appropriate, "
+                "additional laboratory or imaging assessment."
             )
 
         else:
 
             clinical_decision = (
-                "The multi-agent assessment indicates "
-                "a relatively low level of concern based "
-                "on the available inputs."
+                "The multi-agent assessment indicates a relatively "
+                "low level of concern based on the available inputs."
             )
 
             recommendation = (
@@ -128,25 +130,19 @@ class ClinicalReasoningAgent:
         return {
 
             "agent": self.name,
-
             "model": self.model_name,
-
             "status": "completed",
-
             "agents_used": len(completed),
 
             "average_confidence": average_confidence,
-
             "confidence_level": confidence_level,
 
             "overall_risk": overall_risk,
-
             "risk_score": overall_score,
 
             "abnormal_findings": abnormal_findings,
 
             "clinical_decision": clinical_decision,
-
             "recommendation": recommendation,
 
             "fatty_liver": {
@@ -165,8 +161,7 @@ class ClinicalReasoningAgent:
             },
 
             "summary": (
-                "The three specialized liver agents were "
-                "successfully integrated by the clinical "
-                "reasoning agent."
+                "The three specialized liver agents were successfully "
+                "integrated by the clinical reasoning agent."
             )
         }
