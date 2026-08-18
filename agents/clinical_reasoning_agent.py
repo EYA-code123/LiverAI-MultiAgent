@@ -1,3 +1,4 @@
+%%writefile /content/LiverAI-MultiAgent/agents/clinical_reasoning_agent.py
 
 class ClinicalReasoningAgent:
 
@@ -127,21 +128,15 @@ class ClinicalReasoningAgent:
             )
 
         return {
-
             "agent": self.name,
             "model": self.model_name,
             "status": "completed",
-
             "agents_used": len(completed),
-
             "average_confidence": average_confidence,
             "confidence_level": confidence_level,
-
             "overall_risk": overall_risk,
             "risk_score": overall_score,
-
             "abnormal_findings": abnormal_findings,
-
             "clinical_decision": clinical_decision,
             "recommendation": recommendation,
 
