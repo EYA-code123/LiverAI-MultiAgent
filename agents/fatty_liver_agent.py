@@ -9,6 +9,7 @@ class FattyLiverAgent:
         self.model_name = "LightGBM"
         self.model = model
 
+        # Features used during training
         self.features = [
             "mcv",
             "alkphos",
@@ -27,15 +28,12 @@ class FattyLiverAgent:
         if isinstance(patient_data, dict):
 
             X = pd.DataFrame(
-                [patient_data],
-                columns=self.features
+                [patient_data]
             )
 
         elif isinstance(patient_data, pd.DataFrame):
 
-            X = patient_data[
-                self.features
-            ].copy()
+            X = patient_data.copy()
 
         else:
 
@@ -44,14 +42,30 @@ class FattyLiverAgent:
                 columns=self.features
             )
 
-        # Ensure correct order
-        X = X[self.features].copy()
+        # ==================================================
+        # CHECK MISSING FEATURES
+        # ==================================================
 
-        # Convert values to numeric
-        X = X.apply(
-            pd.to_numeric,
-            errors="coerce"
-        )
+        missing_features = [
+            feature
+            for feature in self.features
+            if feature not in X.columns
+        ]
+
+        if missing_features:
+
+            raise ValueError(
+                f"Fatty Liver Agent - Missing features: "
+                f"{missing_features}"
+            )
+
+        # ==================================================
+        # CORRECT FEATURE ORDER
+        # ==================================================
+
+        X = X[
+            self.features
+        ].copy()
 
         # ==================================================
         # PREDICTION
@@ -65,9 +79,14 @@ class FattyLiverAgent:
 
         probability = None
 
-        if hasattr(self.model, "predict_proba"):
+        if hasattr(
+            self.model,
+            "predict_proba"
+        ):
 
-            probabilities = self.model.predict_proba(X)[0]
+            probabilities = (
+                self.model.predict_proba(X)[0]
+            )
 
             probability = float(
                 max(probabilities)
@@ -78,9 +97,16 @@ class FattyLiverAgent:
         # ==================================================
 
         return {
+
             "agent": self.name,
+
             "model": self.model_name,
-            "prediction": str(prediction),
+
+            "prediction": str(
+                prediction
+            ),
+
             "probability": probability,
+
             "status": "completed"
         }
