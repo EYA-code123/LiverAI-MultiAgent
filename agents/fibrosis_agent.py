@@ -10,6 +10,7 @@ class FibrosisAgent:
         self.model_name = "XGBoost"
         self.model = model
 
+        # Features used during training
         self.features = [
             "age",
             "male",
@@ -21,11 +22,23 @@ class FibrosisAgent:
 
     def predict(self, patient_data):
 
-        if isinstance(patient_data, dict):
+        # ==================================================
+        # CREATE DATAFRAME
+        # ==================================================
 
-            X = pd.DataFrame([patient_data])
+        if isinstance(
+            patient_data,
+            dict
+        ):
 
-        elif isinstance(patient_data, pd.DataFrame):
+            X = pd.DataFrame(
+                [patient_data]
+            )
+
+        elif isinstance(
+            patient_data,
+            pd.DataFrame
+        ):
 
             X = patient_data.copy()
 
@@ -36,6 +49,10 @@ class FibrosisAgent:
                 columns=self.features
             )
 
+        # ==================================================
+        # CHECK MISSING FEATURES
+        # ==================================================
+
         missing_features = [
             feature
             for feature in self.features
@@ -45,27 +62,60 @@ class FibrosisAgent:
         if missing_features:
 
             raise ValueError(
-                f"Missing features: {missing_features}"
+                "Fibrosis Agent - Missing features: "
+                f"{missing_features}"
             )
 
-        X = X[self.features].copy()
+        # ==================================================
+        # CORRECT FEATURE ORDER
+        # ==================================================
 
-        prediction = self.model.predict(X)[0]
+        X = X[
+            self.features
+        ].copy()
+
+        # ==================================================
+        # PREDICTION
+        # ==================================================
+
+        prediction = self.model.predict(
+            X
+        )[0]
+
+        # ==================================================
+        # PROBABILITY
+        # ==================================================
 
         probability = None
 
-        if hasattr(self.model, "predict_proba"):
+        if hasattr(
+            self.model,
+            "predict_proba"
+        ):
 
-            probabilities = self.model.predict_proba(X)[0]
+            probabilities = (
+                self.model.predict_proba(X)[0]
+            )
 
             probability = float(
                 np.max(probabilities)
             )
 
+        # ==================================================
+        # RESULT
+        # ==================================================
+
         return {
+
             "agent": self.name,
+
             "model": self.model_name,
-            "prediction": str(prediction),
+
+            "prediction": str(
+                prediction
+            ),
+
             "probability": probability,
+
             "status": "completed"
         }
