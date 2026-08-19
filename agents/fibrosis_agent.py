@@ -1,10 +1,5 @@
-%cd /content/LiverAI-MultiAgent
-
-from pathlib import Path
-
-path = Path("agents/fibrosis_agent.py")
-
-code = '''import pandas as pd
+import numpy as np
+import pandas as pd
 
 
 class FibrosisAgent:
@@ -15,6 +10,7 @@ class FibrosisAgent:
         self.model_name = "XGBoost"
         self.model = model
 
+        # Exact features used during training
         self.features = [
             "age",
             "male",
@@ -27,18 +23,21 @@ class FibrosisAgent:
     def predict(self, patient_data):
 
         # ==================================================
-        # CREATE DATAFRAME
+        # CREATE DATAFRAME WITH FEATURE NAMES
         # ==================================================
 
         if isinstance(patient_data, dict):
 
             X = pd.DataFrame(
-                [patient_data]
+                [patient_data],
+                columns=self.features
             )
 
         elif isinstance(patient_data, pd.DataFrame):
 
-            X = patient_data.copy()
+            X = patient_data[
+                self.features
+            ].copy()
 
         else:
 
@@ -48,28 +47,10 @@ class FibrosisAgent:
             )
 
         # ==================================================
-        # CHECK FEATURES
+        # ENSURE CORRECT COLUMN ORDER
         # ==================================================
 
-        missing_features = [
-            feature
-            for feature in self.features
-            if feature not in X.columns
-        ]
-
-        if missing_features:
-
-            raise ValueError(
-                f"Missing features: {missing_features}"
-            )
-
-        # ==================================================
-        # EXACT FEATURE ORDER
-        # ==================================================
-
-        X = X[
-            self.features
-        ].copy()
+        X = X[self.features].copy()
 
         # ==================================================
         # PREDICTION
@@ -83,17 +64,12 @@ class FibrosisAgent:
 
         probability = None
 
-        if hasattr(
-            self.model,
-            "predict_proba"
-        ):
+        if hasattr(self.model, "predict_proba"):
 
-            probabilities = (
-                self.model.predict_proba(X)[0]
-            )
+            probabilities = self.model.predict_proba(X)[0]
 
             probability = float(
-                max(probabilities)
+                np.max(probabilities)
             )
 
         # ==================================================
@@ -101,28 +77,9 @@ class FibrosisAgent:
         # ==================================================
 
         return {
-
             "agent": self.name,
-
             "model": self.model_name,
-
-            "prediction": str(
-                prediction
-            ),
-
+            "prediction": str(prediction),
             "probability": probability,
-
             "status": "completed"
         }
-'''
-
-path.write_text(
-    code,
-    encoding="utf-8"
-)
-
-print("✅ File physically replaced:")
-print(path)
-
-print("\nFile content:")
-print(path.read_text(encoding="utf-8"))
