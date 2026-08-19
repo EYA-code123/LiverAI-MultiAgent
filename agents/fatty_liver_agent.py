@@ -8,6 +8,7 @@ class FattyLiverAgent:
 
         self.name = "FattyLiverAgent"
         self.model_name = "LightGBM"
+
         self.model = model
 
         self.features = [
