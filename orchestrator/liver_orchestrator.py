@@ -4,6 +4,7 @@ import joblib
 from agents.fatty_liver_agent import FattyLiverAgent
 from agents.fibrosis_agent import FibrosisAgent
 from agents.cirrhosis_agent import CirrhosisAgent
+from agents.clinical_reasoning_agent import ClinicalReasoningAgent
 
 
 class LiverAIOrchestrator:
@@ -19,51 +20,52 @@ class LiverAIOrchestrator:
         print("INITIALIZING LIVERAI ORCHESTRATOR")
         print("=" * 70)
 
-        print("\nLoading models...")
+        # ==========================================================
+        # 1. LOAD FATTY LIVER MODEL
+        # ==========================================================
 
-        # ==================================================
-        # 1. FATTY LIVER MODEL
-        # ==================================================
+        print("\nLoading Fatty Liver model...")
 
         if not os.path.exists(fatty_model_path):
             raise FileNotFoundError(
-                f"Fatty Liver model not found: {fatty_model_path}"
+                f"Fatty Liver model not found:\n{fatty_model_path}"
             )
 
         fatty_model = joblib.load(
             fatty_model_path
         )
 
-        # If a package/dictionary was saved
-        if isinstance(fatty_model, dict):
-            fatty_model = fatty_model.get(
-                "model",
-                fatty_model
-            )
-
+        # Si le fichier contient directement le modèle
         self.fatty_agent = FattyLiverAgent(
             fatty_model
         )
 
         print("✓ Fatty Liver Agent initialized")
+        print(
+            "  Model type:",
+            type(fatty_model)
+        )
 
-        # ==================================================
-        # 2. FIBROSIS MODEL
-        # ==================================================
+        # ==========================================================
+        # 2. LOAD FIBROSIS MODEL
+        # ==========================================================
+
+        print("\nLoading Fibrosis model...")
 
         if not os.path.exists(fibrosis_model_path):
             raise FileNotFoundError(
-                f"Fibrosis model not found: {fibrosis_model_path}"
+                f"Fibrosis model not found:\n{fibrosis_model_path}"
             )
 
         fibrosis_package = joblib.load(
             fibrosis_model_path
         )
 
-        # Your fibrosis file is a package containing:
-        # model + features + encoders
-
-        if isinstance(fibrosis_package, dict):
+        # Ton fichier Fibrosis contient un package
+        if isinstance(
+            fibrosis_package,
+            dict
+        ):
 
             fibrosis_model = fibrosis_package["model"]
 
@@ -76,14 +78,20 @@ class LiverAIOrchestrator:
         )
 
         print("✓ Fibrosis Agent initialized")
+        print(
+            "  Model type:",
+            type(fibrosis_model)
+        )
 
-        # ==================================================
-        # 3. CIRRHOSIS MODEL
-        # ==================================================
+        # ==========================================================
+        # 3. LOAD CIRRHOSIS MODEL
+        # ==========================================================
+
+        print("\nLoading Cirrhosis model...")
 
         if not os.path.exists(cirrhosis_model_path):
             raise FileNotFoundError(
-                f"Cirrhosis model not found: {cirrhosis_model_path}"
+                f"Cirrhosis model not found:\n{cirrhosis_model_path}"
             )
 
         cirrhosis_package = joblib.load(
@@ -96,13 +104,9 @@ class LiverAIOrchestrator:
 
         print("✓ Cirrhosis Agent initialized")
 
-        # ==================================================
+        # ==========================================================
         # 4. CLINICAL REASONING
-        # ==================================================
-
-        from agents.clinical_reasoning_agent import (
-            ClinicalReasoningAgent
-        )
+        # ==========================================================
 
         self.clinical_reasoning_agent = (
             ClinicalReasoningAgent()
