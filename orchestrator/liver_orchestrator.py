@@ -1,8 +1,9 @@
-
-
 # ==========================================================
 # LiverAI - Multi-Agent Orchestrator
 # ==========================================================
+
+import os
+import joblib
 
 from agents.fatty_liver_agent import FattyLiverAgent
 from agents.fibrosis_agent import FibrosisAgent
@@ -19,44 +20,82 @@ class LiverAIOrchestrator:
         cirrhosis_model_path
     ):
 
-        self.name = "LiverAIOrchestrator"
-
         print("=" * 70)
         print("INITIALIZING LIVERAI ORCHESTRATOR")
         print("=" * 70)
 
         # --------------------------------------------------
-        # Specialized agents
+        # Check model paths
         # --------------------------------------------------
 
         print("\nLoading models...")
 
+        if not os.path.exists(fatty_model_path):
+            raise FileNotFoundError(
+                f"Fatty Liver model not found:\n{fatty_model_path}"
+            )
+
+        if not os.path.exists(fibrosis_model_path):
+            raise FileNotFoundError(
+                f"Fibrosis model not found:\n{fibrosis_model_path}"
+            )
+
+        if not os.path.exists(cirrhosis_model_path):
+            raise FileNotFoundError(
+                f"Cirrhosis model not found:\n{cirrhosis_model_path}"
+            )
+
+        # --------------------------------------------------
+        # Fatty Liver Agent
+        # --------------------------------------------------
+
         self.fatty_agent = FattyLiverAgent(
             fatty_model_path
         )
+
         print("✓ Fatty Liver Agent initialized")
+
+        # --------------------------------------------------
+        # Fibrosis Agent
+        # --------------------------------------------------
 
         self.fibrosis_agent = FibrosisAgent(
             fibrosis_model_path
         )
+
         print("✓ Fibrosis Agent initialized")
 
-       import joblib
+        # --------------------------------------------------
+        # Cirrhosis Agent
+        #
+        # IMPORTANT:
+        # CirrhosisAgent expects the loaded model package,
+        # not the path string.
+        # --------------------------------------------------
 
-cirrhosis_model_package = joblib.load(
-    cirrhosis_model_path
-)
+        cirrhosis_package = joblib.load(
+            cirrhosis_model_path
+        )
 
-self.cirrhosis_agent = CirrhosisAgent(
-    cirrhosis_model_package
-)
+        if not isinstance(cirrhosis_package, dict):
+
+            raise TypeError(
+                "Cirrhosis model must be a dictionary package."
+            )
+
+        self.cirrhosis_agent = CirrhosisAgent(
+            cirrhosis_package
+        )
+
         print("✓ Cirrhosis Agent initialized")
 
         # --------------------------------------------------
-        # Clinical reasoning
+        # Clinical Reasoning Agent
         # --------------------------------------------------
 
-        self.clinical_reasoning_agent = ClinicalReasoningAgent()
+        self.clinical_reasoning_agent = (
+            ClinicalReasoningAgent()
+        )
 
         print("✓ Clinical Reasoning Agent initialized")
 
@@ -74,7 +113,7 @@ self.cirrhosis_agent = CirrhosisAgent(
         print("=" * 70)
 
         # --------------------------------------------------
-        # 1. Fatty Liver Agent
+        # 1. FATty LIVER
         # --------------------------------------------------
 
         print("\n[1/4] Running Fatty Liver Agent...")
@@ -86,7 +125,7 @@ self.cirrhosis_agent = CirrhosisAgent(
         print("✓ Fatty Liver completed")
 
         # --------------------------------------------------
-        # 2. Fibrosis Agent
+        # 2. FIBROSIS
         # --------------------------------------------------
 
         print("\n[2/4] Running Fibrosis Agent...")
@@ -98,7 +137,7 @@ self.cirrhosis_agent = CirrhosisAgent(
         print("✓ Fibrosis completed")
 
         # --------------------------------------------------
-        # 3. Cirrhosis Agent
+        # 3. CIRRHOSIS
         # --------------------------------------------------
 
         print("\n[3/4] Running Cirrhosis Agent...")
@@ -110,20 +149,26 @@ self.cirrhosis_agent = CirrhosisAgent(
         print("✓ Cirrhosis completed")
 
         # --------------------------------------------------
-        # Shared patient context
+        # Shared Agent Results
         # --------------------------------------------------
 
         agent_results = {
+
             "fatty_liver": fatty_result,
+
             "fibrosis": fibrosis_result,
+
             "cirrhosis": cirrhosis_result
+
         }
 
         # --------------------------------------------------
-        # 4. Clinical Reasoning Agent
+        # 4. CLINICAL REASONING
         # --------------------------------------------------
 
-        print("\n[4/4] Running Clinical Reasoning Agent...")
+        print(
+            "\n[4/4] Running Clinical Reasoning Agent..."
+        )
 
         clinical_result = (
             self.clinical_reasoning_agent.predict(
@@ -134,12 +179,17 @@ self.cirrhosis_agent = CirrhosisAgent(
         print("✓ Clinical Reasoning completed")
 
         # --------------------------------------------------
-        # Final result
+        # FINAL RESULT
         # --------------------------------------------------
 
         return {
+
             "fatty_liver": fatty_result,
+
             "fibrosis": fibrosis_result,
+
             "cirrhosis": cirrhosis_result,
+
             "clinical_reasoning": clinical_result
+
         }
