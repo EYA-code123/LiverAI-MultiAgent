@@ -1,24 +1,11 @@
-# ==========================================================
-# LIVER AI ORCHESTRATOR
-# ==========================================================
-
 import os
 import joblib
-
-
-# ==========================================================
-# AGENTS
-# ==========================================================
 
 from agents.fatty_liver_agent import FattyLiverAgent
 from agents.fibrosis_agent import FibrosisAgent
 from agents.cirrhosis_agent import CirrhosisAgent
 from agents.clinical_reasoning_agent import ClinicalReasoningAgent
 
-
-# ==========================================================
-# ORCHESTRATOR
-# ==========================================================
 
 class LiverAIOrchestrator:
 
@@ -34,46 +21,52 @@ class LiverAIOrchestrator:
         print("=" * 70)
 
         # ==================================================
-        # CHECK PATHS
+        # CHECK MODEL PATHS
         # ==================================================
 
-        print("\nLoading models...")
+        paths = {
+            "Fatty Liver": fatty_model_path,
+            "Fibrosis": fibrosis_model_path,
+            "Cirrhosis": cirrhosis_model_path
+        }
 
-        if not os.path.exists(fatty_model_path):
-            raise FileNotFoundError(
-                f"Fatty Liver model not found:\n{fatty_model_path}"
-            )
+        print("\nChecking model paths...")
 
-        if not os.path.exists(fibrosis_model_path):
-            raise FileNotFoundError(
-                f"Fibrosis model not found:\n{fibrosis_model_path}"
-            )
+        for name, path in paths.items():
 
-        if not os.path.exists(cirrhosis_model_path):
-            raise FileNotFoundError(
-                f"Cirrhosis model not found:\n{cirrhosis_model_path}"
-            )
+            print(f"\n{name}:")
+            print(path)
+
+            if not os.path.exists(path):
+
+                raise FileNotFoundError(
+                    f"{name} model not found:\n{path}"
+                )
+
+            print("✓ Exists")
 
         # ==================================================
-        # 1. LOAD FATTY LIVER MODEL
+        # LOAD FATTY LIVER MODEL
         # ==================================================
 
-        print("\n[1/4] Loading Fatty Liver model...")
+        print("\nLoading Fatty Liver model...")
 
         fatty_model = joblib.load(
             fatty_model_path
         )
 
         print(
-            "Fatty model loaded:",
+            "Loaded:",
             type(fatty_model)
         )
 
-        if not hasattr(fatty_model, "predict"):
+        if not hasattr(
+            fatty_model,
+            "predict"
+        ):
 
             raise TypeError(
-                "Fatty Liver model does not have a predict() method.\n"
-                f"Loaded type: {type(fatty_model)}"
+                "Fatty Liver model does not have predict()."
             )
 
         self.fatty_agent = FattyLiverAgent(
@@ -85,46 +78,37 @@ class LiverAIOrchestrator:
         )
 
         # ==================================================
-        # 2. LOAD FIBROSIS MODEL
+        # LOAD FIBROSIS MODEL
         # ==================================================
 
-        print("\n[2/4] Loading Fibrosis model...")
+        print("\nLoading Fibrosis model...")
 
         fibrosis_package = joblib.load(
             fibrosis_model_path
         )
 
         print(
-            "Fibrosis package type:",
+            "Loaded:",
             type(fibrosis_package)
         )
 
-        # --------------------------------------------------
-        # Fibrosis model was saved as a dictionary package
-        # --------------------------------------------------
-
-        if isinstance(
+        if not isinstance(
             fibrosis_package,
             dict
         ):
 
-            if "model" not in fibrosis_package:
+            raise TypeError(
+                "Fibrosis model must be a dictionary package."
+            )
 
-                raise KeyError(
-                    "Fibrosis model package does not contain "
-                    "'model'."
-                )
+        if "model" not in fibrosis_package:
 
-            fibrosis_model = fibrosis_package["model"]
+            raise KeyError(
+                "Fibrosis package does not contain 'model'."
+            )
 
-        else:
-
-            # In case the model was saved directly
-            fibrosis_model = fibrosis_package
-
-        print(
-            "Fibrosis model loaded:",
-            type(fibrosis_model)
+        fibrosis_model = (
+            fibrosis_package["model"]
         )
 
         if not hasattr(
@@ -133,12 +117,11 @@ class LiverAIOrchestrator:
         ):
 
             raise TypeError(
-                "Fibrosis model does not have a predict() method.\n"
-                f"Loaded type: {type(fibrosis_model)}"
+                "Fibrosis internal model does not have predict()."
             )
 
         self.fibrosis_agent = FibrosisAgent(
-            fibrosis_model
+            fibrosis_package
         )
 
         print(
@@ -146,17 +129,17 @@ class LiverAIOrchestrator:
         )
 
         # ==================================================
-        # 3. LOAD CIRRHOSIS MODEL
+        # LOAD CIRRHOSIS MODEL
         # ==================================================
 
-        print("\n[3/4] Loading Cirrhosis model...")
+        print("\nLoading Cirrhosis model...")
 
         cirrhosis_package = joblib.load(
             cirrhosis_model_path
         )
 
         print(
-            "Cirrhosis package type:",
+            "Loaded:",
             type(cirrhosis_package)
         )
 
@@ -175,6 +158,19 @@ class LiverAIOrchestrator:
                 "Cirrhosis package does not contain 'model'."
             )
 
+        cirrhosis_model = (
+            cirrhosis_package["model"]
+        )
+
+        if not hasattr(
+            cirrhosis_model,
+            "predict"
+        ):
+
+            raise TypeError(
+                "Cirrhosis internal model does not have predict()."
+            )
+
         self.cirrhosis_agent = CirrhosisAgent(
             cirrhosis_package
         )
@@ -184,10 +180,8 @@ class LiverAIOrchestrator:
         )
 
         # ==================================================
-        # 4. CLINICAL REASONING AGENT
+        # CLINICAL REASONING AGENT
         # ==================================================
-
-        print("\n[4/4] Initializing Clinical Reasoning Agent...")
 
         self.clinical_reasoning_agent = (
             ClinicalReasoningAgent()
@@ -198,55 +192,10 @@ class LiverAIOrchestrator:
         )
 
         # ==================================================
-        # FINAL CHECK
+        # READY
         # ==================================================
 
-        print("\n" + "=" * 70)
-        print("FINAL MODEL TYPE CHECK")
-        print("=" * 70)
-
-        print(
-            "\nFatty model:",
-            type(self.fatty_agent.model)
-        )
-
-        print(
-            "Fatty has predict:",
-            hasattr(
-                self.fatty_agent.model,
-                "predict"
-            )
-        )
-
-        print(
-            "\nFibrosis model:",
-            type(self.fibrosis_agent.model)
-        )
-
-        print(
-            "Fibrosis has predict:",
-            hasattr(
-                self.fibrosis_agent.model,
-                "predict"
-            )
-        )
-
-        print(
-            "\nCirrhosis model:",
-            type(self.cirrhosis_agent.model)
-        )
-
-        print(
-            "Cirrhosis has predict:",
-            hasattr(
-                self.cirrhosis_agent.model,
-                "predict"
-            )
-        )
-
-        print("\n" + "=" * 70)
-        print("✓ LIVERAI ORCHESTRATOR READY")
-        print("=" * 70)
+        print("\n✓ LiverAI Orchestrator ready")
 
     # ======================================================
     # PREDICT
@@ -317,16 +266,19 @@ class LiverAIOrchestrator:
         )
 
         # ==================================================
-        # SHARED RESULTS
+        # SHARED AGENT RESULTS
         # ==================================================
 
         agent_results = {
 
-            "fatty_liver": fatty_result,
+            "fatty_liver":
+                fatty_result,
 
-            "fibrosis": fibrosis_result,
+            "fibrosis":
+                fibrosis_result,
 
-            "cirrhosis": cirrhosis_result
+            "cirrhosis":
+                cirrhosis_result
 
         }
 
@@ -352,20 +304,25 @@ class LiverAIOrchestrator:
         # FINAL RESULT
         # ==================================================
 
-        final_result = {
+        result = {
 
-            "fatty_liver": fatty_result,
+            "fatty_liver":
+                fatty_result,
 
-            "fibrosis": fibrosis_result,
+            "fibrosis":
+                fibrosis_result,
 
-            "cirrhosis": cirrhosis_result,
+            "cirrhosis":
+                cirrhosis_result,
 
-            "clinical_reasoning": clinical_result
+            "clinical_reasoning":
+                clinical_result
 
         }
 
-        print("\n" + "=" * 70)
-        print("LIVERAI MULTI-AGENT PREDICTION COMPLETED")
+        print("\n")
+        print("=" * 70)
+        print("LIVERAI MULTI-AGENT RESULT")
         print("=" * 70)
 
-        return final_result
+        return result
