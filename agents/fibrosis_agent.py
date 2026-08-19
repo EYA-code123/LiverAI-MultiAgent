@@ -23,21 +23,18 @@ class FibrosisAgent:
     def predict(self, patient_data):
 
         # ==================================================
-        # CREATE DATAFRAME WITH FEATURE NAMES
+        # CREATE INPUT DATAFRAME
         # ==================================================
 
         if isinstance(patient_data, dict):
 
             X = pd.DataFrame(
-                [patient_data],
-                columns=self.features
+                [patient_data]
             )
 
         elif isinstance(patient_data, pd.DataFrame):
 
-            X = patient_data[
-                self.features
-            ].copy()
+            X = patient_data.copy()
 
         else:
 
@@ -47,10 +44,28 @@ class FibrosisAgent:
             )
 
         # ==================================================
-        # ENSURE CORRECT COLUMN ORDER
+        # CHECK FEATURES
         # ==================================================
 
-        X = X[self.features].copy()
+        missing_features = [
+            feature
+            for feature in self.features
+            if feature not in X.columns
+        ]
+
+        if missing_features:
+
+            raise ValueError(
+                f"Missing features: {missing_features}"
+            )
+
+        # ==================================================
+        # KEEP ONLY TRAINING FEATURES
+        # ==================================================
+
+        X = X[
+            self.features
+        ].copy()
 
         # ==================================================
         # PREDICTION
@@ -64,9 +79,15 @@ class FibrosisAgent:
 
         probability = None
 
-        if hasattr(self.model, "predict_proba"):
+        if hasattr(
+            self.model,
+            "predict_proba"
+        ):
 
-            probabilities = self.model.predict_proba(X)[0]
+            probabilities = (
+                self.model
+                .predict_proba(X)[0]
+            )
 
             probability = float(
                 np.max(probabilities)
@@ -77,9 +98,16 @@ class FibrosisAgent:
         # ==================================================
 
         return {
+
             "agent": self.name,
+
             "model": self.model_name,
-            "prediction": str(prediction),
+
+            "prediction": str(
+                prediction
+            ),
+
             "probability": probability,
+
             "status": "completed"
         }
