@@ -1,6 +1,5 @@
-import pandas as pd
 import numpy as np
-
+import pandas as pd
 
 class CirrhosisAgent:
 
@@ -8,10 +7,6 @@ class CirrhosisAgent:
 
         self.name = "CirrhosisAgent"
         self.model_name = "XGBoost"
-
-        # ==========================================================
-        # LOAD PACKAGE
-        # ==========================================================
 
         self.model = model_package["model"]
 
@@ -45,17 +40,9 @@ class CirrhosisAgent:
             "categorical_imputer"
         ]
 
-        # ==========================================================
-        # MODEL FEATURES
-        # ==========================================================
-
         self.model_features = list(
             self.feature_names
         )
-
-        # ==========================================================
-        # FEATURES EXPECTED BY NUMERICAL IMPUTER
-        # ==========================================================
 
         if hasattr(
             self.numerical_imputer,
@@ -72,10 +59,6 @@ class CirrhosisAgent:
                 self.numerical_columns
             )
 
-        # ==========================================================
-        # FEATURES EXPECTED BY CATEGORICAL IMPUTER
-        # ==========================================================
-
         if hasattr(
             self.categorical_imputer,
             "feature_names_in_"
@@ -91,19 +74,15 @@ class CirrhosisAgent:
                 self.categorical_columns
             )
 
-    # ==============================================================
-    # PREDICT
-    # ==============================================================
-
     def predict(self, patient_data):
 
         print("=" * 70)
         print("CIRRHOSIS AGENT")
         print("=" * 70)
 
-        # ==========================================================
-        # 1. CREATE DATAFRAME
-        # ==========================================================
+        # ==================================================
+        # CREATE DATAFRAME
+        # ==================================================
 
         if isinstance(
             patient_data,
@@ -128,9 +107,9 @@ class CirrhosisAgent:
                 columns=self.feature_names
             )
 
-        # ==========================================================
-        # 2. ADD MISSING MODEL FEATURES
-        # ==========================================================
+        # ==================================================
+        # ADD MISSING MODEL FEATURES
+        # ==================================================
 
         for col in self.feature_names:
 
@@ -138,23 +117,15 @@ class CirrhosisAgent:
 
                 X[col] = np.nan
 
-        # ==========================================================
-        # 3. TEMPORARY STAGE FOR IMPUTER
-        # ==========================================================
-        #
-        # IMPORTANT:
-        # Stage is required by the saved numerical imputer,
-        # but Stage is NOT a model feature.
-        #
-        # We add it ONLY for the imputer and remove it afterwards.
-        # ==========================================================
+        # ==================================================
+        # TEMPORARY FEATURES FOR IMPUTER
+        # ==================================================
 
         for col in self.imputer_numerical_features:
 
             if col not in X.columns:
 
-                # Use the statistic learned by the imputer
-                imputer_index = (
+                index = (
                     self.imputer_numerical_features.index(col)
                 )
 
@@ -163,9 +134,9 @@ class CirrhosisAgent:
                     "statistics_"
                 ):
 
-                    value = self.numerical_imputer.statistics_[
-                        imputer_index
-                    ]
+                    value = (
+                        self.numerical_imputer.statistics_[index]
+                    )
 
                 else:
 
@@ -173,14 +144,9 @@ class CirrhosisAgent:
 
                 X[col] = value
 
-                print(
-                    f"Temporary feature added for imputer: "
-                    f"{col} = {value}"
-                )
-
-        # ==========================================================
-        # 4. NUMERICAL IMPUTATION
-        # ==========================================================
+        # ==================================================
+        # NUMERICAL IMPUTATION
+        # ==================================================
 
         if len(
             self.imputer_numerical_features
@@ -206,12 +172,9 @@ class CirrhosisAgent:
                 self.imputer_numerical_features
             ] = numerical_data
 
-        # ==========================================================
-        # 5. REMOVE STAGE
-        # ==========================================================
-        #
-        # Stage must NEVER enter the XGBoost model.
-        # ==========================================================
+        # ==================================================
+        # REMOVE STAGE
+        # ==================================================
 
         if "Stage" in X.columns:
 
@@ -219,9 +182,9 @@ class CirrhosisAgent:
                 columns=["Stage"]
             )
 
-        # ==========================================================
-        # 6. CATEGORICAL IMPUTATION
-        # ==========================================================
+        # ==================================================
+        # CATEGORICAL IMPUTATION
+        # ==================================================
 
         categorical_features = [
             col
@@ -229,7 +192,9 @@ class CirrhosisAgent:
             if col in self.feature_names
         ]
 
-        if len(categorical_features) > 0:
+        if len(
+            categorical_features
+        ) > 0:
 
             categorical_data = X[
                 categorical_features
@@ -251,9 +216,9 @@ class CirrhosisAgent:
                 categorical_features
             ] = categorical_data
 
-        # ==========================================================
-        # 7. ENCODE CATEGORICAL VARIABLES
-        # ==========================================================
+        # ==================================================
+        # ENCODING
+        # ==================================================
 
         for col in categorical_features:
 
@@ -267,8 +232,6 @@ class CirrhosisAgent:
                     encoder.classes_
                 )
 
-                # Replace unknown categories
-                # by first known category
                 values = values.apply(
                     lambda value:
                     value
@@ -280,44 +243,25 @@ class CirrhosisAgent:
                     values
                 )
 
-        # ==========================================================
-        # 8. FINAL MODEL FEATURES
-        # ==========================================================
+        # ==================================================
+        # FINAL FEATURES
+        # ==================================================
 
         X = X[
             self.model_features
         ].copy()
 
-        # ==========================================================
-        # 9. FINAL CHECK
-        # ==========================================================
-
-        print("\nModel features:")
-        print(
-            X.columns.tolist()
-        )
-
-        print(
-            "\nNumber of model features:",
-            len(X.columns)
-        )
-
-        print(
-            "Expected:",
-            len(self.model_features)
-        )
-
-        # ==========================================================
-        # 10. XGBOOST PREDICTION
-        # ==========================================================
+        # ==================================================
+        # PREDICTION
+        # ==================================================
 
         prediction_encoded = (
             self.model.predict(X)[0]
         )
 
-        # ==========================================================
-        # 11. PROBABILITY
-        # ==========================================================
+        # ==================================================
+        # PROBABILITY
+        # ==================================================
 
         probability = None
 
@@ -334,9 +278,9 @@ class CirrhosisAgent:
                 np.max(probabilities)
             )
 
-        # ==========================================================
-        # 12. DECODE TARGET
-        # ==========================================================
+        # ==================================================
+        # DECODE TARGET
+        # ==================================================
 
         prediction = prediction_encoded
 
@@ -354,11 +298,11 @@ class CirrhosisAgent:
 
                 prediction = prediction_encoded
 
-        # ==========================================================
-        # 13. RESULT
-        # ==========================================================
+        # ==================================================
+        # RESULT
+        # ==================================================
 
-        result = {
+        return {
 
             "agent": self.name,
 
@@ -371,24 +315,4 @@ class CirrhosisAgent:
             "probability": probability,
 
             "status": "completed"
-
         }
-
-        print("\nPrediction:")
-        print(
-            result["prediction"]
-        )
-
-        print(
-            "Probability:",
-            result["probability"]
-        )
-
-        print(
-            "Status:",
-            result["status"]
-        )
-
-        print("=" * 70)
-
-        return result
