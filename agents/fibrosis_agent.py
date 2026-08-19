@@ -1,3 +1,6 @@
+%cd /content/LiverAI-MultiAgent
+
+agent_code = '''
 import pandas as pd
 
 
@@ -9,6 +12,7 @@ class FibrosisAgent:
         self.model_name = "XGBoost"
         self.model = model
 
+        # Exact features used during training
         self.features = [
             "age",
             "male",
@@ -20,15 +24,10 @@ class FibrosisAgent:
 
     def predict(self, patient_data):
 
-        # ==================================================
-        # CREATE DATAFRAME
-        # ==================================================
-
+        # Create DataFrame
         if isinstance(patient_data, dict):
 
-            X = pd.DataFrame(
-                [patient_data]
-            )
+            X = pd.DataFrame([patient_data])
 
         elif isinstance(patient_data, pd.DataFrame):
 
@@ -41,10 +40,7 @@ class FibrosisAgent:
                 columns=self.features
             )
 
-        # ==================================================
-        # CHECK FEATURES
-        # ==================================================
-
+        # Check required features
         missing_features = [
             feature
             for feature in self.features
@@ -57,42 +53,22 @@ class FibrosisAgent:
                 f"Missing features: {missing_features}"
             )
 
-        # ==================================================
-        # SELECT FEATURES
-        # ==================================================
+        # Keep exact feature order
+        X = X[self.features].copy()
 
-        X = X[
-            self.features
-        ].copy()
-
-        # ==================================================
-        # PREDICTION
-        # ==================================================
-
+        # Prediction
         prediction = self.model.predict(X)[0]
 
-        # ==================================================
-        # PROBABILITY
-        # ==================================================
-
+        # Probability
         probability = None
 
-        if hasattr(
-            self.model,
-            "predict_proba"
-        ):
+        if hasattr(self.model, "predict_proba"):
 
-            probabilities = (
-                self.model.predict_proba(X)[0]
-            )
+            probabilities = self.model.predict_proba(X)[0]
 
             probability = float(
                 max(probabilities)
             )
-
-        # ==================================================
-        # RESULT
-        # ==================================================
 
         return {
 
@@ -100,11 +76,20 @@ class FibrosisAgent:
 
             "model": self.model_name,
 
-            "prediction": str(
-                prediction
-            ),
+            "prediction": str(prediction),
 
             "probability": probability,
 
             "status": "completed"
         }
+'''
+
+with open(
+    "agents/fibrosis_agent.py",
+    "w",
+    encoding="utf-8"
+) as f:
+
+    f.write(agent_code)
+
+print("✅ fibrosis_agent.py updated")
