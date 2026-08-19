@@ -10,7 +10,7 @@ class FibrosisAgent:
         self.model_name = "XGBoost"
         self.model = model
 
-        # Exact features used during training
+        # Features used during training
         self.features = [
             "age",
             "male",
@@ -23,7 +23,7 @@ class FibrosisAgent:
     def predict(self, patient_data):
 
         # ==================================================
-        # CREATE INPUT DATAFRAME
+        # CREATE DATAFRAME
         # ==================================================
 
         if isinstance(patient_data, dict):
@@ -60,12 +60,10 @@ class FibrosisAgent:
             )
 
         # ==================================================
-        # KEEP ONLY TRAINING FEATURES
+        # CORRECT FEATURE ORDER
         # ==================================================
 
-        X = X[
-            self.features
-        ].copy()
+        X = X[self.features].copy()
 
         # ==================================================
         # PREDICTION
@@ -98,16 +96,9 @@ class FibrosisAgent:
         # ==================================================
 
         return {
-
             "agent": self.name,
-
             "model": self.model_name,
-
-            "prediction": str(
-                prediction
-            ),
-
+            "prediction": str(prediction),
             "probability": probability,
-
             "status": "completed"
         }
