@@ -1,5 +1,3 @@
-%%writefile /content/LiverAI-MultiAgent/agents/fatty_liver_agent.py
-
 import pandas as pd
 
 
@@ -11,7 +9,6 @@ class FattyLiverAgent:
         self.model_name = "LightGBM"
         self.model = model
 
-        # Exact features used during training
         self.features = [
             "mcv",
             "alkphos",
@@ -24,7 +21,7 @@ class FattyLiverAgent:
     def predict(self, patient_data):
 
         # ==================================================
-        # CREATE DATAFRAME WITH FEATURE NAMES
+        # CREATE DATAFRAME
         # ==================================================
 
         if isinstance(patient_data, dict):
@@ -47,13 +44,14 @@ class FattyLiverAgent:
                 columns=self.features
             )
 
-        # ==================================================
-        # ENSURE CORRECT COLUMN ORDER
-        # ==================================================
+        # Ensure correct order
+        X = X[self.features].copy()
 
-        X = X[
-            self.features
-        ].copy()
+        # Convert values to numeric
+        X = X.apply(
+            pd.to_numeric,
+            errors="coerce"
+        )
 
         # ==================================================
         # PREDICTION
@@ -80,16 +78,9 @@ class FattyLiverAgent:
         # ==================================================
 
         return {
-
             "agent": self.name,
-
             "model": self.model_name,
-
-            "prediction": str(
-                prediction
-            ),
-
+            "prediction": str(prediction),
             "probability": probability,
-
             "status": "completed"
         }
