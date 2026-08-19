@@ -10,7 +10,6 @@ class FibrosisAgent:
         self.model_name = "XGBoost"
         self.model = model
 
-        # Features used during training
         self.features = [
             "age",
             "male",
@@ -21,10 +20,6 @@ class FibrosisAgent:
         ]
 
     def predict(self, patient_data):
-
-        # ==================================================
-        # CREATE DATAFRAME
-        # ==================================================
 
         if isinstance(patient_data, dict):
 
@@ -41,10 +36,6 @@ class FibrosisAgent:
                 columns=self.features
             )
 
-        # ==================================================
-        # CHECK FEATURES
-        # ==================================================
-
         missing_features = [
             feature
             for feature in self.features
@@ -57,21 +48,9 @@ class FibrosisAgent:
                 f"Missing features: {missing_features}"
             )
 
-        # ==================================================
-        # KEEP ONLY TRAINING FEATURES
-        # ==================================================
-
         X = X[self.features].copy()
 
-        # ==================================================
-        # PREDICTION
-        # ==================================================
-
         prediction = self.model.predict(X)[0]
-
-        # ==================================================
-        # PROBABILITY
-        # ==================================================
 
         probability = None
 
@@ -82,10 +61,6 @@ class FibrosisAgent:
             probability = float(
                 np.max(probabilities)
             )
-
-        # ==================================================
-        # RESULT
-        # ==================================================
 
         return {
             "agent": self.name,
