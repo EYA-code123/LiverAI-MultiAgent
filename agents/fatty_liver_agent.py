@@ -22,73 +22,134 @@ class FattyLiverAgent:
 
     def predict(self, patient_data):
 
-        # ==================================================
-        # CREATE DATAFRAME
-        # ==================================================
+        try:
 
-        if isinstance(patient_data, dict):
+            # ==================================================
+            # CREATE DATAFRAME
+            # ==================================================
 
-            X = pd.DataFrame([patient_data])
+            if isinstance(
+                patient_data,
+                dict
+            ):
 
-        elif isinstance(patient_data, pd.DataFrame):
+                X = pd.DataFrame(
+                    [patient_data]
+                )
 
-            X = patient_data.copy()
+            elif isinstance(
+                patient_data,
+                pd.DataFrame
+            ):
 
-        else:
+                X = patient_data.copy()
 
-            X = pd.DataFrame(
-                [patient_data],
-                columns=self.features
-            )
+            else:
 
-        # ==================================================
-        # ADD MISSING FEATURES
-        # ==================================================
+                X = pd.DataFrame(
+                    [patient_data],
+                    columns=self.features
+                )
 
-        for feature in self.features:
+            # ==================================================
+            # ADD MISSING FEATURES
+            # ==================================================
 
-            if feature not in X.columns:
-                X[feature] = np.nan
+            for feature in self.features:
 
-        # ==================================================
-        # CORRECT FEATURE ORDER
-        # ==================================================
+                if feature not in X.columns:
 
-        X = X[self.features].copy()
+                    X[feature] = np.nan
 
-        # ==================================================
-        # PREDICTION
-        # ==================================================
+            # ==================================================
+            # FORCE ORDER
+            # ==================================================
 
-        prediction = self.model.predict(X)[0]
+            X = X[
+                self.features
+            ].copy()
 
-        # ==================================================
-        # PROBABILITY
-        # ==================================================
+            # ==================================================
+            # PREDICTION
+            # ==================================================
 
-        probability = None
+            prediction = self.model.predict(
+                X
+            )[0]
 
-        if hasattr(self.model, "predict_proba"):
+            # ==================================================
+            # PROBABILITY
+            # ==================================================
 
-            probabilities = self.model.predict_proba(X)[0]
+            probability = None
 
-            probability = float(
-                np.max(probabilities)
-            )
+            probabilities = None
 
-        # ==================================================
-        # RESULT
-        # ==================================================
+            if hasattr(
+                self.model,
+                "predict_proba"
+            ):
 
-        return {
+                probabilities = (
+                    self.model.predict_proba(X)[0]
+                )
 
-            "agent": self.name,
+                probability = float(
+                    np.max(probabilities)
+                )
 
-            "model": self.model_name,
+            # ==================================================
+            # RESULT
+            # ==================================================
 
-            "prediction": str(prediction),
+            result = {
 
-            "probability": probability,
+                "agent":
+                    self.name,
 
-            "status": "completed"
-        }
+                "model":
+                    self.model_name,
+
+                "prediction":
+                    str(prediction),
+
+                "probability":
+                    probability,
+
+                "status":
+                    "completed"
+            }
+
+            if probabilities is not None:
+
+                result[
+                    "class_probabilities"
+                ] = [
+                    float(x)
+                    for x in probabilities
+                ]
+
+            return result
+
+        except Exception as e:
+
+            return {
+
+                "agent":
+                    self.name,
+
+                "model":
+                    self.model_name,
+
+                "prediction":
+                    None,
+
+                "probability":
+                    None,
+
+                "status":
+                    "error",
+
+                "error":
+                    str(e)
+            }
