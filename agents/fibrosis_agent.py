@@ -1,4 +1,3 @@
-```python
 import numpy as np
 import pandas as pd
 
@@ -9,12 +8,10 @@ class FibrosisAgent:
 
         self.name = "FibrosisAgent"
         self.model_name = "XGBoost"
+
         self.model = model
 
-        # ==================================================
-        # FEATURES EXPECTED BY THE TRAINED XGBOOST MODEL
-        # ==================================================
-
+        # EXACT FEATURES USED BY THE TRAINED MODEL
         self.features = [
             "age",
             "male",
@@ -27,111 +24,158 @@ class FibrosisAgent:
             "value"
         ]
 
-    # ======================================================
-    # PREDICTION
-    # ======================================================
+    # ==========================================================
+    # PREDICT
+    # ==========================================================
 
     def predict(self, patient_data):
 
-        # ==================================================
-        # CREATE DATAFRAME
-        # ==================================================
+        try:
 
-        if isinstance(patient_data, dict):
+            # --------------------------------------------------
+            # CREATE DATAFRAME
+            # --------------------------------------------------
 
-            X = pd.DataFrame(
-                [patient_data]
-            )
+            if isinstance(
+                patient_data,
+                dict
+            ):
 
-        elif isinstance(
-            patient_data,
-            pd.DataFrame
-        ):
-
-            X = patient_data.copy()
-
-        else:
-
-            X = pd.DataFrame(
-                [patient_data],
-                columns=self.features
-            )
-
-        # ==================================================
-        # CHECK / ADD MISSING FEATURES
-        # ==================================================
-
-        for feature in self.features:
-
-            if feature not in X.columns:
-
-                X[feature] = np.nan
-
-        # ==================================================
-        # KEEP ONLY FEATURES EXPECTED BY THE MODEL
-        # ==================================================
-
-        X = X[
-            self.features
-        ].copy()
-
-        # ==================================================
-        # PREDICTION
-        # ==================================================
-
-        prediction = self.model.predict(
-            X
-        )[0]
-
-        # ==================================================
-        # PROBABILITIES
-        # ==================================================
-
-        probability = None
-        class_probabilities = None
-
-        if hasattr(
-            self.model,
-            "predict_proba"
-        ):
-
-            probabilities = (
-                self.model.predict_proba(X)[0]
-            )
-
-            probability = float(
-                np.max(probabilities)
-            )
-
-            class_probabilities = {
-                f"class_{int(cls)}":
-                    float(prob)
-                for cls, prob in zip(
-                    self.model.classes_,
-                    probabilities
+                X = pd.DataFrame(
+                    [patient_data]
                 )
+
+            elif isinstance(
+                patient_data,
+                pd.DataFrame
+            ):
+
+                X = patient_data.copy()
+
+            else:
+
+                X = pd.DataFrame(
+                    [patient_data],
+                    columns=self.features
+                )
+
+            # --------------------------------------------------
+            # ADD MISSING FEATURES
+            # --------------------------------------------------
+
+            for feature in self.features:
+
+                if feature not in X.columns:
+
+                    X[feature] = np.nan
+
+            # --------------------------------------------------
+            # REMOVE EXTRA FEATURES
+            # AND FORCE EXACT ORDER
+            # --------------------------------------------------
+
+            X = X[
+                self.features
+            ].copy()
+
+            # --------------------------------------------------
+            # CHECK FEATURE NAMES
+            # --------------------------------------------------
+
+            if hasattr(
+                self.model,
+                "feature_names_in_"
+            ):
+
+                expected = list(
+                    self.model.feature_names_in_
+                )
+
+                X = X[
+                    expected
+                ].copy()
+
+            # --------------------------------------------------
+            # PREDICTION
+            # --------------------------------------------------
+
+            prediction = self.model.predict(
+                X
+            )[0]
+
+            # --------------------------------------------------
+            # PROBABILITY
+            # --------------------------------------------------
+
+            probability = None
+
+            probabilities = None
+
+            if hasattr(
+                self.model,
+                "predict_proba"
+            ):
+
+                probabilities = (
+                    self.model.predict_proba(X)[0]
+                )
+
+                probability = float(
+                    np.max(probabilities)
+                )
+
+            # --------------------------------------------------
+            # RESULT
+            # --------------------------------------------------
+
+            result = {
+
+                "agent":
+                    self.name,
+
+                "model":
+                    self.model_name,
+
+                "prediction":
+                    str(prediction),
+
+                "probability":
+                    probability,
+
+                "status":
+                    "completed"
             }
 
-        # ==================================================
-        # RESULT
-        # ==================================================
+            if probabilities is not None:
 
-        return {
+                result[
+                    "class_probabilities"
+                ] = [
+                    float(x)
+                    for x in probabilities
+                ]
 
-            "agent": self.name,
+            return result
 
-            "model": self.model_name,
+        except Exception as e:
 
-            "prediction": int(
-                prediction
-            ),
+            return {
 
-            "probability": probability,
+                "agent":
+                    self.name,
 
-            "class_probabilities":
-                class_probabilities,
+                "model":
+                    self.model_name,
 
-            "status": "completed"
+                "prediction":
+                    None,
 
-        }
-```
+                "probability":
+                    None,
+
+                "status":
+                    "error",
+
+                "error":
+                    str(e)
+            }
