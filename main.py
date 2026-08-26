@@ -6,6 +6,7 @@
 import os
 import json
 import traceback
+import joblib
 
 # ==============================================================
 # IMPORT AGENTS
@@ -14,26 +15,15 @@ import traceback
 from agents.fatty_liver_agent import FattyLiverAgent
 from agents.fibrosis_agent import FibrosisAgent
 from agents.cirrhosis_agent import CirrhosisAgent
-
-from agents.tumor_classification_agent import (
-    TumorClassificationAgent
-)
-
-from agents.liver_segmentation_agent import (
-    LiverSegmentationAgent
-)
-
-from agents.clinical_reasoning_agent import (
-    ClinicalReasoningAgent
-)
+from agents.tumor_classification_agent import TumorClassificationAgent
+from agents.liver_segmentation_agent import LiverSegmentationAgent
+from agents.clinical_reasoning_agent import ClinicalReasoningAgent
 
 # ==============================================================
 # IMPORT ORCHESTRATOR
 # ==============================================================
 
-from orchestrator.liver_orchestrator import (
-    LiverAIOrchestrator
-)
+from orchestrator.liver_orchestrator import LiverAIOrchestrator
 
 
 # ==============================================================
@@ -53,11 +43,10 @@ MODELS_DIR = os.path.join(
 # ==============================================================
 # MODEL PATHS
 # ==============================================================
-#
-# IMPORTANT:
-# Replace these paths with the EXACT paths of your models.
-#
-# =============================================================
+
+# --------------------------------------------------------------
+# FATty LIVER
+# --------------------------------------------------------------
 
 FATTY_MODEL_PATH = os.path.join(
     MODELS_DIR,
@@ -65,23 +54,48 @@ FATTY_MODEL_PATH = os.path.join(
     "model.pkl"
 )
 
-FIBROSIS_MODEL_PATH = os.path.join(
-    MODELS_DIR,
-    "fibrosis",
-    "model.keras"
+
+# --------------------------------------------------------------
+# FIBROSIS
+# --------------------------------------------------------------
+#
+# IMPORTANT:
+# This is the real model that you already tested successfully.
+# --------------------------------------------------------------
+
+FIBROSIS_MODEL_PATH = (
+    "/content/drive/MyDrive/"
+    "Fibrosis Agent/"
+    "XGBoost_model/"
+    "xgboost_nafld.pkl"
 )
+
+
+# --------------------------------------------------------------
+# CIRRHOSIS
+# --------------------------------------------------------------
 
 CIRRHOSIS_MODEL_PATH = os.path.join(
     MODELS_DIR,
     "cirrhosis",
-    "XGBoost_Cirrhosis.pkl"
+    "model.pkl"
 )
+
+
+# --------------------------------------------------------------
+# TUMOR
+# --------------------------------------------------------------
 
 TUMOR_MODEL_PATH = os.path.join(
     MODELS_DIR,
     "tumor",
     "model.keras"
 )
+
+
+# --------------------------------------------------------------
+# SEGMENTATION
+# --------------------------------------------------------------
 
 SEGMENTATION_MODEL_PATH = os.path.join(
     MODELS_DIR,
@@ -91,24 +105,18 @@ SEGMENTATION_MODEL_PATH = os.path.join(
 
 
 # ==============================================================
-# OPTIONAL INPUT DATA
+# INPUTS
 # ==============================================================
-#
-# Put your test files here when you want to run the system.
-#
-# =============================================================
 
-ULTRASOUND_IMAGE = None
+CLINICAL_DATA = None
 
 MRI_IMAGE = None
 
 LIVER_VOLUME = None
 
-CLINICAL_DATA = None
-
 
 # ==============================================================
-# CHECK MODEL PATHS
+# CHECK PATHS
 # ==============================================================
 
 def check_model_paths():
@@ -136,6 +144,8 @@ def check_model_paths():
             SEGMENTATION_MODEL_PATH
     }
 
+    all_found = True
+
     for name, path in paths.items():
 
         if os.path.exists(path):
@@ -147,13 +157,44 @@ def check_model_paths():
         else:
 
             print(
-                f"⚠ {name:<25} NOT FOUND"
+                f"✗ {name:<25} NOT FOUND"
             )
+
             print(
                 f"  → {path}"
             )
 
+            all_found = False
+
     print("=" * 80)
+
+    return all_found
+
+
+# ==============================================================
+# LOAD MODEL
+# ==============================================================
+
+def load_joblib_model(path, name):
+
+    if not os.path.exists(path):
+
+        raise FileNotFoundError(
+            f"{name} model not found:\n{path}"
+        )
+
+    print(
+        f"Loading {name}..."
+    )
+
+    model = joblib.load(path)
+
+    print(
+        f"✓ {name} model loaded: "
+        f"{type(model).__name__}"
+    )
+
+    return model
 
 
 # ==============================================================
@@ -167,50 +208,90 @@ def create_agents():
     print("INITIALIZING LIVERAI AGENTS")
     print("=" * 80)
 
-    # ----------------------------------------------------------
-    # 1. FATTY LIVER AGENT
-    # ----------------------------------------------------------
 
-    print("\n[1/6] Initializing Fatty Liver Agent...")
+    # ==========================================================
+    # 1. FATTY LIVER AGENT
+    # ==========================================================
+
+    print(
+        "\n[1/6] Initializing Fatty Liver Agent..."
+    )
+
+    fatty_model = load_joblib_model(
+        FATTY_MODEL_PATH,
+        "Fatty Liver"
+    )
 
     fatty_liver_agent = FattyLiverAgent(
-        model_path=FATTY_MODEL_PATH
+        model=fatty_model
     )
 
-    print("✓ Fatty Liver Agent ready")
+    print(
+        "✓ Fatty Liver Agent ready"
+    )
 
-    # ----------------------------------------------------------
+
+    # ==========================================================
     # 2. FIBROSIS AGENT
-    # ----------------------------------------------------------
+    # ==========================================================
 
-    print("\n[2/6] Initializing Fibrosis Agent...")
+    print(
+        "\n[2/6] Initializing Fibrosis Agent..."
+    )
+
+    fibrosis_model = load_joblib_model(
+        FIBROSIS_MODEL_PATH,
+        "Fibrosis"
+    )
 
     fibrosis_agent = FibrosisAgent(
-        model_path=FIBROSIS_MODEL_PATH
+        model=fibrosis_model
     )
 
-    print("✓ Fibrosis Agent ready")
+    print(
+        "✓ Fibrosis Agent ready"
+    )
 
-    # ----------------------------------------------------------
+
+    # ==========================================================
     # 3. CIRRHOSIS AGENT
-    # ----------------------------------------------------------
+    # ==========================================================
 
-    print("\n[3/6] Initializing Cirrhosis Agent...")
+    print(
+        "\n[3/6] Initializing Cirrhosis Agent..."
+    )
+
+    cirrhosis_package = load_joblib_model(
+        CIRRHOSIS_MODEL_PATH,
+        "Cirrhosis"
+    )
 
     cirrhosis_agent = CirrhosisAgent(
-        model_path=CIRRHOSIS_MODEL_PATH
+        model_package=cirrhosis_package
     )
 
-    print("✓ Cirrhosis Agent ready")
+    print(
+        "✓ Cirrhosis Agent ready"
+    )
 
-    # ----------------------------------------------------------
+
+    # ==========================================================
     # 4. TUMOR CLASSIFICATION AGENT
-    # ----------------------------------------------------------
+    # ==========================================================
 
     print(
         "\n[4/6] Initializing "
         "Tumor Classification Agent..."
     )
+
+    if not os.path.exists(
+        TUMOR_MODEL_PATH
+    ):
+
+        raise FileNotFoundError(
+            f"Tumor model not found:\n"
+            f"{TUMOR_MODEL_PATH}"
+        )
 
     tumor_classification_agent = (
         TumorClassificationAgent(
@@ -222,14 +303,24 @@ def create_agents():
         "✓ Tumor Classification Agent ready"
     )
 
-    # ----------------------------------------------------------
+
+    # ==========================================================
     # 5. LIVER SEGMENTATION AGENT
-    # ----------------------------------------------------------
+    # ==========================================================
 
     print(
         "\n[5/6] Initializing "
         "Liver Segmentation Agent..."
     )
+
+    if not os.path.exists(
+        SEGMENTATION_MODEL_PATH
+    ):
+
+        raise FileNotFoundError(
+            f"Segmentation model not found:\n"
+            f"{SEGMENTATION_MODEL_PATH}"
+        )
 
     liver_segmentation_agent = (
         LiverSegmentationAgent(
@@ -241,9 +332,10 @@ def create_agents():
         "✓ Liver Segmentation Agent ready"
     )
 
-    # ----------------------------------------------------------
+
+    # ==========================================================
     # 6. CLINICAL REASONING AGENT
-    # ----------------------------------------------------------
+    # ==========================================================
 
     print(
         "\n[6/6] Initializing "
@@ -258,9 +350,12 @@ def create_agents():
         "✓ Clinical Reasoning Agent ready"
     )
 
-    print("\n" + "=" * 80)
-    print("ALL AGENTS INITIALIZED")
+
+    print("\n")
     print("=" * 80)
+    print("ALL 6 AGENTS INITIALIZED SUCCESSFULLY")
+    print("=" * 80)
+
 
     return (
 
@@ -289,24 +384,21 @@ def create_orchestrator():
     print("CREATING LIVERAI ORCHESTRATOR")
     print("=" * 80)
 
+
     (
         fatty_liver_agent,
-
         fibrosis_agent,
-
         cirrhosis_agent,
-
         tumor_classification_agent,
-
         liver_segmentation_agent,
-
         clinical_reasoning_agent
 
     ) = create_agents()
 
-    # ----------------------------------------------------------
-    # THIS IS WHERE THE AGENTS ARE CONNECTED
-    # ----------------------------------------------------------
+
+    # ==========================================================
+    # CONNECT ALL 6 AGENTS
+    # ==========================================================
 
     orchestrator = LiverAIOrchestrator(
 
@@ -323,30 +415,12 @@ def create_orchestrator():
         clinical_reasoning_agent=clinical_reasoning_agent
     )
 
-    print("\n✓ LiverAI Orchestrator created")
 
-    print("\nRegistered architecture:")
+    print("\n")
+    print("✓ LiverAI Orchestrator created")
+    print("✓ 6 agents connected")
+    print("=" * 80)
 
-    print("""
-        ┌─────────────────────────────────────────┐
-        │          LIVERAI ORCHESTRATOR            │
-        └────────────────────┬────────────────────┘
-                             │
-          ┌──────────┬───────┼───────┬──────────┐
-          │          │       │       │          │
-          ▼          ▼       ▼       ▼          ▼
-       FATty      FIBROSIS CIRRHOSIS TUMOR  SEGMENTATION
-        Agent       Agent    Agent   Agent      Agent
-          │          │       │       │          │
-          └──────────┴───────┴───────┴──────────┘
-                             │
-                             ▼
-                  CLINICAL REASONING
-                         AGENT
-                             │
-                             ▼
-                  UNIFIED ASSESSMENT
-    """)
 
     return orchestrator
 
@@ -358,7 +432,6 @@ def create_orchestrator():
 def run_analysis(
     orchestrator,
     clinical_data=None,
-    ultrasound_image=None,
     mri_image=None,
     liver_volume=None
 ):
@@ -368,31 +441,27 @@ def run_analysis(
     print("STARTING LIVERAI ANALYSIS")
     print("=" * 80)
 
+
     print("\nAvailable inputs:")
 
     print(
-        "  Clinical data       :",
+        "  Clinical data      :",
         "✓" if clinical_data is not None
         else "—"
     )
 
     print(
-        "  Ultrasound image    :",
-        "✓" if ultrasound_image is not None
-        else "—"
-    )
-
-    print(
-        "  MRI image           :",
+        "  MRI image          :",
         "✓" if mri_image is not None
         else "—"
     )
 
     print(
-        "  Liver volume / NPY  :",
+        "  Liver volume / NPY :",
         "✓" if liver_volume is not None
         else "—"
     )
+
 
     # ==========================================================
     # CALL ORCHESTRATOR
@@ -400,14 +469,13 @@ def run_analysis(
 
     result = orchestrator.predict(
 
-        clinical_data=clinical_data,
-
-        ultrasound_image=ultrasound_image,
+        patient_data=clinical_data,
 
         mri_image=mri_image,
 
         liver_volume=liver_volume
     )
+
 
     return result
 
@@ -477,7 +545,6 @@ def save_result(
 def main():
 
     print("\n")
-
     print("=" * 80)
 
     print("""
@@ -487,17 +554,32 @@ def main():
     ██║     ██║╚██╗ ██╔╝██╔══╝  ██╔══██╗██╔══██║██║
     ███████╗██║ ╚████╔╝ ███████╗██║  ██║██║  ██║██║
     ╚══════╝╚═╝  ╚═══╝  ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝
-    
-                 MULTI-AGENT LIVER ANALYSIS
+
+             MULTI-AGENT LIVER ANALYSIS
     """)
 
     print("=" * 80)
+
 
     # ==========================================================
     # 1. CHECK PATHS
     # ==========================================================
 
-    check_model_paths()
+    paths_ok = check_model_paths()
+
+    if not paths_ok:
+
+        print(
+            "\n⚠ Some model paths are missing."
+        )
+
+        print(
+            "Do not start the complete system "
+            "until the missing models are available."
+        )
+
+        return
+
 
     # ==========================================================
     # 2. CREATE ORCHESTRATOR
@@ -520,14 +602,9 @@ def main():
 
         return
 
+
     # ==========================================================
     # 3. RUN ANALYSIS
-    # ==========================================================
-    #
-    # At the moment the four inputs are None.
-    #
-    # Replace them with your real data.
-    #
     # ==========================================================
 
     try:
@@ -538,18 +615,18 @@ def main():
 
             clinical_data=CLINICAL_DATA,
 
-            ultrasound_image=ULTRASOUND_IMAGE,
-
             mri_image=MRI_IMAGE,
 
             liver_volume=LIVER_VOLUME
         )
+
 
         # ======================================================
         # 4. DISPLAY
         # ======================================================
 
         display_result(result)
+
 
         # ======================================================
         # 5. SAVE
@@ -559,6 +636,7 @@ def main():
             result,
             "liverai_result.json"
         )
+
 
     except Exception as e:
 
