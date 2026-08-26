@@ -74,7 +74,7 @@ FIBROSIS_MODEL_PATH = os.path.join(
 CIRRHOSIS_MODEL_PATH = os.path.join(
     MODELS_DIR,
     "cirrhosis",
-    "model.pkl"
+    "XGBoost_Cirrhosis.pkl"
 )
 
 TUMOR_MODEL_PATH = os.path.join(
