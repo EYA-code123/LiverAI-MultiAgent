@@ -1,3 +1,4 @@
+```python
 import numpy as np
 import pandas as pd
 
@@ -10,14 +11,25 @@ class FibrosisAgent:
         self.model_name = "XGBoost"
         self.model = model
 
+        # ==================================================
+        # FEATURES EXPECTED BY THE TRAINED XGBOOST MODEL
+        # ==================================================
+
         self.features = [
             "age",
             "male",
             "weight",
             "height",
             "bmi",
-            "futime"
+            "futime",
+            "days",
+            "test",
+            "value"
         ]
+
+    # ======================================================
+    # PREDICTION
+    # ======================================================
 
     def predict(self, patient_data):
 
@@ -46,7 +58,7 @@ class FibrosisAgent:
             )
 
         # ==================================================
-        # ADD MISSING FEATURES
+        # CHECK / ADD MISSING FEATURES
         # ==================================================
 
         for feature in self.features:
@@ -56,7 +68,7 @@ class FibrosisAgent:
                 X[feature] = np.nan
 
         # ==================================================
-        # CORRECT ORDER
+        # KEEP ONLY FEATURES EXPECTED BY THE MODEL
         # ==================================================
 
         X = X[
@@ -72,10 +84,11 @@ class FibrosisAgent:
         )[0]
 
         # ==================================================
-        # PROBABILITY
+        # PROBABILITIES
         # ==================================================
 
         probability = None
+        class_probabilities = None
 
         if hasattr(
             self.model,
@@ -90,6 +103,15 @@ class FibrosisAgent:
                 np.max(probabilities)
             )
 
+            class_probabilities = {
+                f"class_{int(cls)}":
+                    float(prob)
+                for cls, prob in zip(
+                    self.model.classes_,
+                    probabilities
+                )
+            }
+
         # ==================================================
         # RESULT
         # ==================================================
@@ -100,12 +122,16 @@ class FibrosisAgent:
 
             "model": self.model_name,
 
-            "prediction": str(
+            "prediction": int(
                 prediction
             ),
 
             "probability": probability,
 
+            "class_probabilities":
+                class_probabilities,
+
             "status": "completed"
 
         }
+```
