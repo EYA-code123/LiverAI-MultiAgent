@@ -302,17 +302,10 @@ class CirrhosisAgent:
         # RESULT
         # ==================================================
 
-        return {
-
-            "agent": self.name,
-
-            "model": self.model_name,
-
-            "prediction": str(
-                prediction
-            ),
-
-            "probability": probability,
-
-            "status": "completed"
-        }
+       return {
+    "agent": self.name,
+    "model": self.model_name,
+    "status": "completed",
+    "prediction": str(prediction),
+    "probability": probability
+}
