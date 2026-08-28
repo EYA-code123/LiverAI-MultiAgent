@@ -1,7 +1,5 @@
 import numpy as np
-import torch
-
-from monai.networks.nets import SegResNet
+import tensorflow as tf
 
 
 class LiverSegmentationAgent:
@@ -9,105 +7,33 @@ class LiverSegmentationAgent:
     def __init__(self, model_path):
 
         self.name = "Liver Segmentation Agent"
+        self.model_name = "SegResNet / U-Net"
 
         self.model_path = model_path
 
-        # ==================================================
-        # DEVICE
-        # ==================================================
-
-        self.device = torch.device(
-            "cuda"
-            if torch.cuda.is_available()
-            else "cpu"
-        )
-
-        print(
-            f"[Segmentation] Device: "
-            f"{self.device}"
-        )
-
-        # ==================================================
-        # RECREATE SEGRESNET ARCHITECTURE
-        # ==================================================
-
-        self.model = SegResNet(
-
-            spatial_dims=3,
-
-            in_channels=1,
-
-            out_channels=1,
-
-            init_filters=16,
-
-            dropout_prob=0.2
-
-        )
-
-        # ==================================================
-        # LOAD STATE DICT
-        # ==================================================
-
-        state_dict = torch.load(
+        self.model = tf.keras.models.load_model(
             model_path,
-            map_location=self.device
+            compile=False
         )
-
-        self.model.load_state_dict(
-            state_dict
-        )
-
-        # ==================================================
-        # MOVE TO DEVICE
-        # ==================================================
-
-        self.model.to(
-            self.device
-        )
-
-        # ==================================================
-        # EVALUATION MODE
-        # ==================================================
-
-        self.model.eval()
-
-        print(
-            "[Segmentation] "
-            "SegResNet loaded successfully"
-        )
-
-    # ======================================================
-    # PREPROCESS
-    # ======================================================
 
     def preprocess(self, volume):
 
-        if isinstance(
-            volume,
-            str
-        ):
+        if isinstance(volume, str):
 
-            volume = np.load(
-                volume
-            )
+            volume = np.load(volume)
 
         volume = np.asarray(
             volume,
             dtype=np.float32
         )
 
-        # ==================================================
-        # NORMALIZATION
-        # ==================================================
+        if volume.size == 0:
+            raise ValueError(
+                "Empty liver volume"
+            )
 
-        vmin = np.min(
-            volume
-        )
-
-        vmax = np.max(
-            volume
-        )
+        vmin = np.min(volume)
+        vmax = np.max(volume)
 
         if vmax > vmin:
 
@@ -117,163 +43,86 @@ class LiverSegmentationAgent:
                 vmax - vmin
             )
 
-        # ==================================================
-        # CONVERT TO TENSOR
-        # ==================================================
-
-        tensor = torch.from_numpy(
-            volume
-        )
-
-        # Expected:
-        #
-        # [B, C, D, H, W]
-        #
-
-        if tensor.ndim == 3:
-
-            tensor = tensor.unsqueeze(
-                0
-            )
-
-            tensor = tensor.unsqueeze(
-                0
-            )
-
-        elif tensor.ndim == 4:
-
-            tensor = tensor.unsqueeze(
-                0
-            )
-
-        else:
-
-            raise ValueError(
-                f"Unexpected volume shape: "
-                f"{tuple(tensor.shape)}"
-            )
-
-        tensor = tensor.to(
-            self.device
-        )
-
-        return tensor
-
-    # ======================================================
-    # PREDICT
-    # ======================================================
+        return volume
 
     def predict(self, volume):
 
         try:
 
-            # ------------------------------------------------
-            # PREPROCESS
-            # ------------------------------------------------
+            if volume is None:
+                raise ValueError(
+                    "Liver volume is None"
+                )
 
-            x = self.preprocess(
+            volume = self.preprocess(
                 volume
             )
 
-            # ------------------------------------------------
-            # INFERENCE
-            # ------------------------------------------------
+            # --------------------------------------------------
+            # BATCH DIMENSION
+            # --------------------------------------------------
 
-            with torch.no_grad():
+            if volume.ndim == 3:
 
-                logits = self.model(
-                    x
+                volume = np.expand_dims(
+                    volume,
+                    axis=0
                 )
 
-                probabilities = torch.sigmoid(
-                    logits
-                )
+            # --------------------------------------------------
+            # MODEL
+            # --------------------------------------------------
 
-            # ------------------------------------------------
-            # BINARY MASK
-            # ------------------------------------------------
-
-            binary_mask = (
-                probabilities > 0.5
-            ).to(
-                torch.uint8
+            prediction = self.model.predict(
+                volume,
+                verbose=0
             )
 
-            binary_mask = (
-                binary_mask
-                .cpu()
-                .numpy()
-            )
+            # --------------------------------------------------
+            # MASK
+            # --------------------------------------------------
 
-            # ------------------------------------------------
-            # STATISTICS
-            # ------------------------------------------------
+            binary_mask = (
+                prediction > 0.5
+            ).astype(np.uint8)
 
             liver_voxels = int(
-                np.sum(
-                    binary_mask
-                )
+                np.sum(binary_mask)
             )
 
             total_voxels = int(
-                np.prod(
-                    binary_mask.shape
-                )
+                np.prod(binary_mask.shape)
             )
 
-            percentage = (
-
-                liver_voxels
-                /
-                total_voxels
-                *
+            liver_percentage = (
+                liver_voxels /
+                total_voxels *
                 100
-
                 if total_voxels > 0
-
-                else 0.0
+                else 0
             )
-
-            # ------------------------------------------------
-            # RESULT
-            # ------------------------------------------------
 
             return {
-
-                "agent":
-                    self.name,
-
-                "status":
-                    "success",
-
-                "segmentation_available":
-                    True,
-
-                "liver_voxels":
-                    liver_voxels,
-
+                "agent": self.name,
+                "model": self.model_name,
+                "status": "completed",
+                "segmentation_available": True,
+                "prediction": "liver_segmented",
+                "probability": None,
+                "liver_voxels": liver_voxels,
                 "liver_percentage":
-                    float(
-                        percentage
-                    ),
-
-                "mask":
-                    binary_mask
+                    float(liver_percentage),
+                "mask": binary_mask
             }
 
         except Exception as e:
 
             return {
-
-                "agent":
-                    self.name,
-
-                "status":
-                    "error",
-
-                "segmentation_available":
-                    False,
-
-                "error":
-                    str(e)
+                "agent": self.name,
+                "model": self.model_name,
+                "status": "error",
+                "segmentation_available": False,
+                "prediction": None,
+                "probability": None,
+                "error": str(e)
             }
