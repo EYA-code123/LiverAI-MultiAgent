@@ -6,12 +6,11 @@ class FibrosisAgent:
 
     def __init__(self, model):
 
-        self.name = "FibrosisAgent"
-        self.model_name = "XGBoost"
+        self.name = "Fibrosis Agent"
+        self.model_name = "XGBoost / Random Forest"
 
         self.model = model
 
-        # EXACT FEATURES USED BY THE TRAINED MODEL
         self.features = [
             "age",
             "male",
@@ -24,31 +23,22 @@ class FibrosisAgent:
             "value"
         ]
 
-    # ==========================================================
-    # PREDICT
-    # ==========================================================
-
     def predict(self, patient_data):
 
         try:
 
+            if patient_data is None:
+                raise ValueError("patient_data is None")
+
             # --------------------------------------------------
-            # CREATE DATAFRAME
+            # DATAFRAME
             # --------------------------------------------------
 
-            if isinstance(
-                patient_data,
-                dict
-            ):
+            if isinstance(patient_data, dict):
 
-                X = pd.DataFrame(
-                    [patient_data]
-                )
+                X = pd.DataFrame([patient_data])
 
-            elif isinstance(
-                patient_data,
-                pd.DataFrame
-            ):
+            elif isinstance(patient_data, pd.DataFrame):
 
                 X = patient_data.copy()
 
@@ -66,116 +56,75 @@ class FibrosisAgent:
             for feature in self.features:
 
                 if feature not in X.columns:
-
                     X[feature] = np.nan
 
             # --------------------------------------------------
-            # REMOVE EXTRA FEATURES
-            # AND FORCE EXACT ORDER
+            # USE MODEL FEATURES WHEN AVAILABLE
             # --------------------------------------------------
 
-            X = X[
-                self.features
-            ].copy()
+            if hasattr(self.model, "feature_names_in_"):
 
-            # --------------------------------------------------
-            # CHECK FEATURE NAMES
-            # --------------------------------------------------
-
-            if hasattr(
-                self.model,
-                "feature_names_in_"
-            ):
-
-                expected = list(
+                expected_features = list(
                     self.model.feature_names_in_
                 )
 
-                X = X[
-                    expected
-                ].copy()
+                for feature in expected_features:
+
+                    if feature not in X.columns:
+                        X[feature] = np.nan
+
+                X = X[expected_features].copy()
+
+            else:
+
+                X = X[self.features].copy()
 
             # --------------------------------------------------
             # PREDICTION
             # --------------------------------------------------
 
-            prediction = self.model.predict(
-                X
-            )[0]
+            prediction = self.model.predict(X)[0]
 
             # --------------------------------------------------
             # PROBABILITY
             # --------------------------------------------------
 
             probability = None
+            class_probabilities = None
 
-            probabilities = None
+            if hasattr(self.model, "predict_proba"):
 
-            if hasattr(
-                self.model,
-                "predict_proba"
-            ):
-
-                probabilities = (
-                    self.model.predict_proba(X)[0]
-                )
+                probabilities = self.model.predict_proba(X)[0]
 
                 probability = float(
                     np.max(probabilities)
                 )
 
-            # --------------------------------------------------
-            # RESULT
-            # --------------------------------------------------
-
-            result = {
-
-                "agent":
-                    self.name,
-
-                "model":
-                    self.model_name,
-
-                "prediction":
-                    str(prediction),
-
-                "probability":
-                    probability,
-
-                "status":
-                    "completed"
-            }
-
-            if probabilities is not None:
-
-                result[
-                    "class_probabilities"
-                ] = [
+                class_probabilities = [
                     float(x)
                     for x in probabilities
                 ]
 
-            return result
+            # --------------------------------------------------
+            # RESULT
+            # --------------------------------------------------
+
+            return {
+                "agent": self.name,
+                "model": self.model_name,
+                "status": "completed",
+                "prediction": str(prediction),
+                "probability": probability,
+                "class_probabilities": class_probabilities
+            }
 
         except Exception as e:
 
             return {
-
-                "agent":
-                    self.name,
-
-                "model":
-                    self.model_name,
-
-                "prediction":
-                    None,
-
-                "probability":
-                    None,
-
-                "status":
-                    "error",
-
-                "error":
-                    str(e)
+                "agent": self.name,
+                "model": self.model_name,
+                "status": "error",
+                "prediction": None,
+                "probability": None,
+                "error": str(e)
             }
