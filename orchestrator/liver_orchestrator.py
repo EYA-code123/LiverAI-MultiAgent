@@ -1,5 +1,5 @@
-import traceback
 from datetime import datetime
+import traceback
 
 
 class LiverAIOrchestrator:
@@ -16,77 +16,115 @@ class LiverAIOrchestrator:
 
         self.name = "LiverAI Orchestrator"
 
-        # ==========================================================
+        # ==================================================
         # AGENTS
-        # ==========================================================
+        # ==================================================
 
         self.fatty_agent = fatty_agent
         self.fibrosis_agent = fibrosis_agent
         self.cirrhosis_agent = cirrhosis_agent
         self.tumor_agent = tumor_agent
         self.segmentation_agent = segmentation_agent
-        self.clinical_reasoning_agent = clinical_reasoning_agent
+        self.clinical_reasoning_agent = (
+            clinical_reasoning_agent
+        )
 
-        # ==========================================================
+        # ==================================================
         # REGISTRY
-        # ==========================================================
+        # ==================================================
 
         self.agents = {
-            "fatty_liver": self.fatty_agent,
-            "fibrosis": self.fibrosis_agent,
-            "cirrhosis": self.cirrhosis_agent,
-            "tumor_classification": self.tumor_agent,
-            "liver_segmentation": self.segmentation_agent,
-            "clinical_reasoning": self.clinical_reasoning_agent
+
+            "fatty_liver":
+                self.fatty_agent,
+
+            "fibrosis":
+                self.fibrosis_agent,
+
+            "cirrhosis":
+                self.cirrhosis_agent,
+
+            "tumor_classification":
+                self.tumor_agent,
+
+            "liver_segmentation":
+                self.segmentation_agent,
+
+            "clinical_reasoning":
+                self.clinical_reasoning_agent
         }
 
-        # Remove agents that are not available
-        self.agents = {
-            name: agent
-            for name, agent in self.agents.items()
-            if agent is not None
-        }
-
-        # ==========================================================
+        # ==================================================
         # STATE
-        # ==========================================================
+        # ==================================================
 
         self.last_results = {}
+
         self.last_assessment = None
+
         self.execution_log = []
 
-        print("=" * 80)
-        print("LIVERAI MULTI-AGENT SYSTEM")
-        print("=" * 80)
+        print(
+            "\n"
+            + "=" * 80
+        )
 
-        print("\nRegistered Agents:")
+        print(
+            "LIVERAI MULTI-AGENT ORCHESTRATOR"
+        )
 
-        for name in self.agents:
-            print(f"  ✓ {name}")
+        print(
+            "=" * 80
+        )
 
-        print("\n✓ Orchestrator initialized")
-        print("=" * 80)
+        print(
+            "\nRegistered agents:"
+        )
 
-    # ==========================================================
+        for name, agent in self.agents.items():
+
+            status = (
+                "READY"
+                if agent is not None
+                else "NOT AVAILABLE"
+            )
+
+            print(
+                f"  {'✓' if agent else '✗'} "
+                f"{name:<25} {status}"
+            )
+
+        print(
+            "=" * 80
+        )
+
+    # ==================================================
     # LOGGING
-    # ==========================================================
+    # ==================================================
 
     def _log(self, message):
 
-        timestamp = datetime.now().strftime(
-            "%Y-%m-%d %H:%M:%S"
+        timestamp = (
+            datetime.now()
+            .strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
         )
 
         self.execution_log.append({
-            "timestamp": timestamp,
-            "message": message
+
+            "timestamp":
+                timestamp,
+
+            "message":
+                message
         })
 
         print(message)
 
-    # ==========================================================
-    # SAFE AGENT EXECUTION
-    # ==========================================================
+    # ==================================================
+    # RUN ONE AGENT
+    # ==================================================
 
     def _run_agent(
         self,
@@ -96,73 +134,105 @@ class LiverAIOrchestrator:
     ):
 
         self._log(
-            f"\n[{agent_name.upper()}] Starting..."
+            f"\n[{agent_name.upper()}] START"
         )
+
+        # --------------------------------------------------
+        # AGENT NOT AVAILABLE
+        # --------------------------------------------------
 
         if agent is None:
 
             self._log(
                 f"[{agent_name.upper()}] "
-                "Agent unavailable"
+                "NOT AVAILABLE"
             )
 
             return {
-                "agent": agent_name,
-                "status": "not_available",
-                "prediction": None,
-                "probability": None
+
+                "agent":
+                    agent_name,
+
+                "status":
+                    "not_available",
+
+                "prediction":
+                    None,
+
+                "probability":
+                    None
             }
+
+        # --------------------------------------------------
+        # INPUT NOT AVAILABLE
+        # --------------------------------------------------
 
         if input_data is None:
 
             self._log(
                 f"[{agent_name.upper()}] "
-                "No input → skipped"
+                "NO INPUT → SKIPPED"
             )
 
             return {
-                "agent": agent_name,
-                "status": "not_available",
-                "prediction": None,
-                "probability": None
+
+                "agent":
+                    agent_name,
+
+                "status":
+                    "not_available",
+
+                "prediction":
+                    None,
+
+                "probability":
+                    None
             }
+
+        # --------------------------------------------------
+        # EXECUTION
+        # --------------------------------------------------
 
         try:
 
-            # ==================================================
-            # PREDICT
-            # ==================================================
+            if hasattr(
+                agent,
+                "predict"
+            ):
 
-            if hasattr(agent, "predict"):
-
-                result = agent.predict(input_data)
-
-            elif hasattr(agent, "analyze"):
-
-                result = agent.analyze(input_data)
+                result = agent.predict(
+                    input_data
+                )
 
             else:
 
                 raise AttributeError(
-                    f"{agent_name} has no "
-                    "predict() or analyze()"
+                    f"{agent_name} "
+                    "does not implement predict()"
                 )
 
-            # ==================================================
-            # NORMALIZE RESULT
-            # ==================================================
+            # --------------------------------------------------
+            # NORMALIZE
+            # --------------------------------------------------
 
             if result is None:
 
                 result = {}
 
-            if not isinstance(result, dict):
+            if not isinstance(
+                result,
+                dict
+            ):
 
                 result = {
-                    "prediction": result
+                    "prediction":
+                        result
                 }
 
-            result["agent"] = agent_name
+            result.setdefault(
+                "agent",
+                agent_name
+            )
 
             result.setdefault(
                 "status",
@@ -170,7 +240,8 @@ class LiverAIOrchestrator:
             )
 
             self._log(
-                f"[{agent_name.upper()}] ✓ Completed"
+                f"[{agent_name.upper()}] "
+                "✓ COMPLETED"
             )
 
             return result
@@ -178,22 +249,33 @@ class LiverAIOrchestrator:
         except Exception as e:
 
             self._log(
-                f"[{agent_name.upper()}] ✗ Error: {e}"
+                f"[{agent_name.upper()}] "
+                f"✗ ERROR: {e}"
             )
 
             traceback.print_exc()
 
             return {
-                "agent": agent_name,
-                "status": "error",
-                "prediction": None,
-                "probability": None,
-                "error": str(e)
+
+                "agent":
+                    agent_name,
+
+                "status":
+                    "error",
+
+                "prediction":
+                    None,
+
+                "probability":
+                    None,
+
+                "error":
+                    str(e)
             }
 
-    # ==========================================================
-    # MAIN PREDICTION
-    # ==========================================================
+    # ==================================================
+    # MAIN PIPELINE
+    # ==================================================
 
     def predict(
         self,
@@ -205,121 +287,212 @@ class LiverAIOrchestrator:
 
         self.execution_log = []
 
-        self._log("\n" + "=" * 80)
-        self._log("STARTING LIVERAI ANALYSIS")
-        self._log("=" * 80)
+        self._log(
+            "\n"
+            + "=" * 80
+        )
+
+        self._log(
+            "STARTING LIVERAI ANALYSIS"
+        )
+
+        self._log(
+            "=" * 80
+        )
 
         results = {}
 
-        # ======================================================
-        # 1. FATTY LIVER
-        # ======================================================
+        # ==================================================
+        # STAGE 1
+        # SPECIALIZED AGENTS
+        # ==================================================
 
-        if self.fatty_agent is not None:
+        self._log(
+            "\n"
+            "STAGE 1 — SPECIALIZED AGENTS"
+        )
 
-            results["fatty_liver"] = self._run_agent(
-                "fatty_liver",
-                self.fatty_agent,
-                clinical_data
+        # --------------------------------------------------
+        # FAT
+        # --------------------------------------------------
+
+        results[
+            "fatty_liver"
+        ] = self._run_agent(
+
+            "fatty_liver",
+
+            self.fatty_agent,
+
+            clinical_data
+        )
+
+        # --------------------------------------------------
+        # FIBROSIS
+        # --------------------------------------------------
+
+        results[
+            "fibrosis"
+        ] = self._run_agent(
+
+            "fibrosis",
+
+            self.fibrosis_agent,
+
+            clinical_data
+        )
+
+        # --------------------------------------------------
+        # CIRRHOSIS
+        # --------------------------------------------------
+
+        results[
+            "cirrhosis"
+        ] = self._run_agent(
+
+            "cirrhosis",
+
+            self.cirrhosis_agent,
+
+            clinical_data
+        )
+
+        # --------------------------------------------------
+        # TUMOR
+        # --------------------------------------------------
+
+        results[
+            "tumor_classification"
+        ] = self._run_agent(
+
+            "tumor_classification",
+
+            self.tumor_agent,
+
+            mri_image
+        )
+
+        # --------------------------------------------------
+        # SEGMENTATION
+        # --------------------------------------------------
+
+        results[
+            "liver_segmentation"
+        ] = self._run_agent(
+
+            "liver_segmentation",
+
+            self.segmentation_agent,
+
+            liver_volume
+        )
+
+        # ==================================================
+        # STAGE 2
+        # CLINICAL REASONING
+        # ==================================================
+
+        self._log(
+            "\n"
+            "STAGE 2 — CLINICAL REASONING"
+        )
+
+        results[
+            "clinical_reasoning"
+        ] = self._run_agent(
+
+            "clinical_reasoning",
+
+            self.clinical_reasoning_agent,
+
+            results
+        )
+
+        # ==================================================
+        # UNIFIED ASSESSMENT
+        # ==================================================
+
+        clinical_result = results.get(
+            "clinical_reasoning",
+            {}
+        )
+
+        unified_assessment = (
+            clinical_result.get(
+                "unified_assessment"
             )
+        )
 
-        # ======================================================
-        # 2. FIBROSIS
-        # ======================================================
+        # ==================================================
+        # FINAL OUTPUT
+        # ==================================================
 
-        if self.fibrosis_agent is not None:
+        final_result = {
 
-            results["fibrosis"] = self._run_agent(
-                "fibrosis",
-                self.fibrosis_agent,
-                clinical_data
-            )
+            "system":
+                self.name,
 
-        # ======================================================
-        # 3. CIRRHOSIS
-        # ======================================================
+            "timestamp":
+                datetime.now().isoformat(),
 
-        if self.cirrhosis_agent is not None:
+            "status":
+                "completed",
 
-            results["cirrhosis"] = self._run_agent(
-                "cirrhosis",
-                self.cirrhosis_agent,
-                clinical_data
-            )
+            "agent_results":
+                results,
 
-        # ======================================================
-        # 4. TUMOR CLASSIFICATION
-        # ======================================================
+            "unified_assessment":
+                unified_assessment,
 
-        if self.tumor_agent is not None:
+            "execution_log":
+                self.execution_log
+        }
 
-            results["tumor_classification"] = self._run_agent(
-                "tumor_classification",
-                self.tumor_agent,
-                mri_image
-            )
-
-        # ======================================================
-        # 5. LIVER SEGMENTATION
-        # ======================================================
-
-        if self.segmentation_agent is not None:
-
-            results["liver_segmentation"] = self._run_agent(
-                "liver_segmentation",
-                self.segmentation_agent,
-                liver_volume
-            )
-
-        # ======================================================
-        # 6. CLINICAL REASONING
-        # ======================================================
-
-        if self.clinical_reasoning_agent is not None:
-
-            results["clinical_reasoning"] = self._run_agent(
-                "clinical_reasoning",
-                self.clinical_reasoning_agent,
-                results
-            )
-
-        # ======================================================
+        # ==================================================
         # SAVE STATE
-        # ======================================================
+        # ==================================================
 
         self.last_results = results
 
-        self.last_assessment = results.get(
-            "clinical_reasoning"
+        self.last_assessment = (
+            unified_assessment
         )
 
-        self._log("\n" + "=" * 80)
-        self._log("LIVERAI ANALYSIS COMPLETED")
-        self._log("=" * 80)
+        self._log(
+            "\n"
+            + "=" * 80
+        )
 
-        return results
+        self._log(
+            "LIVERAI ANALYSIS COMPLETED"
+        )
 
-    # ==========================================================
+        self._log(
+            "=" * 80
+        )
+
+        return final_result
+
+    # ==================================================
     # STATUS
-    # ==========================================================
+    # ==================================================
 
     def get_status(self):
 
         return {
+
             name: {
-                "available": agent is not None,
-                "class": (
-                    agent.__class__.__name__
-                    if agent is not None
-                    else None
-                )
+
+                "available":
+                    agent is not None,
+
+                "class":
+                    (
+                        agent.__class__.__name__
+                        if agent is not None
+                        else None
+                    )
             }
-            for name, agent in {
-                "fatty_liver": self.fatty_agent,
-                "fibrosis": self.fibrosis_agent,
-                "cirrhosis": self.cirrhosis_agent,
-                "tumor_classification": self.tumor_agent,
-                "liver_segmentation": self.segmentation_agent,
-                "clinical_reasoning": self.clinical_reasoning_agent
-            }.items()
+
+            for name, agent in self.agents.items()
         }
