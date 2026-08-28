@@ -2,226 +2,273 @@ class ClinicalReasoningAgent:
 
     def __init__(self):
 
-        self.name = (
-            "ClinicalReasoningAgent"
-        )
+        self.name = "Clinical Reasoning Agent"
 
         self.model_name = (
-            "Rule-Based Clinical Reasoning"
+            "Rule-Based Multi-Agent Clinical Reasoning"
         )
 
-    # ======================================================
-    # PREDICT
-    # ======================================================
+    def predict(self, agent_results):
 
-    def predict(
-        self,
-        agent_results
-    ):
+        try:
 
-        fatty = agent_results.get(
-            "fatty_liver",
-            {}
-        )
+            # ==================================================
+            # RETRIEVE AGENT RESULTS
+            # ==================================================
 
-        fibrosis = agent_results.get(
-            "fibrosis",
-            {}
-        )
-
-        cirrhosis = agent_results.get(
-            "cirrhosis",
-            {}
-        )
-
-        tumor = agent_results.get(
-            "tumor_classification",
-            {}
-        )
-
-        segmentation = agent_results.get(
-            "liver_segmentation",
-            {}
-        )
-
-        # ==================================================
-        # EXTRACT PREDICTIONS
-        # ==================================================
-
-        fatty_prediction = fatty.get(
-            "prediction"
-        )
-
-        fibrosis_prediction = fibrosis.get(
-            "prediction"
-        )
-
-        cirrhosis_prediction = cirrhosis.get(
-            "prediction"
-        )
-
-        tumor_prediction = tumor.get(
-            "prediction"
-        )
-
-        # ==================================================
-        # FINDINGS
-        # ==================================================
-
-        findings = []
-
-        if fatty.get("status") == "completed":
-
-            findings.append(
-                f"Fatty liver prediction: "
-                f"{fatty_prediction}"
+            fatty = agent_results.get(
+                "fatty_liver",
+                {}
             )
 
-        if fibrosis.get("status") == "completed":
-
-            findings.append(
-                f"Fibrosis prediction: "
-                f"{fibrosis_prediction}"
+            fibrosis = agent_results.get(
+                "fibrosis",
+                {}
             )
 
-        if cirrhosis.get("status") == "completed":
-
-            findings.append(
-                f"Cirrhosis prediction: "
-                f"{cirrhosis_prediction}"
+            cirrhosis = agent_results.get(
+                "cirrhosis",
+                {}
             )
 
-        if tumor.get("status") in [
-            "success",
-            "completed"
-        ]:
-
-            findings.append(
-                f"Tumor classification: "
-                f"{tumor_prediction}"
+            tumor = agent_results.get(
+                "tumor_classification",
+                {}
             )
 
-        if segmentation.get(
-            "segmentation_available",
-            False
-        ):
-
-            findings.append(
-                "Liver segmentation "
-                "successfully completed."
+            segmentation = agent_results.get(
+                "liver_segmentation",
+                {}
             )
 
-            findings.append(
-                "Estimated liver volume "
-                f"percentage: "
-                f"{segmentation.get('liver_percentage', 0):.2f}%"
+            # ==================================================
+            # PREDICTIONS
+            # ==================================================
+
+            fatty_prediction = fatty.get(
+                "prediction"
             )
 
-        # ==================================================
-        # RISK LOGIC
-        # ==================================================
-
-        overall_risk = "Low"
-
-        # ------------------------------------------
-        # CIRRHOSIS
-        # ------------------------------------------
-
-        if str(
-            cirrhosis_prediction
-        ) in [
-            "1",
-            "2"
-        ]:
-
-            overall_risk = "Elevated"
-
-        # ------------------------------------------
-        # FIBROSIS
-        # ------------------------------------------
-
-        elif str(
-            fibrosis_prediction
-        ) == "1":
-
-            overall_risk = "Moderate"
-
-        # ------------------------------------------
-        # FATTY LIVER
-        # ------------------------------------------
-
-        elif str(
-            fatty_prediction
-        ) in [
-            "1",
-            "2"
-        ]:
-
-            overall_risk = (
-                "Possible fatty liver"
+            fibrosis_prediction = fibrosis.get(
+                "prediction"
             )
 
-        # ==================================================
-        # TUMOR
-        # ==================================================
+            cirrhosis_prediction = cirrhosis.get(
+                "prediction"
+            )
 
-        tumor_flag = False
+            tumor_prediction = tumor.get(
+                "prediction"
+            )
 
-        if tumor_prediction is not None:
+            # ==================================================
+            # FINDINGS
+            # ==================================================
 
+            findings = []
+
+            if fatty.get("status") == "completed":
+
+                findings.append({
+                    "domain": "fatty_liver",
+                    "prediction":
+                        fatty_prediction,
+                    "confidence":
+                        fatty.get("probability")
+                })
+
+            if fibrosis.get("status") == "completed":
+
+                findings.append({
+                    "domain": "fibrosis",
+                    "prediction":
+                        fibrosis_prediction,
+                    "confidence":
+                        fibrosis.get("probability")
+                })
+
+            if cirrhosis.get("status") == "completed":
+
+                findings.append({
+                    "domain": "cirrhosis",
+                    "prediction":
+                        cirrhosis_prediction,
+                    "confidence":
+                        cirrhosis.get("probability")
+                })
+
+            if tumor.get("status") == "completed":
+
+                findings.append({
+                    "domain": "tumor",
+                    "prediction":
+                        tumor_prediction,
+                    "confidence":
+                        tumor.get("probability")
+                })
+
+            if segmentation.get(
+                "status"
+            ) == "completed":
+
+                findings.append({
+                    "domain": "segmentation",
+                    "prediction":
+                        segmentation.get(
+                            "prediction"
+                        ),
+                    "liver_percentage":
+                        segmentation.get(
+                            "liver_percentage"
+                        )
+                })
+
+            # ==================================================
+            # TUMOR FLAG
+            # ==================================================
+
+            tumor_detected = False
+
+            if tumor_prediction:
+
+                tumor_detected = (
+                    str(
+                        tumor_prediction
+                    ).lower()
+                    not in [
+                        "healthy",
+                        "normal",
+                        "none"
+                    ]
+                )
+
+            # ==================================================
+            # RISK SCORE
+            # ==================================================
+
+            risk_score = 0
+
+            # Cirrhosis
             if str(
-                tumor_prediction
-            ).lower() not in [
-                "healthy",
-                "none",
-                "normal"
-            ]:
+                cirrhosis_prediction
+            ) in ["1", "2", "3"]:
 
-                tumor_flag = True
+                risk_score += 3
 
-        if tumor_flag:
+            # Fibrosis
+            if str(
+                fibrosis_prediction
+            ) in ["1", "2", "3"]:
 
-            overall_risk = "Requires tumor assessment"
+                risk_score += 2
 
-        # ==================================================
-        # RESULT
-        # ==================================================
+            # Fatty liver
+            if str(
+                fatty_prediction
+            ) in ["1", "2"]:
 
-        return {
+                risk_score += 1
 
-            "agent":
-                self.name,
+            # Tumor
+            if tumor_detected:
 
-            "model":
-                self.model_name,
+                risk_score += 4
 
-            "overall_risk":
-                overall_risk,
+            # ==================================================
+            # OVERALL RISK
+            # ==================================================
 
-            "findings":
-                findings,
+            if risk_score >= 6:
 
-            "tumor_detected":
-                tumor_flag,
+                overall_risk = "High"
 
-            "fatty_liver_prediction":
-                fatty_prediction,
+            elif risk_score >= 3:
 
-            "fibrosis_prediction":
-                fibrosis_prediction,
+                overall_risk = "Moderate"
 
-            "cirrhosis_prediction":
-                cirrhosis_prediction,
+            elif risk_score >= 1:
 
-            "tumor_prediction":
-                tumor_prediction,
+                overall_risk = "Low"
 
-            "segmentation_available":
-                segmentation.get(
-                    "segmentation_available",
-                    False
-                ),
+            else:
 
-            "status":
-                "completed"
-        }
+                overall_risk = "No major abnormality detected"
+
+            # ==================================================
+            # UNIFIED ASSESSMENT
+            # ==================================================
+
+            assessment = {
+
+                "overall_risk":
+                    overall_risk,
+
+                "risk_score":
+                    risk_score,
+
+                "fatty_liver":
+                    fatty_prediction,
+
+                "fibrosis":
+                    fibrosis_prediction,
+
+                "cirrhosis":
+                    cirrhosis_prediction,
+
+                "tumor":
+                    tumor_prediction,
+
+                "tumor_detected":
+                    tumor_detected,
+
+                "segmentation":
+                    {
+                        "available":
+                            segmentation.get(
+                                "segmentation_available",
+                                False
+                            ),
+                        "liver_percentage":
+                            segmentation.get(
+                                "liver_percentage"
+                            )
+                    },
+
+                "findings":
+                    findings
+            }
+
+            # ==================================================
+            # FINAL RESULT
+            # ==================================================
+
+            return {
+
+                "agent": self.name,
+
+                "model": self.model_name,
+
+                "status": "completed",
+
+                "unified_assessment":
+                    assessment,
+
+                "findings":
+                    findings,
+
+                "overall_risk":
+                    overall_risk
+            }
+
+        except Exception as e:
+
+            return {
+
+                "agent": self.name,
+
+                "model": self.model_name,
+
+                "status": "error",
+
+                "error": str(e)
+            }
