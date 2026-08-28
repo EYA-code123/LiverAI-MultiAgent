@@ -1,7 +1,7 @@
-# ==============================================================
+# =============================================================================
 # LiverAI-MultiAgent
 # MAIN ENTRY POINT
-# ==============================================================
+# =============================================================================
 
 import os
 import sys
@@ -11,390 +11,59 @@ import joblib
 import traceback
 from datetime import datetime
 
+# =============================================================================
+# GOOGLE DRIVE
+# =============================================================================
 
-# ==============================================================
-# GOOGLE DRIVE / PROJECT PATH
-# ==============================================================
+DRIVE_BASE = "/content/drive/MyDrive"
 
-BASE_DIR = "/content/drive/MyDrive/LiverAI"
-
-DATASETS_DIR = os.path.join(
-    BASE_DIR,
-    "datasets"
+LIVERAI_DIR = os.path.join(
+    DRIVE_BASE,
+    "LiverAI"
 )
 
 MODELS_DIR = os.path.join(
-    BASE_DIR,
+    LIVERAI_DIR,
     "models"
 )
 
-
-# ==============================================================
-# MODEL PATHS
-# ==============================================================
-
-FATTY_MODEL_PATH = os.path.join(
-    MODELS_DIR,
-    "fatty_liver",
-    "model.pkl"
+DATASETS_DIR = os.path.join(
+    LIVERAI_DIR,
+    "datasets"
 )
 
-FIBROSIS_MODEL_PATH = os.path.join(
-    MODELS_DIR,
-    "fibrosis",
-    "model.pkl"
-)
+# =============================================================================
+# PROJECT DIRECTORY
+# =============================================================================
 
-CIRRHOSIS_MODEL_PATH = os.path.join(
-    MODELS_DIR,
-    "cirrhosis",
-    "XGBoost_Cirrhosis.pkl"
-)
+PROJECT_DIR = "/content/LiverAI-MultiAgent"
 
-TUMOR_MODEL_PATH = os.path.join(
-    MODELS_DIR,
-    "tumor",
-    "model.keras"
-)
+if os.path.exists(PROJECT_DIR):
+    if PROJECT_DIR not in sys.path:
+        sys.path.insert(0, PROJECT_DIR)
 
-SEGMENTATION_MODEL_PATH = os.path.join(
-    MODELS_DIR,
-    "segmentation",
-    "model.keras"
-)
+os.chdir(PROJECT_DIR)
 
+print("=" * 80)
+print("LIVERAI MULTI-AGENT SYSTEM")
+print("=" * 80)
 
-# ==============================================================
-# DATASET PATHS
-# ==============================================================
+print("PROJECT:")
+print(PROJECT_DIR)
 
-FATTY_DATASET_DIR = os.path.join(
-    DATASETS_DIR,
-    "fatty_liver"
-)
+print("GOOGLE DRIVE:")
+print(LIVERAI_DIR)
 
-FIBROSIS_DATASET_DIR = os.path.join(
-    DATASETS_DIR,
-    "fibrosis"
-)
+print("=" * 80)
 
-CIRRHOSIS_DATASET_DIR = os.path.join(
-    DATASETS_DIR,
-    "cirrhosis"
-)
 
-TUMOR_DATASET_DIR = os.path.join(
-    DATASETS_DIR,
-    "tumor"
-)
-
-SEGMENTATION_DATASET_DIR = os.path.join(
-    DATASETS_DIR,
-    "segmentation"
-)
-
-
-# ==============================================================
-# PRINT PATHS
-# ==============================================================
-
-def print_configuration():
-
-    print("\n")
-    print("=" * 80)
-    print("LIVERAI CONFIGURATION")
-    print("=" * 80)
-
-    print("\nProject:")
-    print(BASE_DIR)
-
-    print("\nModels:")
-
-    print(
-        "Fatty Liver      :",
-        FATTY_MODEL_PATH
-    )
-
-    print(
-        "Fibrosis         :",
-        FIBROSIS_MODEL_PATH
-    )
-
-    print(
-        "Cirrhosis        :",
-        CIRRHOSIS_MODEL_PATH
-    )
-
-    print(
-        "Tumor            :",
-        TUMOR_MODEL_PATH
-    )
-
-    print(
-        "Segmentation     :",
-        SEGMENTATION_MODEL_PATH
-    )
-
-    print("\nDatasets:")
-
-    print(
-        "Fatty Liver      :",
-        FATTY_DATASET_DIR
-    )
-
-    print(
-        "Fibrosis         :",
-        FIBROSIS_DATASET_DIR
-    )
-
-    print(
-        "Cirrhosis        :",
-        CIRRHOSIS_DATASET_DIR
-    )
-
-    print(
-        "Tumor            :",
-        TUMOR_DATASET_DIR
-    )
-
-    print(
-        "Segmentation     :",
-        SEGMENTATION_DATASET_DIR
-    )
-
-    print("=" * 80)
-
-
-# ==============================================================
-# CHECK DIRECTORIES
-# ==============================================================
-
-def check_directories():
-
-    print("\n")
-    print("=" * 80)
-    print("CHECKING GOOGLE DRIVE DIRECTORIES")
-    print("=" * 80)
-
-    directories = {
-
-        "LiverAI":
-            BASE_DIR,
-
-        "Datasets":
-            DATASETS_DIR,
-
-        "Models":
-            MODELS_DIR,
-
-        "Fatty dataset":
-            FATTY_DATASET_DIR,
-
-        "Fibrosis dataset":
-            FIBROSIS_DATASET_DIR,
-
-        "Cirrhosis dataset":
-            CIRRHOSIS_DATASET_DIR,
-
-        "Tumor dataset":
-            TUMOR_DATASET_DIR,
-
-        "Segmentation dataset":
-            SEGMENTATION_DATASET_DIR,
-
-        "Fatty model directory":
-            os.path.dirname(FATTY_MODEL_PATH),
-
-        "Fibrosis model directory":
-            os.path.dirname(FIBROSIS_MODEL_PATH),
-
-        "Cirrhosis model directory":
-            os.path.dirname(CIRRHOSIS_MODEL_PATH),
-
-        "Tumor model directory":
-            os.path.dirname(TUMOR_MODEL_PATH),
-
-        "Segmentation model directory":
-            os.path.dirname(SEGMENTATION_MODEL_PATH)
-    }
-
-    for name, path in directories.items():
-
-        if os.path.exists(path):
-
-            print(
-                f"✓ {name:<30} {path}"
-            )
-
-        else:
-
-            print(
-                f"✗ {name:<30} NOT FOUND"
-            )
-
-    print("=" * 80)
-
-
-# ==============================================================
-# CHECK MODEL FILES
-# ==============================================================
-
-def check_models():
-
-    print("\n")
-    print("=" * 80)
-    print("CHECKING TRAINED MODELS")
-    print("=" * 80)
-
-    models = {
-
-        "Fatty Liver":
-            FATTY_MODEL_PATH,
-
-        "Fibrosis":
-            FIBROSIS_MODEL_PATH,
-
-        "Cirrhosis":
-            CIRRHOSIS_MODEL_PATH,
-
-        "Tumor Classification":
-            TUMOR_MODEL_PATH,
-
-        "Liver Segmentation":
-            SEGMENTATION_MODEL_PATH
-    }
-
-    available = {}
-
-    for name, path in models.items():
-
-        exists = os.path.isfile(path)
-
-        available[name] = exists
-
-        if exists:
-
-            size_mb = (
-                os.path.getsize(path)
-                / (1024 * 1024)
-            )
-
-            print(
-                f"✓ {name:<25} "
-                f"{path} "
-                f"({size_mb:.2f} MB)"
-            )
-
-        else:
-
-            print(
-                f"✗ {name:<25} "
-                f"{path}"
-            )
-
-    print("=" * 80)
-
-    return available
-
-
-# ==============================================================
-# LOAD PICKLE / JOBLIB MODEL
-# ==============================================================
-
-def load_pickle_model(path):
-
-    if not os.path.isfile(path):
-
-        raise FileNotFoundError(
-            f"\nModel not found:\n{path}"
-        )
-
-    print(
-        f"\nLoading model:\n{path}"
-    )
-
-    try:
-
-        model = joblib.load(path)
-
-        print("✓ Loaded with joblib")
-
-        return model
-
-    except Exception as joblib_error:
-
-        print(
-            "joblib failed, trying pickle..."
-        )
-
-        try:
-
-            with open(
-                path,
-                "rb"
-            ) as f:
-
-                model = pickle.load(f)
-
-            print(
-                "✓ Loaded with pickle"
-            )
-
-            return model
-
-        except Exception as pickle_error:
-
-            raise RuntimeError(
-                "\nCould not load model.\n"
-                f"Path: {path}\n"
-                f"joblib error: {joblib_error}\n"
-                f"pickle error: {pickle_error}"
-            )
-
-
-# ==============================================================
-# LOAD KERAS MODEL
-# ==============================================================
-
-def load_keras_model(path):
-
-    if not os.path.isfile(path):
-
-        raise FileNotFoundError(
-            f"\nKeras model not found:\n{path}"
-        )
-
-    print(
-        f"\nLoading Keras model:\n{path}"
-    )
-
-    import tensorflow as tf
-
-    model = tf.keras.models.load_model(
-        path,
-        compile=False
-    )
-
-    print("✓ Keras model loaded")
-
-    return model
-
-
-# ==============================================================
+# =============================================================================
 # IMPORT AGENTS
-# ==============================================================
+# =============================================================================
 
-from agents.fatty_liver_agent import (
-    FattyLiverAgent
-)
-
-from agents.fibrosis_agent import (
-    FibrosisAgent
-)
-
-from agents.cirrhosis_agent import (
-    CirrhosisAgent
-)
+from agents.fatty_liver_agent import FattyLiverAgent
+from agents.fibrosis_agent import FibrosisAgent
+from agents.cirrhosis_agent import CirrhosisAgent
 
 from agents.tumor_classification_agent import (
     TumorClassificationAgent
@@ -409,222 +78,535 @@ from agents.clinical_reasoning_agent import (
 )
 
 
-# ==============================================================
+# =============================================================================
 # IMPORT ORCHESTRATOR
-# ==============================================================
+# =============================================================================
 
 from orchestrator.liver_orchestrator import (
     LiverAIOrchestrator
 )
 
 
-# ==============================================================
-# CREATE AGENTS
-# ==============================================================
+# =============================================================================
+# REAL MODEL PATHS
+# =============================================================================
+
+# -------------------------------------------------------------------------
+# FATTY LIVER
+# -------------------------------------------------------------------------
+
+FATTY_MODEL_PATH = os.path.join(
+    MODELS_DIR,
+    "fatty_liver",
+    "model.pkl"
+)
+
+
+# -------------------------------------------------------------------------
+# FIBROSIS
+#
+# CURRENT REAL LOCATION FOUND IN YOUR DRIVE
+# -------------------------------------------------------------------------
+
+FIBROSIS_MODEL_PATH = (
+    "/content/drive/MyDrive/"
+    "Fibrosis Agent/"
+    "XGBoost_model/"
+    "xgboost_nafld.pkl"
+)
+
+
+# -------------------------------------------------------------------------
+# CIRRHOSIS
+# -------------------------------------------------------------------------
+
+CIRRHOSIS_MODEL_PATH = os.path.join(
+    MODELS_DIR,
+    "cirrhosis",
+    "XGBoost_Cirrhosis.pkl"
+)
+
+
+# -------------------------------------------------------------------------
+# TUMOR
+# -------------------------------------------------------------------------
+
+TUMOR_MODEL_PATH = os.path.join(
+    MODELS_DIR,
+    "tumor",
+    "model.keras"
+)
+
+
+# -------------------------------------------------------------------------
+# SEGMENTATION
+# -------------------------------------------------------------------------
+
+SEGMENTATION_MODEL_PATH = os.path.join(
+    MODELS_DIR,
+    "segmentation",
+    "model.keras"
+)
+
+
+# =============================================================================
+# DISPLAY MODEL PATHS
+# =============================================================================
+
+def show_model_paths():
+
+    print("\n")
+    print("=" * 80)
+    print("MODEL PATHS")
+    print("=" * 80)
+
+    paths = {
+        "Fatty Liver": FATTY_MODEL_PATH,
+        "Fibrosis": FIBROSIS_MODEL_PATH,
+        "Cirrhosis": CIRRHOSIS_MODEL_PATH,
+        "Tumor": TUMOR_MODEL_PATH,
+        "Segmentation": SEGMENTATION_MODEL_PATH
+    }
+
+    for name, path in paths.items():
+
+        if os.path.exists(path):
+
+            print(
+                f"✓ {name:<20}: {path}"
+            )
+
+        else:
+
+            print(
+                f"✗ {name:<20}: NOT FOUND"
+            )
+
+    print("=" * 80)
+
+
+# =============================================================================
+# LOAD PICKLE
+# =============================================================================
+
+def load_pickle_model(path):
+
+    if not os.path.exists(path):
+
+        raise FileNotFoundError(
+            f"\nModel not found:\n{path}"
+        )
+
+    print(
+        f"\nLoading pickle model:\n{path}"
+    )
+
+    try:
+
+        model = joblib.load(path)
+
+    except Exception:
+
+        with open(
+            path,
+            "rb"
+        ) as f:
+
+            model = pickle.load(f)
+
+    print(
+        "✓ Pickle model loaded"
+    )
+
+    print(
+        "Model type:",
+        type(model)
+    )
+
+    return model
+
+
+# =============================================================================
+# LOAD KERAS
+# =============================================================================
+
+def load_keras_model(path):
+
+    if not os.path.exists(path):
+
+        raise FileNotFoundError(
+            f"\nKeras model not found:\n{path}"
+        )
+
+    import tensorflow as tf
+
+    print(
+        f"\nLoading Keras model:\n{path}"
+    )
+
+    model = tf.keras.models.load_model(
+        path,
+        compile=False
+    )
+
+    print(
+        "✓ Keras model loaded"
+    )
+
+    return model
+
+
+# =============================================================================
+# LOAD FATTY LIVER
+# =============================================================================
+
+def create_fatty_agent():
+
+    print("\n")
+    print("-" * 80)
+    print("FATTY LIVER AGENT")
+    print("-" * 80)
+
+    model = load_pickle_model(
+        FATTY_MODEL_PATH
+    )
+
+    agent = FattyLiverAgent(
+        model=model
+    )
+
+    print(
+        "✓ Fatty Liver Agent initialized"
+    )
+
+    return agent
+
+
+# =============================================================================
+# LOAD FIBROSIS
+# =============================================================================
+
+def create_fibrosis_agent():
+
+    print("\n")
+    print("-" * 80)
+    print("FIBROSIS AGENT")
+    print("-" * 80)
+
+    model = load_pickle_model(
+        FIBROSIS_MODEL_PATH
+    )
+
+    print("\nFibrosis model information:")
+
+    if hasattr(
+        model,
+        "feature_names_in_"
+    ):
+
+        print(
+            "FEATURES:",
+            list(model.feature_names_in_)
+        )
+
+    if hasattr(
+        model,
+        "n_features_in_"
+    ):
+
+        print(
+            "N FEATURES:",
+            model.n_features_in_
+        )
+
+    if hasattr(
+        model,
+        "classes_"
+    ):
+
+        print(
+            "CLASSES:",
+            model.classes_
+        )
+
+    print(
+        "MODEL TYPE:",
+        type(model)
+    )
+
+    agent = FibrosisAgent(
+        model=model
+    )
+
+    print(
+        "✓ Fibrosis Agent initialized"
+    )
+
+    return agent
+
+
+# =============================================================================
+# LOAD CIRRHOSIS
+# =============================================================================
+
+def create_cirrhosis_agent():
+
+    print("\n")
+    print("-" * 80)
+    print("CIRRHOSIS AGENT")
+    print("-" * 80)
+
+    package = load_pickle_model(
+        CIRRHOSIS_MODEL_PATH
+    )
+
+    print(
+        "Cirrhosis package type:",
+        type(package)
+    )
+
+    if not isinstance(
+        package,
+        dict
+    ):
+
+        raise TypeError(
+            "Cirrhosis model must be a dictionary."
+        )
+
+    required_keys = [
+
+        "model",
+        "feature_names",
+        "numerical_columns",
+        "categorical_columns",
+        "numerical_imputer",
+        "categorical_imputer"
+    ]
+
+    missing = [
+
+        key
+        for key in required_keys
+        if key not in package
+    ]
+
+    if missing:
+
+        raise KeyError(
+            "Missing cirrhosis package keys: "
+            + str(missing)
+        )
+
+    agent = CirrhosisAgent(
+        model_package=package
+    )
+
+    print(
+        "✓ Cirrhosis Agent initialized"
+    )
+
+    return agent
+
+
+# =============================================================================
+# LOAD TUMOR
+# =============================================================================
+
+def create_tumor_agent():
+
+    print("\n")
+    print("-" * 80)
+    print("TUMOR CLASSIFICATION AGENT")
+    print("-" * 80)
+
+    model = load_keras_model(
+        TUMOR_MODEL_PATH
+    )
+
+    agent = TumorClassificationAgent(
+        model_path=TUMOR_MODEL_PATH
+    )
+
+    print(
+        "✓ Tumor Classification Agent initialized"
+    )
+
+    return agent
+
+
+# =============================================================================
+# LOAD SEGMENTATION
+# =============================================================================
+
+def create_segmentation_agent():
+
+    print("\n")
+    print("-" * 80)
+    print("LIVER SEGMENTATION AGENT")
+    print("-" * 80)
+
+    model = load_keras_model(
+        SEGMENTATION_MODEL_PATH
+    )
+
+    agent = LiverSegmentationAgent(
+        model_path=SEGMENTATION_MODEL_PATH
+    )
+
+    print(
+        "✓ Liver Segmentation Agent initialized"
+    )
+
+    return agent
+
+
+# =============================================================================
+# CLINICAL REASONING
+# =============================================================================
+
+def create_clinical_reasoning_agent():
+
+    print("\n")
+    print("-" * 80)
+    print("CLINICAL REASONING AGENT")
+    print("-" * 80)
+
+    agent = ClinicalReasoningAgent()
+
+    print(
+        "✓ Clinical Reasoning Agent initialized"
+    )
+
+    return agent
+
+
+# =============================================================================
+# CREATE ALL AGENTS
+# =============================================================================
 
 def create_agents():
 
     print("\n")
     print("=" * 80)
-    print("INITIALIZING LIVERAI AGENTS")
+    print("INITIALIZING ALL LIVERAI AGENTS")
     print("=" * 80)
 
+    fatty_agent = None
+    fibrosis_agent = None
+    cirrhosis_agent = None
+    tumor_agent = None
+    segmentation_agent = None
+    clinical_agent = None
 
-    # ==========================================================
-    # 1. FATTY LIVER AGENT
-    # ==========================================================
+    # -------------------------------------------------------------------------
+    # FAT
+    # -------------------------------------------------------------------------
 
-    print(
-        "\n[1/6] Initializing Fatty Liver Agent..."
-    )
+    try:
 
-    fatty_model = load_pickle_model(
-        FATTY_MODEL_PATH
-    )
+        fatty_agent = create_fatty_agent()
 
-    fatty_liver_agent = FattyLiverAgent(
-        model=fatty_model
-    )
+    except Exception as e:
 
-    print(
-        "✓ Fatty Liver Agent ready"
-    )
-
-
-    # ==========================================================
-    # 2. FIBROSIS AGENT
-    # ==========================================================
-
-    print(
-        "\n[2/6] Initializing Fibrosis Agent..."
-    )
-
-    fibrosis_model = load_pickle_model(
-        FIBROSIS_MODEL_PATH
-    )
-
-    fibrosis_agent = FibrosisAgent(
-        model=fibrosis_model
-    )
-
-    print(
-        "✓ Fibrosis Agent ready"
-    )
-
-
-    # ==========================================================
-    # 3. CIRRHOSIS AGENT
-    # ==========================================================
-
-    print(
-        "\n[3/6] Initializing Cirrhosis Agent..."
-    )
-
-    cirrhosis_package = load_pickle_model(
-        CIRRHOSIS_MODEL_PATH
-    )
-
-    if not isinstance(
-        cirrhosis_package,
-        dict
-    ):
-
-        raise TypeError(
-            "\nCirrhosis model must be "
-            "a dictionary/package."
+        print(
+            f"✗ Fatty Liver Agent failed: {e}"
         )
 
+    # -------------------------------------------------------------------------
+    # FIBROSIS
+    # -------------------------------------------------------------------------
 
-    required_keys = [
+    try:
 
-        "model",
+        fibrosis_agent = create_fibrosis_agent()
 
-        "feature_names",
+    except Exception as e:
 
-        "numerical_columns",
-
-        "categorical_columns",
-
-        "numerical_imputer",
-
-        "categorical_imputer"
-    ]
-
-
-    missing_keys = [
-
-        key
-
-        for key in required_keys
-
-        if key not in cirrhosis_package
-    ]
-
-
-    if missing_keys:
-
-        raise KeyError(
-            "\nCirrhosis model package "
-            "is missing:\n"
-            f"{missing_keys}"
+        print(
+            f"✗ Fibrosis Agent failed: {e}"
         )
 
+        traceback.print_exc()
 
-    cirrhosis_agent = CirrhosisAgent(
-        model_package=cirrhosis_package
-    )
+    # -------------------------------------------------------------------------
+    # CIRRHOSIS
+    # -------------------------------------------------------------------------
 
-    print(
-        "✓ Cirrhosis Agent ready"
-    )
+    try:
 
+        cirrhosis_agent = create_cirrhosis_agent()
 
-    # ==========================================================
-    # 4. TUMOR CLASSIFICATION AGENT
-    # ==========================================================
+    except Exception as e:
 
-    print(
-        "\n[4/6] Initializing "
-        "Tumor Classification Agent..."
-    )
-
-    tumor_classification_agent = (
-        TumorClassificationAgent(
-            model_path=TUMOR_MODEL_PATH
+        print(
+            f"✗ Cirrhosis Agent failed: {e}"
         )
-    )
 
-    print(
-        "✓ Tumor Classification Agent ready"
-    )
+    # -------------------------------------------------------------------------
+    # TUMOR
+    # -------------------------------------------------------------------------
 
+    try:
 
-    # ==========================================================
-    # 5. LIVER SEGMENTATION AGENT
-    # ==========================================================
+        tumor_agent = create_tumor_agent()
 
-    print(
-        "\n[5/6] Initializing "
-        "Liver Segmentation Agent..."
-    )
+    except Exception as e:
 
-    liver_segmentation_agent = (
-        LiverSegmentationAgent(
-            model_path=SEGMENTATION_MODEL_PATH
+        print(
+            f"✗ Tumor Agent failed: {e}"
         )
-    )
 
-    print(
-        "✓ Liver Segmentation Agent ready"
-    )
+    # -------------------------------------------------------------------------
+    # SEGMENTATION
+    # -------------------------------------------------------------------------
 
+    try:
 
-    # ==========================================================
-    # 6. CLINICAL REASONING AGENT
-    # ==========================================================
+        segmentation_agent = (
+            create_segmentation_agent()
+        )
 
-    print(
-        "\n[6/6] Initializing "
-        "Clinical Reasoning Agent..."
-    )
+    except Exception as e:
 
-    clinical_reasoning_agent = (
-        ClinicalReasoningAgent()
-    )
+        print(
+            f"✗ Segmentation Agent failed: {e}"
+        )
 
-    print(
-        "✓ Clinical Reasoning Agent ready"
-    )
+    # -------------------------------------------------------------------------
+    # CLINICAL REASONING
+    # -------------------------------------------------------------------------
 
+    try:
 
-    print("\n" + "=" * 80)
+        clinical_agent = (
+            create_clinical_reasoning_agent()
+        )
 
-    print(
-        "ALL AGENTS INITIALIZED"
-    )
+    except Exception as e:
 
-    print("=" * 80)
+        print(
+            f"✗ Clinical Reasoning Agent failed: {e}"
+        )
 
+    # -------------------------------------------------------------------------
+    # RETURN
+    # -------------------------------------------------------------------------
 
     return (
 
-        fatty_liver_agent,
-
+        fatty_agent,
         fibrosis_agent,
-
         cirrhosis_agent,
-
-        tumor_classification_agent,
-
-        liver_segmentation_agent,
-
-        clinical_reasoning_agent
+        tumor_agent,
+        segmentation_agent,
+        clinical_agent
     )
 
 
-# ==============================================================
+# =============================================================================
 # CREATE ORCHESTRATOR
-# ==============================================================
+# =============================================================================
 
 def create_orchestrator():
 
@@ -633,390 +615,157 @@ def create_orchestrator():
     print("CREATING LIVERAI ORCHESTRATOR")
     print("=" * 80)
 
-
     (
-        fatty_liver_agent,
 
+        fatty_agent,
         fibrosis_agent,
-
         cirrhosis_agent,
-
-        tumor_classification_agent,
-
-        liver_segmentation_agent,
-
-        clinical_reasoning_agent
+        tumor_agent,
+        segmentation_agent,
+        clinical_agent
 
     ) = create_agents()
 
-
-    # ==========================================================
-    # CONNECT ALL AGENTS
-    # ==========================================================
+    # =========================================================================
+    # ORCHESTRATOR
+    # =========================================================================
 
     orchestrator = LiverAIOrchestrator(
 
-        fatty_agent=fatty_liver_agent,
+        fatty_agent=fatty_agent,
 
         fibrosis_agent=fibrosis_agent,
 
         cirrhosis_agent=cirrhosis_agent,
 
-        tumor_agent=tumor_classification_agent,
+        tumor_agent=tumor_agent,
 
-        segmentation_agent=liver_segmentation_agent,
+        segmentation_agent=segmentation_agent,
 
-        clinical_reasoning_agent=clinical_reasoning_agent
+        clinical_reasoning_agent=clinical_agent
     )
-
-
-    print(
-        "\n✓ LiverAI Orchestrator created"
-    )
-
 
     print("\n")
     print("=" * 80)
-    print("REGISTERED MULTI-AGENT ARCHITECTURE")
-    print("=" * 80)
-
-    print("""
-                    ┌───────────────────────────┐
-                    │    LIVERAI ORCHESTRATOR   │
-                    └─────────────┬─────────────┘
-                                  │
-             ┌────────────────────┼────────────────────┐
-             │                    │                    │
-             ▼                    ▼                    ▼
-      FATYY LIVER             FIBROSIS             CIRRHOSIS
-         AGENT                 AGENT                 AGENT
-             │                    │                    │
-             └────────────────────┼────────────────────┘
-                                  │
-             ┌────────────────────┼────────────────────┐
-             │                    │                    │
-             ▼                    ▼                    ▼
-           TUMOR             SEGMENTATION        CLINICAL
-          AGENT                  AGENT           REASONING
-             │                    │                    │
-             └────────────────────┼────────────────────┘
-                                  │
-                                  ▼
-                         UNIFIED ASSESSMENT
-    """)
-
+    print("✓ LIVERAI ORCHESTRATOR CREATED")
     print("=" * 80)
 
     return orchestrator
 
 
-# ==============================================================
-# DISPLAY ORCHESTRATOR
-# ==============================================================
+# =============================================================================
+# ARCHITECTURE DISPLAY
+# =============================================================================
 
-def show_orchestrator(orchestrator):
-
-    print("\n")
-    print("=" * 80)
-    print("ORCHESTRATOR STATUS")
-    print("=" * 80)
+def show_architecture():
 
     print(
-        "Name:",
-        orchestrator.name
+        """
+        
+        ================================================================
+                         LIVERAI MULTI-AGENT
+        ================================================================
+
+                              PATIENT DATA
+                                   |
+                                   v
+                        +----------------------+
+                        |  LIVERAI ORCHESTRATOR |
+                        +----------+-----------+
+                                   |
+              +--------------------+--------------------+
+              |         |          |          |          |
+              v         v          v          v          v
+           FAT/NAFLD FIBROSIS  CIRRHOSIS   TUMOR   SEGMENTATION
+              |         |          |          |          |
+              |         |          |          |          |
+              +---------+----------+----------+----------+
+                                   |
+                                   v
+                      +--------------------------+
+                      | CLINICAL REASONING AGENT |
+                      +------------+-------------+
+                                   |
+                                   v
+                         UNIFIED LIVER ASSESSMENT
+
+        ================================================================
+        """
     )
 
-    print("\nAgents:")
 
-    for name, agent in (
-        orchestrator.agents.items()
-    ):
+# =============================================================================
+# SYSTEM STATUS
+# =============================================================================
 
-        print(
-            f"  ✓ {name:<25} "
-            f"{agent.__class__.__name__}"
-        )
-
-    print("=" * 80)
-
-
-# ==============================================================
-# RUN ONE ANALYSIS
-# ==============================================================
-
-def run_analysis(
-    orchestrator,
-    clinical_data=None,
-    ultrasound_image=None,
-    tumor_image=None,
-    segmentation_volume=None
-):
+def system_status(orchestrator):
 
     print("\n")
     print("=" * 80)
-    print("STARTING LIVERAI ANALYSIS")
+    print("SYSTEM STATUS")
+    print("=" * 80)
+
+    for name, agent in orchestrator.agents.items():
+
+        if agent is None:
+
+            print(
+                f"✗ {name:<25} NOT INITIALIZED"
+            )
+
+        else:
+
+            print(
+                f"✓ {name:<25} READY"
+            )
+
     print("=" * 80)
 
 
-    # ----------------------------------------------------------
-    # The exact input format is delegated to the orchestrator.
-    # ----------------------------------------------------------
-
-    try:
-
-        result = orchestrator.predict(
-
-            clinical_data=clinical_data,
-
-            ultrasound_image=ultrasound_image,
-
-            tumor_image=tumor_image,
-
-            segmentation_volume=segmentation_volume
-        )
-
-        print("\n")
-        print("=" * 80)
-        print("ANALYSIS COMPLETED")
-        print("=" * 80)
-
-        return result
-
-
-    except TypeError:
-
-        # ------------------------------------------------------
-        # Compatibility fallback:
-        # Your current orchestrator may use different argument
-        # names. Try the generic input format.
-        # ------------------------------------------------------
-
-        try:
-
-            result = orchestrator.predict({
-
-                "clinical_data":
-                    clinical_data,
-
-                "ultrasound_image":
-                    ultrasound_image,
-
-                "tumor_image":
-                    tumor_image,
-
-                "segmentation_volume":
-                    segmentation_volume
-            })
-
-            print("\n")
-            print("=" * 80)
-            print("ANALYSIS COMPLETED")
-            print("=" * 80)
-
-            return result
-
-        except Exception as e:
-
-            print(
-                "\n✗ Analysis failed:"
-            )
-
-            print(e)
-
-            traceback.print_exc()
-
-            return None
-
-
-    except Exception as e:
-
-        print(
-            "\n✗ Analysis failed:"
-        )
-
-        print(e)
-
-        traceback.print_exc()
-
-        return None
-
-
-# ==============================================================
-# SAVE RESULT
-# ==============================================================
-
-def save_result(
-    result,
-    output_path=None
-):
-
-    if result is None:
-
-        print(
-            "No result to save."
-        )
-
-        return
-
-
-    if output_path is None:
-
-        output_path = os.path.join(
-            BASE_DIR,
-            "liverai_result.json"
-        )
-
-
-    try:
-
-        with open(
-            output_path,
-            "w",
-            encoding="utf-8"
-        ) as f:
-
-            json.dump(
-                result,
-                f,
-                indent=4,
-                ensure_ascii=False,
-                default=str
-            )
-
-
-        print(
-            f"\n✓ Result saved:\n"
-            f"{output_path}"
-        )
-
-
-    except Exception as e:
-
-        print(
-            f"\n✗ Could not save result: {e}"
-        )
-
-
-# ==============================================================
+# =============================================================================
 # MAIN
-# ==============================================================
+# =============================================================================
 
 def main():
 
     print("\n")
     print("=" * 80)
-    print("LIVERAI MULTI-AGENT SYSTEM")
+    print("STARTING LIVERAI")
     print("=" * 80)
 
+    # -------------------------------------------------------------------------
+    # SHOW MODELS
+    # -------------------------------------------------------------------------
 
-    # ----------------------------------------------------------
-    # 1. Verify Google Drive
-    # ----------------------------------------------------------
+    show_model_paths()
 
-    if not os.path.exists(BASE_DIR):
+    # -------------------------------------------------------------------------
+    # SHOW ARCHITECTURE
+    # -------------------------------------------------------------------------
 
-        raise FileNotFoundError(
-            "\nLiverAI directory does not exist:\n"
-            f"{BASE_DIR}\n\n"
-            "Mount Google Drive first and make sure "
-            "the LiverAI directory was created."
-        )
+    show_architecture()
 
-
-    # ----------------------------------------------------------
-    # 2. Configuration
-    # ----------------------------------------------------------
-
-    print_configuration()
-
-
-    # ----------------------------------------------------------
-    # 3. Directory check
-    # ----------------------------------------------------------
-
-    check_directories()
-
-
-    # ----------------------------------------------------------
-    # 4. Model check
-    # ----------------------------------------------------------
-
-    available_models = check_models()
-
-
-    # ----------------------------------------------------------
-    # 5. Stop before creating agents if models are missing
-    # ----------------------------------------------------------
-
-    missing_models = [
-
-        name
-
-        for name, available
-
-        in available_models.items()
-
-        if not available
-    ]
-
-
-    if missing_models:
-
-        print("\n")
-        print("=" * 80)
-        print("MISSING TRAINED MODELS")
-        print("=" * 80)
-
-        for name in missing_models:
-
-            print(
-                f"✗ {name}"
-            )
-
-        print("=" * 80)
-
-        print(
-            "\nThe orchestrator cannot initialize "
-            "all six agents until these model files "
-            "are copied to Google Drive."
-        )
-
-        return None
-
-
-    # ----------------------------------------------------------
-    # 6. Create orchestrator
-    # ----------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # CREATE ORCHESTRATOR
+    # -------------------------------------------------------------------------
 
     orchestrator = create_orchestrator()
 
+    # -------------------------------------------------------------------------
+    # STATUS
+    # -------------------------------------------------------------------------
 
-    # ----------------------------------------------------------
-    # 7. Show status
-    # ----------------------------------------------------------
-
-    show_orchestrator(
+    system_status(
         orchestrator
-    )
-
-
-    print("\n")
-    print("=" * 80)
-    print("LIVERAI READY")
-    print("=" * 80)
-
-    print(
-        "\nAll six agents are connected "
-        "to the orchestrator."
     )
 
     return orchestrator
 
 
-# ==============================================================
+# =============================================================================
 # EXECUTION
-# ==============================================================
+# =============================================================================
 
 if __name__ == "__main__":
 
-    main()
+    orchestrator = main()
