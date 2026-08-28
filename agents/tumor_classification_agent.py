@@ -1,6 +1,4 @@
-import os
 import numpy as np
-import tensorflow as tf
 from tensorflow.keras.models import load_model
 from PIL import Image
 
@@ -8,7 +6,9 @@ from PIL import Image
 class TumorClassificationAgent:
 
     def __init__(self, model_path):
+
         self.name = "Tumor Classification Agent"
+        self.model_name = "EfficientNet / MobileNet"
 
         self.model_path = model_path
 
@@ -20,64 +20,104 @@ class TumorClassificationAgent:
             "Hepatocellular Carcinoma"
         ]
 
-        self.model = load_model(model_path)
+        self.model = load_model(
+            model_path,
+            compile=False
+        )
 
     def preprocess(self, image):
-        """
-        Preprocess MRI image.
-        """
 
         if isinstance(image, str):
-            image = Image.open(image).convert("RGB")
 
-        image = image.resize((224, 224))
+            image = Image.open(
+                image
+            ).convert("RGB")
 
-        image = np.array(image, dtype=np.float32)
+        elif isinstance(image, np.ndarray):
 
-        image = image / 255.0
+            image = Image.fromarray(
+                image.astype(np.uint8)
+            ).convert("RGB")
 
-        image = np.expand_dims(image, axis=0)
+        elif not isinstance(image, Image.Image):
+
+            raise TypeError(
+                "Image must be a path, numpy array or PIL Image"
+            )
+
+        image = image.resize(
+            (224, 224)
+        )
+
+        image = np.asarray(
+            image,
+            dtype=np.float32
+        )
+
+        image /= 255.0
+
+        image = np.expand_dims(
+            image,
+            axis=0
+        )
 
         return image
 
     def predict(self, image):
-        """
-        Perform tumor classification.
-        """
 
         try:
 
+            if image is None:
+                raise ValueError(
+                    "MRI image is None"
+                )
+
             x = self.preprocess(image)
 
-            predictions = self.model.predict(x, verbose=0)
+            predictions = self.model.predict(
+                x,
+                verbose=0
+            )
 
             probabilities = predictions[0]
 
-            predicted_index = int(np.argmax(probabilities))
+            predicted_index = int(
+                np.argmax(probabilities)
+            )
 
-            predicted_class = self.classes[predicted_index]
+            predicted_class = self.classes[
+                predicted_index
+            ]
 
-            confidence = float(probabilities[predicted_index])
+            confidence = float(
+                probabilities[predicted_index]
+            )
 
             class_probabilities = {
-                self.classes[i]: float(probabilities[i])
-                for i in range(len(self.classes))
+                self.classes[i]:
+                    float(probabilities[i])
+                for i in range(
+                    len(self.classes)
+                )
             }
 
             return {
                 "agent": self.name,
-                "status": "success",
+                "model": self.model_name,
+                "status": "completed",
                 "prediction": predicted_class,
-                "confidence": confidence,
-                "probabilities": class_probabilities
+                "probability": confidence,
+                "class_probabilities":
+                    class_probabilities
             }
 
         except Exception as e:
 
             return {
                 "agent": self.name,
+                "model": self.model_name,
                 "status": "error",
                 "prediction": None,
-                "confidence": 0.0,
+                "probability": None,
                 "error": str(e)
-            } 
+            }
