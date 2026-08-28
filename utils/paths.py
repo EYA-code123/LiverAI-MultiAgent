@@ -1,107 +1,148 @@
 # ============================================================
-# utils/paths.py
+# LiverAI - paths.py
 # ============================================================
 
 import os
 
 
+# ============================================================
+# GOOGLE DRIVE
+# ============================================================
+
 DRIVE_ROOT = "/content/drive/MyDrive"
 
 
 # ============================================================
-# FATTY LIVER
+# DATASETS / MODELS
 # ============================================================
 
-FATTY_LIVER_ROOT = os.path.join(
-    DRIVE_ROOT,
-    "FattyLiver Agent"
-)
+PATHS = {
 
-FATTY_LIVER_DATA = os.path.join(
-    FATTY_LIVER_ROOT,
-    "DATA"
-)
+    # --------------------------------------------------------
+    # FATTY LIVER
+    # --------------------------------------------------------
+    "fatty_root":
+        os.path.join(
+            DRIVE_ROOT,
+            "FattyLiver Agent"
+        ),
+
+    "fatty_data":
+        os.path.join(
+            DRIVE_ROOT,
+            "FattyLiver Agent",
+            "DATA"
+        ),
+
+    # --------------------------------------------------------
+    # FIBROSIS
+    # --------------------------------------------------------
+    "fibrosis_root":
+        os.path.join(
+            DRIVE_ROOT,
+            "Fibrosis Agent"
+        ),
+
+    "fibrosis_model":
+        os.path.join(
+            DRIVE_ROOT,
+            "Fibrosis Agent",
+            "XGBoost_model",
+            "xgboost_nafld.pkl"
+        ),
+
+    # --------------------------------------------------------
+    # CIRRHOSIS
+    # --------------------------------------------------------
+    "cirrhosis_root":
+        os.path.join(
+            DRIVE_ROOT,
+            ".Cirrhosis Agent"
+        ),
+
+    "cirrhosis_data":
+        os.path.join(
+            DRIVE_ROOT,
+            ".Cirrhosis Agent",
+            "DATA",
+            "liver_cirrhosis.csv"
+        ),
+
+    # --------------------------------------------------------
+    # TUMOR
+    # --------------------------------------------------------
+    "tumor_root":
+        os.path.join(
+            DRIVE_ROOT,
+            "Liver CT Image Dataset"
+        ),
+
+    # --------------------------------------------------------
+    # SEGMENTATION
+    # --------------------------------------------------------
+    "segmentation_root":
+        os.path.join(
+            DRIVE_ROOT,
+            "archive (2)",
+            "image"
+        ),
+
+    # --------------------------------------------------------
+    # OPTIONAL MODEL DIRECTORIES
+    # --------------------------------------------------------
+
+    "models_root":
+        os.path.join(
+            DRIVE_ROOT,
+            "LiverAI"
+        ),
+}
 
 
 # ============================================================
-# FIBROSIS
+# CHECK PATH
 # ============================================================
 
-FIBROSIS_ROOT = os.path.join(
-    DRIVE_ROOT,
-    "Fibrosis Agent"
-)
-
-FIBROSIS_MODEL = os.path.join(
-    FIBROSIS_ROOT,
-    "XGBoost_model",
-    "xgboost_nafld.pkl"
-)
+def check_path(path):
+    return os.path.exists(path)
 
 
 # ============================================================
-# CIRRHOSIS
+# CHECK ALL PATHS
 # ============================================================
 
-CIRRHOSIS_ROOT = os.path.join(
-    DRIVE_ROOT,
-    ".Cirrhosis Agent"
-)
+def check_paths(verbose=True):
 
-CIRRHOSIS_DATA = os.path.join(
-    CIRRHOSIS_ROOT,
-    "DATA",
-    "liver_cirrhosis.csv"
-)
+    results = {}
+
+    for name, path in PATHS.items():
+
+        exists = os.path.exists(path)
+
+        results[name] = path if exists else None
+
+        if verbose:
+
+            if exists:
+                print(f"✓ {name}")
+                print(f"    {path}")
+
+            else:
+                print(f"✗ {name}")
+                print(f"    {path}")
+
+    return results
 
 
 # ============================================================
-# TUMOR
+# GET PATH
 # ============================================================
 
-TUMOR_ROOT = os.path.join(
-    DRIVE_ROOT,
-    "Liver CT Image Dataset"
-)
+def get_path(name):
 
+    if name not in PATHS:
+        raise KeyError(
+            f"Unknown path: {name}"
+        )
 
-# ============================================================
-# SEGMENTATION
-# ============================================================
-
-SEGMENTATION_ROOT = os.path.join(
-    DRIVE_ROOT,
-    "archive (2)",
-    "image"
-)
-
-
-def check_paths():
-
-    paths = {
-        "fatty_liver": FATTY_LIVER_ROOT,
-        "fatty_liver_data": FATTY_LIVER_DATA,
-
-        "fibrosis": FIBROSIS_ROOT,
-        "fibrosis_model": FIBROSIS_MODEL,
-
-        "cirrhosis": CIRRHOSIS_ROOT,
-        "cirrhosis_data": CIRRHOSIS_DATA,
-
-        "tumor": TUMOR_ROOT,
-
-        "segmentation": SEGMENTATION_ROOT,
-    }
-
-    print("=" * 70)
-    print("LIVERAI PATH CHECK")
-    print("=" * 70)
-
-    for name, path in paths.items():
-
-        status = "✓" if os.path.exists(path) else "✗"
-
-        print(f"{status} {name}")
-        print(f"  {path}")
-
-    print("=" * 70)
+    return PATHS[name]
