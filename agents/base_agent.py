@@ -3,32 +3,59 @@ from abc import ABC, abstractmethod
 
 class BaseAgent(ABC):
 
-    def __init__(self, agent_id, model=None):
-        self.agent_id = agent_id
-        self.model = model
+    def __init__(
+        self,
+        name,
+        model_name,
+        modality=None
+    ):
+
+        self.name = name
+        self.model_name = model_name
+        self.modality = modality
 
     @abstractmethod
-    def predict(self, X):
-        """
-        Returns prediction information for one or more samples.
-        """
+    def predict(self, patient_data):
+
         pass
 
-    def build_output(
+    def build_result(
         self,
         prediction,
-        confidence,
+        probability=None,
+        probabilities=None,
+        confidence=None,
         uncertainty=None,
         quality=None,
-        explanation=None,
-        recommendation=None
+        details=None,
+        recommended_action=None
     ):
-        return {
-            "agent_id": self.agent_id,
-            "prediction": prediction,
-            "confidence": confidence,
-            "uncertainty": uncertainty,
-            "quality": quality,
-            "explanation": explanation,
-            "recommendation": recommendation
-        }
+
+        from orchestrator.schemas import AgentResult
+
+        return AgentResult(
+
+            agent=self.name,
+
+            status="success",
+
+            prediction=prediction,
+
+            probability=probability,
+
+            probabilities=probabilities,
+
+            confidence=confidence,
+
+            uncertainty=uncertainty,
+
+            quality=quality,
+
+            model=self.model_name,
+
+            modality=self.modality,
+
+            recommended_action=recommended_action,
+
+            details=details or {}
+        )
