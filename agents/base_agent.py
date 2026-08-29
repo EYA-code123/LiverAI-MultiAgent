@@ -3,59 +3,34 @@ from abc import ABC, abstractmethod
 
 class BaseAgent(ABC):
 
-    def __init__(
-        self,
-        name,
-        model_name,
-        modality=None
-    ):
-
-        self.name = name
-        self.model_name = model_name
-        self.modality = modality
+    def __init__(self, agent_id, model=None):
+        self.agent_id = agent_id
+        self.model = model
 
     @abstractmethod
-    def predict(self, patient_data):
-
-        pass
+    def predict(self, X):
+        """
+        Chaque agent doit retourner un résultat standardisé.
+        """
+        raise NotImplementedError
 
     def build_result(
         self,
-        prediction,
+        prediction=None,
         probability=None,
-        probabilities=None,
-        confidence=None,
-        uncertainty=None,
-        quality=None,
+        confidence=0.0,
+        uncertainty=1.0,
+        quality=0.0,
         details=None,
-        recommended_action=None
+        error=None
     ):
-
-        from orchestrator.schemas import AgentResult
-
-        return AgentResult(
-
-            agent=self.name,
-
-            status="success",
-
-            prediction=prediction,
-
-            probability=probability,
-
-            probabilities=probabilities,
-
-            confidence=confidence,
-
-            uncertainty=uncertainty,
-
-            quality=quality,
-
-            model=self.model_name,
-
-            modality=self.modality,
-
-            recommended_action=recommended_action,
-
-            details=details or {}
-        )
+        return {
+            "agent_id": self.agent_id,
+            "prediction": prediction,
+            "probability": probability,
+            "confidence": float(confidence),
+            "uncertainty": float(uncertainty),
+            "quality": float(quality),
+            "details": details or {},
+            "error": error
+        }
