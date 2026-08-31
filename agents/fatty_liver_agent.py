@@ -8,20 +8,20 @@ class FattyLiverAgent:
 
         self.name = "FattyLiverAgent"
 
+        # ============================================================
+        # MODEL
+        # ============================================================
+
         self.model_name = model_package.get(
             "model_name",
             "LightGBM"
         )
 
-        # ------------------------------------------------------
-        # MODEL
-        # ------------------------------------------------------
-
         self.model = model_package["model"]
 
-        # ------------------------------------------------------
+        # ============================================================
         # FEATURES
-        # ------------------------------------------------------
+        # ============================================================
 
         self.feature_names = list(
             model_package.get(
@@ -30,20 +30,12 @@ class FattyLiverAgent:
             )
         )
 
-        # ------------------------------------------------------
-        # NUMERICAL FEATURES
-        # ------------------------------------------------------
-
         self.numerical_columns = list(
             model_package.get(
                 "numerical_columns",
                 []
             )
         )
-
-        # ------------------------------------------------------
-        # CATEGORICAL FEATURES
-        # ------------------------------------------------------
 
         self.categorical_columns = list(
             model_package.get(
@@ -52,18 +44,14 @@ class FattyLiverAgent:
             )
         )
 
-        # ------------------------------------------------------
-        # ENCODERS
-        # ------------------------------------------------------
+        # ============================================================
+        # PREPROCESSING
+        # ============================================================
 
         self.encoders = model_package.get(
             "encoders",
             {}
         )
-
-        # ------------------------------------------------------
-        # IMPUTERS
-        # ------------------------------------------------------
 
         self.numerical_imputer = (
             model_package.get(
@@ -72,16 +60,9 @@ class FattyLiverAgent:
             )
         )
 
-        self.categorical_imputer = (
-            model_package.get(
-                "categorical_imputer",
-                None
-            )
-        )
-
-        # ------------------------------------------------------
+        # ============================================================
         # TARGET
-        # ------------------------------------------------------
+        # ============================================================
 
         self.target_name = model_package.get(
             "target_name",
@@ -90,19 +71,16 @@ class FattyLiverAgent:
 
         self.target_classes = model_package.get(
             "target_classes",
-            [0, 1]
+            ["0", "1"]
         )
 
-    # ==========================================================
+    # ================================================================
     # CREATE DATAFRAME
-    # ==========================================================
+    # ================================================================
 
     def _create_dataframe(self, patient_data):
 
-        if isinstance(
-            patient_data,
-            dict
-        ):
+        if isinstance(patient_data, dict):
 
             return pd.DataFrame(
                 [patient_data]
@@ -120,25 +98,21 @@ class FattyLiverAgent:
             columns=self.feature_names
         )
 
-    # ==========================================================
+    # ================================================================
     # PREDICT
-    # ==========================================================
+    # ================================================================
 
     def predict(self, patient_data):
 
         try:
 
-            # --------------------------------------------------
-            # CREATE DATAFRAME
-            # --------------------------------------------------
-
             X = self._create_dataframe(
                 patient_data
             )
 
-            # --------------------------------------------------
-            # REMOVE TARGET IF PRESENT
-            # --------------------------------------------------
+            # ========================================================
+            # REMOVE TARGET
+            # ========================================================
 
             if self.target_name in X.columns:
 
@@ -146,9 +120,24 @@ class FattyLiverAgent:
                     columns=[self.target_name]
                 )
 
-            # --------------------------------------------------
+            # ========================================================
+            # REMOVE NON-FEATURE COLUMNS
+            # ========================================================
+
+            # The model must receive exactly the features
+            # used during training.
+
+            for col in list(X.columns):
+
+                if col not in self.feature_names:
+
+                    X = X.drop(
+                        columns=[col]
+                    )
+
+            # ========================================================
             # ADD MISSING FEATURES
-            # --------------------------------------------------
+            # ========================================================
 
             for col in self.feature_names:
 
@@ -156,22 +145,22 @@ class FattyLiverAgent:
 
                     X[col] = np.nan
 
-            # --------------------------------------------------
-            # KEEP ONLY MODEL FEATURES
-            # --------------------------------------------------
+            # ========================================================
+            # FINAL FEATURE ORDER
+            # ========================================================
 
             X = X[
                 self.feature_names
             ].copy()
 
-            # --------------------------------------------------
+            # ========================================================
             # NUMERICAL IMPUTATION
-            # --------------------------------------------------
+            # ========================================================
 
             numerical_features = [
-                c
-                for c in self.numerical_columns
-                if c in X.columns
+                col
+                for col in self.numerical_columns
+                if col in X.columns
             ]
 
             if (
@@ -185,34 +174,20 @@ class FattyLiverAgent:
                     )
                 )
 
-            # --------------------------------------------------
-            # CATEGORICAL IMPUTATION
-            # --------------------------------------------------
+            # ========================================================
+            # CATEGORICAL ENCODING
+            # ========================================================
 
             categorical_features = [
-                c
-                for c in self.categorical_columns
-                if c in X.columns
+                col
+                for col in self.categorical_columns
+                if col in X.columns
             ]
-
-            if (
-                self.categorical_imputer is not None
-                and categorical_features
-            ):
-
-                X[categorical_features] = (
-                    self.categorical_imputer.transform(
-                        X[categorical_features]
-                    )
-                )
-
-            # --------------------------------------------------
-            # ENCODING
-            # --------------------------------------------------
 
             for col in categorical_features:
 
                 if col not in self.encoders:
+
                     continue
 
                 encoder = self.encoders[col]
@@ -226,6 +201,9 @@ class FattyLiverAgent:
                     encoder.classes_
                 )
 
+                # Unknown values are replaced
+                # by the first known class.
+
                 values = values.apply(
                     lambda value:
                     value
@@ -237,71 +215,104 @@ class FattyLiverAgent:
                     values
                 )
 
-            # --------------------------------------------------
-            # FINAL FEATURE ORDER
-            # --------------------------------------------------
-
-            X = X[
-                self.feature_names
-            ].copy()
-
-            # --------------------------------------------------
-            # PREDICTION
-            # --------------------------------------------------
+            # ========================================================
+            # MODEL PREDICTION
+            # ========================================================
 
             prediction_encoded = (
                 self.model.predict(X)[0]
             )
 
-            prediction_encoded = int(
-                prediction_encoded
-            )
-
-            # --------------------------------------------------
+            # ========================================================
             # PROBABILITIES
-            # --------------------------------------------------
+            # ========================================================
 
-            probabilities = (
-                self.model.predict_proba(X)[0]
-            )
+            probabilities = None
 
-            probabilities = np.asarray(
-                probabilities,
-                dtype=float
-            )
-
-            confidence = float(
-                probabilities.max()
-            )
-
-            uncertainty = float(
-                1.0 - confidence
-            )
-
-            # --------------------------------------------------
-            # PREDICTED LABEL
-            # --------------------------------------------------
-
-            if (
-                prediction_encoded
-                < len(self.target_classes)
+            if hasattr(
+                self.model,
+                "predict_proba"
             ):
 
-                predicted_label = (
-                    self.target_classes[
-                        prediction_encoded
-                    ]
+                probabilities = (
+                    self.model.predict_proba(X)[0]
+                )
+
+            # ========================================================
+            # DECODE PREDICTION
+            # ========================================================
+
+            prediction = str(
+                prediction_encoded
+            )
+
+            try:
+
+                encoded_int = int(
+                    prediction_encoded
+                )
+
+                if (
+                    encoded_int
+                    < len(self.target_classes)
+                ):
+
+                    prediction = str(
+                        self.target_classes[
+                            encoded_int
+                        ]
+                    )
+
+            except Exception:
+
+                prediction = str(
+                    prediction_encoded
+                )
+
+            # ========================================================
+            # CONFIDENCE
+            # ========================================================
+
+            if probabilities is not None:
+
+                confidence = float(
+                    np.max(probabilities)
+                )
+
+                probability_list = [
+                    float(x)
+                    for x in probabilities
+                ]
+
+            else:
+
+                confidence = None
+
+                probability_list = None
+
+            # ========================================================
+            # UNCERTAINTY
+            # ========================================================
+
+            if confidence is not None:
+
+                uncertainty = float(
+                    1.0 - confidence
                 )
 
             else:
 
-                predicted_label = (
-                    prediction_encoded
-                )
+                uncertainty = None
 
-            # --------------------------------------------------
+            # ========================================================
+            # QUALITY
+            # ========================================================
+
+            quality = 1.0
+
+            # ========================================================
             # RESULT
-            # --------------------------------------------------
+            # ========================================================
 
             return {
 
@@ -312,47 +323,44 @@ class FattyLiverAgent:
                     self.model_name,
 
                 "prediction":
-                    str(predicted_label),
+                    prediction,
 
                 "probability":
-                    float(confidence),
+                    confidence,
 
                 "confidence":
-                    float(confidence),
+                    confidence,
 
                 "uncertainty":
-                    float(uncertainty),
-
-                "class_probabilities":
-                    [
-                        float(x)
-                        for x in probabilities
-                    ],
+                    uncertainty,
 
                 "quality":
-                    1.0,
+                    quality,
 
-                "details":
-                    {
-                        "task_type":
-                            "classification",
+                "class_probabilities":
+                    probability_list,
 
-                        "disease":
-                            "fatty_liver",
+                "details": {
 
-                        "target":
-                            self.target_name,
+                    "task_type":
+                        "classification",
 
-                        "classes":
-                            [
-                                str(x)
-                                for x
-                                in self.target_classes
-                            ],
+                    "disease":
+                        "fatty_liver",
 
-                        "features":
-                            self.feature_names
-                    },
+                    "target":
+                        self.target_name,
+
+                    "classes":
+                        [
+                            str(x)
+                            for x in self.target_classes
+                        ],
+
+                    "features":
+                        self.feature_names
+
+                },
 
                 "status":
                     "completed",
@@ -383,14 +391,20 @@ class FattyLiverAgent:
                 "uncertainty":
                     None,
 
-                "class_probabilities":
-                    None,
-
                 "quality":
                     0.0,
 
+                "class_probabilities":
+                    None,
+
                 "details":
-                    {},
+                    {
+                        "task_type":
+                            "classification",
+
+                        "disease":
+                            "fatty_liver"
+                    },
 
                 "status":
                     "error",
