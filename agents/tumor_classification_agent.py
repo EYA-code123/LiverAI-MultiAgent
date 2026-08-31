@@ -1,14 +1,16 @@
-import numpy as np
-from tensorflow.keras.models import load_model
+import torch
+import torch.nn as nn
+import timm
+
 from PIL import Image
+from torchvision import transforms
 
 
 class TumorClassificationAgent:
 
     def __init__(self, model_path):
 
-        self.name = "Tumor Classification Agent"
-        self.model_name = "EfficientNet / MobileNet"
+        self.name = "TumorClassificationAgent"
 
         self.model_path = model_path
 
@@ -17,15 +19,80 @@ class TumorClassificationAgent:
             "Cholangiocarcinoma",
             "Healthy",
             "Hemangioma",
-            "Hepatocellular Carcinoma"
+            "Hepatocellular_Carcinoma"
         ]
 
-        self.model = load_model(
-            model_path,
-            compile=False
+        self.device = torch.device(
+            "cuda"
+            if torch.cuda.is_available()
+            else "cpu"
         )
 
-    def preprocess(self, image):
+        # =====================================================
+        # MODEL
+        # =====================================================
+
+        self.model = timm.create_model(
+            "efficientnet_b0",
+            pretrained=False,
+            num_classes=len(self.classes),
+            drop_rate=0.4
+        )
+
+        state_dict = torch.load(
+            model_path,
+            map_location=self.device
+        )
+
+        self.model.load_state_dict(
+            state_dict
+        )
+
+        self.model.to(self.device)
+
+        self.model.eval()
+
+        # =====================================================
+        # TRANSFORM
+        # =====================================================
+
+        self.transform = transforms.Compose([
+
+            transforms.Resize(
+                (224, 224)
+            ),
+
+            transforms.ToTensor(),
+
+            transforms.Normalize(
+                [0.485, 0.456, 0.406],
+                [0.229, 0.224, 0.225]
+            )
+        ])
+
+        print(
+            "✅ TumorClassificationAgent loaded"
+        )
+
+        print(
+            "Device :",
+            self.device
+        )
+
+        print(
+            "Classes :",
+            self.classes
+        )
+
+    # =========================================================
+    # PREDICT
+    # =========================================================
+
+    def predict(self, image):
+
+        # -----------------------------------------------------
+        # Image path
+        # -----------------------------------------------------
 
         if isinstance(image, str):
 
@@ -33,91 +100,96 @@ class TumorClassificationAgent:
                 image
             ).convert("RGB")
 
-        elif isinstance(image, np.ndarray):
+        # -----------------------------------------------------
+        # PIL image
+        # -----------------------------------------------------
 
-            image = Image.fromarray(
-                image.astype(np.uint8)
-            ).convert("RGB")
+        elif isinstance(image, Image.Image):
 
-        elif not isinstance(image, Image.Image):
+            image = image.convert("RGB")
+
+        else:
 
             raise TypeError(
-                "Image must be a path, numpy array or PIL Image"
+                "image must be a file path or PIL.Image"
             )
 
-        image = image.resize(
-            (224, 224)
+        # -----------------------------------------------------
+        # Transform
+        # -----------------------------------------------------
+
+        tensor = self.transform(
+            image
+        ).unsqueeze(0)
+
+        tensor = tensor.to(
+            self.device
         )
 
-        image = np.asarray(
-            image,
-            dtype=np.float32
-        )
+        # -----------------------------------------------------
+        # Inference
+        # -----------------------------------------------------
 
-        image /= 255.0
+        with torch.no_grad():
 
-        image = np.expand_dims(
-            image,
-            axis=0
-        )
-
-        return image
-
-    def predict(self, image):
-
-        try:
-
-            if image is None:
-                raise ValueError(
-                    "MRI image is None"
-                )
-
-            x = self.preprocess(image)
-
-            predictions = self.model.predict(
-                x,
-                verbose=0
+            outputs = self.model(
+                tensor
             )
 
-            probabilities = predictions[0]
-
-            predicted_index = int(
-                np.argmax(probabilities)
+            probabilities = torch.softmax(
+                outputs,
+                dim=1
             )
 
-            predicted_class = self.classes[
+            probability, predicted = torch.max(
+                probabilities,
+                dim=1
+            )
+
+        predicted_index = (
+            predicted.item()
+        )
+
+        probability_value = (
+            probability.item()
+        )
+
+        predicted_label = (
+            self.classes[
                 predicted_index
             ]
+        )
 
-            confidence = float(
-                probabilities[predicted_index]
-            )
+        # -----------------------------------------------------
+        # Confidence
+        # -----------------------------------------------------
 
-            class_probabilities = {
-                self.classes[i]:
-                    float(probabilities[i])
-                for i in range(
-                    len(self.classes)
-                )
-            }
+        confidence = probability_value
 
-            return {
-                "agent": self.name,
-                "model": self.model_name,
-                "status": "completed",
-                "prediction": predicted_class,
-                "probability": confidence,
-                "class_probabilities":
-                    class_probabilities
-            }
+        # -----------------------------------------------------
+        # Result
+        # -----------------------------------------------------
 
-        except Exception as e:
+        return {
 
-            return {
-                "agent": self.name,
-                "model": self.model_name,
-                "status": "error",
-                "prediction": None,
-                "probability": None,
-                "error": str(e)
-            }
+            "agent":
+                self.name,
+
+            "status":
+                "completed",
+
+            "prediction":
+                predicted_label,
+
+            "class_index":
+                predicted_index,
+
+            "probability":
+                probability_value,
+
+            "confidence":
+                confidence,
+
+            "classes":
+                self.classes
+        }
