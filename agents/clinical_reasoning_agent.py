@@ -1,274 +1,426 @@
+import numpy as np
+import pandas as pd
+
+
 class ClinicalReasoningAgent:
 
-    def __init__(self):
+    def __init__(self, model_package):
 
-        self.name = "Clinical Reasoning Agent"
+        self.name = "ClinicalReasoningAgent"
 
-        self.model_name = (
-            "Rule-Based Multi-Agent Clinical Reasoning"
+        # ============================================================
+        # MODEL
+        # ============================================================
+
+        self.model_name = model_package.get(
+            "model_name",
+            "TabNet"
         )
 
-    def predict(self, agent_results):
+        self.model = model_package["model"]
+
+        # ============================================================
+        # FEATURES
+        # ============================================================
+
+        self.feature_names = list(
+            model_package.get(
+                "feature_names",
+                []
+            )
+        )
+
+        self.numerical_columns = list(
+            model_package.get(
+                "numerical_columns",
+                self.feature_names
+            )
+        )
+
+        self.categorical_columns = list(
+            model_package.get(
+                "categorical_columns",
+                []
+            )
+        )
+
+        # ============================================================
+        # TARGET
+        # ============================================================
+
+        self.target_name = model_package.get(
+            "target_name",
+            "selector"
+        )
+
+        self.target_classes = model_package.get(
+            "target_classes",
+            ["0", "1"]
+        )
+
+    # ================================================================
+    # CREATE DATAFRAME
+    # ================================================================
+
+    def _create_dataframe(self, patient_data):
+
+        if isinstance(
+            patient_data,
+            dict
+        ):
+
+            return pd.DataFrame(
+                [patient_data]
+            )
+
+        if isinstance(
+            patient_data,
+            pd.DataFrame
+        ):
+
+            return patient_data.copy()
+
+        return pd.DataFrame(
+            [patient_data],
+            columns=self.feature_names
+        )
+
+    # ================================================================
+    # PREDICT
+    # ================================================================
+
+    def predict(self, patient_data):
 
         try:
 
-            # ==================================================
-            # RETRIEVE AGENT RESULTS
-            # ==================================================
-
-            fatty = agent_results.get(
-                "fatty_liver",
-                {}
+            X = self._create_dataframe(
+                patient_data
             )
 
-            fibrosis = agent_results.get(
-                "fibrosis",
-                {}
-            )
+            # ========================================================
+            # REMOVE TARGET
+            # ========================================================
 
-            cirrhosis = agent_results.get(
-                "cirrhosis",
-                {}
-            )
+            if self.target_name in X.columns:
 
-            tumor = agent_results.get(
-                "tumor_classification",
-                {}
-            )
-
-            segmentation = agent_results.get(
-                "liver_segmentation",
-                {}
-            )
-
-            # ==================================================
-            # PREDICTIONS
-            # ==================================================
-
-            fatty_prediction = fatty.get(
-                "prediction"
-            )
-
-            fibrosis_prediction = fibrosis.get(
-                "prediction"
-            )
-
-            cirrhosis_prediction = cirrhosis.get(
-                "prediction"
-            )
-
-            tumor_prediction = tumor.get(
-                "prediction"
-            )
-
-            # ==================================================
-            # FINDINGS
-            # ==================================================
-
-            findings = []
-
-            if fatty.get("status") == "completed":
-
-                findings.append({
-                    "domain": "fatty_liver",
-                    "prediction":
-                        fatty_prediction,
-                    "confidence":
-                        fatty.get("probability")
-                })
-
-            if fibrosis.get("status") == "completed":
-
-                findings.append({
-                    "domain": "fibrosis",
-                    "prediction":
-                        fibrosis_prediction,
-                    "confidence":
-                        fibrosis.get("probability")
-                })
-
-            if cirrhosis.get("status") == "completed":
-
-                findings.append({
-                    "domain": "cirrhosis",
-                    "prediction":
-                        cirrhosis_prediction,
-                    "confidence":
-                        cirrhosis.get("probability")
-                })
-
-            if tumor.get("status") == "completed":
-
-                findings.append({
-                    "domain": "tumor",
-                    "prediction":
-                        tumor_prediction,
-                    "confidence":
-                        tumor.get("probability")
-                })
-
-            if segmentation.get(
-                "status"
-            ) == "completed":
-
-                findings.append({
-                    "domain": "segmentation",
-                    "prediction":
-                        segmentation.get(
-                            "prediction"
-                        ),
-                    "liver_percentage":
-                        segmentation.get(
-                            "liver_percentage"
-                        )
-                })
-
-            # ==================================================
-            # TUMOR FLAG
-            # ==================================================
-
-            tumor_detected = False
-
-            if tumor_prediction:
-
-                tumor_detected = (
-                    str(
-                        tumor_prediction
-                    ).lower()
-                    not in [
-                        "healthy",
-                        "normal",
-                        "none"
+                X = X.drop(
+                    columns=[
+                        self.target_name
                     ]
                 )
 
-            # ==================================================
-            # RISK SCORE
-            # ==================================================
+            # ========================================================
+            # REMOVE UNKNOWN COLUMNS
+            # ========================================================
 
-            risk_score = 0
+            for col in list(X.columns):
 
-            # Cirrhosis
-            if str(
-                cirrhosis_prediction
-            ) in ["1", "2", "3"]:
+                if col not in self.feature_names:
 
-                risk_score += 3
+                    X = X.drop(
+                        columns=[col]
+                    )
 
-            # Fibrosis
-            if str(
-                fibrosis_prediction
-            ) in ["1", "2", "3"]:
+            # ========================================================
+            # ADD MISSING FEATURES
+            # ========================================================
 
-                risk_score += 2
+            for col in self.feature_names:
 
-            # Fatty liver
-            if str(
-                fatty_prediction
-            ) in ["1", "2"]:
+                if col not in X.columns:
 
-                risk_score += 1
+                    X[col] = np.nan
 
-            # Tumor
-            if tumor_detected:
+            # ========================================================
+            # FINAL ORDER
+            # ========================================================
 
-                risk_score += 4
+            X = X[
+                self.feature_names
+            ].copy()
 
-            # ==================================================
-            # OVERALL RISK
-            # ==================================================
+            # ========================================================
+            # NUMERICAL CONVERSION
+            # ========================================================
 
-            if risk_score >= 6:
+            for col in self.feature_names:
 
-                overall_risk = "High"
+                X[col] = pd.to_numeric(
+                    X[col],
+                    errors="coerce"
+                )
 
-            elif risk_score >= 3:
+            # ========================================================
+            # MEDIAN IMPUTATION
+            # ========================================================
 
-                overall_risk = "Moderate"
+            for col in self.feature_names:
 
-            elif risk_score >= 1:
+                if X[col].isna().any():
 
-                overall_risk = "Low"
+                    # TabNet requires valid numeric values.
+                    # Use a neutral fallback if missing.
+
+                    X[col] = X[col].fillna(
+                        X[col].median()
+                    )
+
+                    if X[col].isna().all():
+
+                        X[col] = X[col].fillna(
+                            0.0
+                        )
+
+            # ========================================================
+            # NUMPY
+            # ========================================================
+
+            X_np = X.values.astype(
+                np.float32
+            )
+
+            # ========================================================
+            # PREDICTION
+            # ========================================================
+
+            prediction_encoded = int(
+                self.model.predict(
+                    X_np
+                )[0]
+            )
+
+            # ========================================================
+            # PROBABILITIES
+            # ========================================================
+
+            probabilities = None
+
+            if hasattr(
+                self.model,
+                "predict_proba"
+            ):
+
+                probabilities = (
+                    self.model
+                    .predict_proba(X_np)[0]
+                )
+
+            # ========================================================
+            # DECODE
+            # ========================================================
+
+            if (
+                prediction_encoded
+                < len(self.target_classes)
+            ):
+
+                prediction = str(
+                    self.target_classes[
+                        prediction_encoded
+                    ]
+                )
 
             else:
 
-                overall_risk = "No major abnormality detected"
+                prediction = str(
+                    prediction_encoded
+                )
 
-            # ==================================================
-            # UNIFIED ASSESSMENT
-            # ==================================================
+            # ========================================================
+            # CONFIDENCE
+            # ========================================================
 
-            assessment = {
+            if probabilities is not None:
 
-                "overall_risk":
-                    overall_risk,
+                confidence = float(
+                    np.max(
+                        probabilities
+                    )
+                )
 
-                "risk_score":
-                    risk_score,
+                probability_list = [
+                    float(x)
+                    for x in probabilities
+                ]
 
-                "fatty_liver":
-                    fatty_prediction,
+            else:
 
-                "fibrosis":
-                    fibrosis_prediction,
+                confidence = None
 
-                "cirrhosis":
-                    cirrhosis_prediction,
+                probability_list = None
 
-                "tumor":
-                    tumor_prediction,
+            # ========================================================
+            # UNCERTAINTY
+            # ========================================================
 
-                "tumor_detected":
-                    tumor_detected,
+            if confidence is not None:
 
-                "segmentation":
-                    {
-                        "available":
-                            segmentation.get(
-                                "segmentation_available",
-                                False
-                            ),
-                        "liver_percentage":
-                            segmentation.get(
-                                "liver_percentage"
-                            )
-                    },
+                uncertainty = float(
+                    1.0 - confidence
+                )
 
-                "findings":
-                    findings
-            }
+            else:
 
-            # ==================================================
-            # FINAL RESULT
-            # ==================================================
+                uncertainty = None
+
+            # ========================================================
+            # QUALITY
+            # ========================================================
+
+            missing_count = int(
+                X.isna().sum().sum()
+            )
+
+            if missing_count == 0:
+
+                quality = 1.0
+
+            else:
+
+                quality = max(
+                    0.0,
+                    1.0
+                    - (
+                        missing_count
+                        /
+                        len(self.feature_names)
+                    )
+                )
+
+            # ========================================================
+            # CLINICAL INTERPRETATION
+            # ========================================================
+
+            if prediction == "1":
+
+                interpretation = (
+                    "Clinical profile classified "
+                    "in class 1."
+                )
+
+                recommendation = (
+                    "Consider additional clinical "
+                    "assessment according to the "
+                    "available patient information."
+                )
+
+            else:
+
+                interpretation = (
+                    "Clinical profile classified "
+                    "in class 2."
+                )
+
+                recommendation = (
+                    "Consider additional clinical "
+                    "assessment and correlation "
+                    "with other liver findings."
+                )
+
+            # ========================================================
+            # RESULT
+            # ========================================================
 
             return {
 
-                "agent": self.name,
+                "agent":
+                    self.name,
 
-                "model": self.model_name,
+                "model":
+                    self.model_name,
 
-                "status": "completed",
+                "prediction":
+                    prediction,
 
-                "unified_assessment":
-                    assessment,
+                "probability":
+                    confidence,
 
-                "findings":
-                    findings,
+                "confidence":
+                    confidence,
 
-                "overall_risk":
-                    overall_risk
+                "uncertainty":
+                    uncertainty,
+
+                "quality":
+                    float(quality),
+
+                "class_probabilities":
+                    probability_list,
+
+                "details": {
+
+                    "task_type":
+                        "clinical_classification",
+
+                    "disease":
+                        "liver_disorder",
+
+                    "target":
+                        self.target_name,
+
+                    "classes":
+                        [
+                            str(x)
+                            for x in self.target_classes
+                        ],
+
+                    "features":
+                        self.feature_names,
+
+                    "interpretation":
+                        interpretation,
+
+                    "recommendation":
+                        recommendation
+                },
+
+                "status":
+                    "completed",
+
+                "error":
+                    None
             }
 
         except Exception as e:
 
             return {
 
-                "agent": self.name,
+                "agent":
+                    self.name,
 
-                "model": self.model_name,
+                "model":
+                    self.model_name,
 
-                "status": "error",
+                "prediction":
+                    None,
 
-                "error": str(e)
+                "probability":
+                    None,
+
+                "confidence":
+                    None,
+
+                "uncertainty":
+                    None,
+
+                "quality":
+                    0.0,
+
+                "class_probabilities":
+                    None,
+
+                "details": {
+
+                    "task_type":
+                        "clinical_classification",
+
+                    "disease":
+                        "liver_disorder"
+                },
+
+                "status":
+                    "error",
+
+                "error":
+                    str(e)
             }
