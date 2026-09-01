@@ -1,4 +1,4 @@
-from .coordinator import LiverCoordinator
+from .liver_coordinator import LiverCoordinator
 from .trust import TrustManager
 from .conflict import ConflictDetector
 from .fusion import FusionEngine
