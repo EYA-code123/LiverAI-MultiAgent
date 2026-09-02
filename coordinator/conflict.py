@@ -1,344 +1,179 @@
-# =============================================================================
-# LiverAI-MultiAgent
-# CONFLICT DETECTOR
-# =============================================================================
+"""
+Conflict Resolution Intelligence
+=================================
+
+Detects disagreements between agents solving the SAME task.
+
+Cross-task differences are not considered conflicts because
+cirrhosis stage, fibrosis, tumor type and segmentation are
+different clinical outputs.
+"""
+
+import numpy as np
 
 
 class ConflictDetector:
-    """
-    Detects prediction conflicts between agents.
-
-    Conflicts are ONLY evaluated when agents perform the same task.
-
-    Example:
-
-        Agent A -> tumor classification -> Healthy
-        Agent B -> tumor classification -> HCC
-
-    => conflict
-
-    But:
-
-        fibrosis -> stage 2
-        cirrhosis -> stage 3
-
-    are NOT considered a direct prediction conflict because they
-    represent different tasks.
-    """
 
     def __init__(
         self,
-        confidence_threshold: float = 0.20,
-        uncertainty_threshold: float = 0.50,
+        confidence_threshold=0.20
     ):
 
-        self.confidence_threshold = float(
-            max(
-                0.0,
-                min(
-                    1.0,
-                    confidence_threshold
-                )
-            )
+        self.confidence_threshold = (
+            confidence_threshold
         )
 
-        self.uncertainty_threshold = float(
-            max(
-                0.0,
-                min(
-                    1.0,
-                    uncertainty_threshold
-                )
-            )
-        )
-
-    # -------------------------------------------------------------------------
-    # DETECT
-    # -------------------------------------------------------------------------
-
-    def detect(self, messages):
-
-        if not messages:
-            return []
-
-        valid_messages = []
-
-        for message in messages:
-
-            error = self._get(
-                message,
-                "error",
-                None
-            )
-
-            status = self._get(
-                message,
-                "status",
-                "success"
-            )
-
-            prediction = self._get(
-                message,
-                "prediction",
-                None
-            )
-
-            if error is not None:
-                continue
-
-            if status not in (
-                "success",
-                "completed"
-            ):
-                continue
-
-            if prediction is None:
-                continue
-
-            valid_messages.append(
-                message
-            )
-
-        # -------------------------------------------------------------
-        # GROUP BY TASK TYPE
-        # -------------------------------------------------------------
-
-        groups = {}
-
-        for message in valid_messages:
-
-            task_type = self._get(
-                message,
-                "task_type",
-                None
-            )
-
-            if not task_type:
-
-                details = self._get(
-                    message,
-                    "details",
-                    {}
-                ) or {}
-
-                task_type = details.get(
-                    "task_type",
-                    "unknown"
-                )
-
-            groups.setdefault(
-                task_type,
-                []
-            ).append(message)
-
-        # -------------------------------------------------------------
-        # PAIRWISE CONFLICT DETECTION
-        # -------------------------------------------------------------
+    def detect(
+        self,
+        messages
+    ):
 
         conflicts = []
 
-        for task_type, group in groups.items():
+        successful = [
+            m for m in messages
+            if m.status == "success"
+            and m.prediction is not None
+        ]
 
-            if len(group) < 2:
-                continue
+        for i in range(len(successful)):
 
-            for i in range(len(group)):
+            for j in range(i + 1, len(successful)):
 
-                for j in range(
-                    i + 1,
-                    len(group)
-                ):
+                a = successful[i]
+                b = successful[j]
 
-                    a = group[i]
-                    b = group[j]
+                # Different tasks = no direct conflict
+                if a.task_type != b.task_type:
+                    continue
 
-                    prediction_a = self._get(
-                        a,
-                        "prediction"
+                prediction_a = str(
+                    a.prediction
+                )
+
+                prediction_b = str(
+                    b.prediction
+                )
+
+                if prediction_a == prediction_b:
+                    continue
+
+                confidence_gap = abs(
+                    a.confidence
+                    -
+                    b.confidence
+                )
+
+                conflicts.append({
+                    "agent_a": a.agent_id,
+                    "agent_b": b.agent_id,
+                    "task_type": a.task_type,
+                    "prediction_a": prediction_a,
+                    "prediction_b": prediction_b,
+                    "confidence_a": a.confidence,
+                    "confidence_b": b.confidence,
+                    "confidence_gap": confidence_gap,
+                    "severity": self._severity(
+                        confidence_gap
                     )
-
-                    prediction_b = self._get(
-                        b,
-                        "prediction"
-                    )
-
-                    if self._same_prediction(
-                        prediction_a,
-                        prediction_b
-                    ):
-                        continue
-
-                    confidence_a = float(
-                        self._get(
-                            a,
-                            "confidence",
-                            0.0
-                        )
-                    )
-
-                    confidence_b = float(
-                        self._get(
-                            b,
-                            "confidence",
-                            0.0
-                        )
-                    )
-
-                    uncertainty_a = float(
-                        self._get(
-                            a,
-                            "uncertainty",
-                            1.0
-                        )
-                    )
-
-                    uncertainty_b = float(
-                        self._get(
-                            b,
-                            "uncertainty",
-                            1.0
-                        )
-                    )
-
-                    confidence_gap = abs(
-                        confidence_a
-                        - confidence_b
-                    )
-
-                    # -------------------------------------------------
-                    # Conflict strength
-                    # -------------------------------------------------
-
-                    conflict_strength = (
-                        (
-                            confidence_a
-                            +
-                            confidence_b
-                        ) / 2.0
-                    )
-
-                    conflict_strength *= (
-                        1.0
-                        -
-                        (
-                            uncertainty_a
-                            +
-                            uncertainty_b
-                        ) / 2.0
-                    )
-
-                    conflicts.append({
-
-                        "task_type":
-                            task_type,
-
-                        "agent_a":
-                            self._get(
-                                a,
-                                "agent_id",
-                                self._get(
-                                    a,
-                                    "agent",
-                                    "unknown"
-                                )
-                            ),
-
-                        "agent_b":
-                            self._get(
-                                b,
-                                "agent_id",
-                                self._get(
-                                    b,
-                                    "agent",
-                                    "unknown"
-                                )
-                            ),
-
-                        "prediction_a":
-                            prediction_a,
-
-                        "prediction_b":
-                            prediction_b,
-
-                        "confidence_a":
-                            confidence_a,
-
-                        "confidence_b":
-                            confidence_b,
-
-                        "uncertainty_a":
-                            uncertainty_a,
-
-                        "uncertainty_b":
-                            uncertainty_b,
-
-                        "confidence_gap":
-                            confidence_gap,
-
-                        "conflict_strength":
-                            max(
-                                0.0,
-                                min(
-                                    1.0,
-                                    conflict_strength
-                                )
-                            ),
-
-                        "requires_review":
-                            (
-                                confidence_gap
-                                >=
-                                self.confidence_threshold
-                            ),
-                    })
+                })
 
         return conflicts
 
-    # -------------------------------------------------------------------------
-    # SAME PREDICTION
-    # -------------------------------------------------------------------------
-
     @staticmethod
-    def _same_prediction(a, b):
-
-        if a == b:
-            return True
-
-        try:
-
-            import numpy as np
-
-            return bool(
-                np.array_equal(
-                    np.asarray(a),
-                    np.asarray(b)
-                )
-            )
-
-        except Exception:
-
-            return str(a) == str(b)
-
-    # -------------------------------------------------------------------------
-    # ACCESS
-    # -------------------------------------------------------------------------
-
-    @staticmethod
-    def _get(
-        obj,
-        key,
-        default=None
+    def _severity(
+        confidence_gap
     ):
 
-        if isinstance(obj, dict):
+        if confidence_gap < 0.10:
+            return "high"
 
-            return obj.get(
-                key,
-                default
+        if confidence_gap < 0.25:
+            return "medium"
+
+        return "low"
+
+
+class ConflictResolutionEngine:
+
+    def __init__(
+        self,
+        detector=None
+    ):
+
+        self.detector = (
+            detector
+            or ConflictDetector()
+        )
+
+    def resolve(
+        self,
+        messages
+    ):
+
+        conflicts = self.detector.detect(
+            messages
+        )
+
+        resolutions = []
+
+        for conflict in conflicts:
+
+            agent_a = next(
+                (
+                    m for m in messages
+                    if m.agent_id
+                    == conflict["agent_a"]
+                ),
+                None
             )
 
-        return getattr(
-            obj,
-            key,
-            default
-        )
+            agent_b = next(
+                (
+                    m for m in messages
+                    if m.agent_id
+                    == conflict["agent_b"]
+                ),
+                None
+            )
+
+            if agent_a is None or agent_b is None:
+                continue
+
+            # Adaptive trust-confidence score
+            score_a = (
+                agent_a.trust
+                * agent_a.confidence
+                * agent_a.quality
+            )
+
+            score_b = (
+                agent_b.trust
+                * agent_b.confidence
+                * agent_b.quality
+            )
+
+            if abs(score_a - score_b) < 0.05:
+
+                resolution = "uncertain"
+
+            elif score_a > score_b:
+
+                resolution = agent_a.agent_id
+
+            else:
+
+                resolution = agent_b.agent_id
+
+            resolutions.append({
+                **conflict,
+                "score_a": float(score_a),
+                "score_b": float(score_b),
+                "resolution": resolution
+            })
+
+        return {
+            "num_conflicts": len(conflicts),
+            "conflicts": conflicts,
+            "resolutions": resolutions
+        }
