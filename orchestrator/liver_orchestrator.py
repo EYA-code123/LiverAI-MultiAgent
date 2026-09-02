@@ -1,20 +1,51 @@
 # =============================================================================
 # LiverAI-MultiAgent
-# ADAPTIVE LIVER AI ORCHESTRATOR
+# ADAPTIVE MULTI-AGENT ORCHESTRATOR
 # =============================================================================
 
 import traceback
-import time
 from datetime import datetime
 
 from orchestrator.schemas import AgentResult
+
 from coordinator.trust import TrustManager
-from coordinator.conflict import ConflictDetector
 from coordinator.adaptive_fusion import AdaptiveFusion
+from coordinator.conflict import ConflictDetector
 from coordinator.decision import DecisionEngine
 
 
 class LiverAIOrchestrator:
+    """
+    Main coordination layer of LiverAI.
+
+    Pipeline:
+
+        Patient Data
+             |
+             v
+        Specialized Agents
+             |
+             v
+        Standardization
+             |
+             v
+        Adaptive Trust
+             |
+             v
+        Adaptive Evidence Fusion
+             |
+             v
+        Conflict Detection
+             |
+             v
+        Clinical Reasoning
+             |
+             v
+        Decision Intelligence
+             |
+             v
+        Final Coordinated Result
+    """
 
     def __init__(
         self,
@@ -23,12 +54,16 @@ class LiverAIOrchestrator:
         clinical_agent=None,
         fibrosis_agent=None,
         tumor_agent=None,
-        segmentation_agent=None
+        segmentation_agent=None,
     ):
 
         self.name = (
-            "LiverAI Adaptive Coordinator"
+            "LiverAI Adaptive Multi-Agent Orchestrator"
         )
+
+        # ---------------------------------------------------------------------
+        # SPECIALIZED AGENTS
+        # ---------------------------------------------------------------------
 
         self.cirrhosis_agent = (
             cirrhosis_agent
@@ -36,6 +71,10 @@ class LiverAIOrchestrator:
 
         self.fatty_liver_agent = (
             fatty_liver_agent
+        )
+
+        self.clinical_agent = (
+            clinical_agent
         )
 
         self.fibrosis_agent = (
@@ -48,10 +87,6 @@ class LiverAIOrchestrator:
 
         self.segmentation_agent = (
             segmentation_agent
-        )
-
-        self.clinical_agent = (
-            clinical_agent
         )
 
         self.agents = {
@@ -72,69 +107,41 @@ class LiverAIOrchestrator:
                 segmentation_agent,
 
             "clinical_reasoning":
-                clinical_agent
+                clinical_agent,
         }
 
         # ---------------------------------------------------------------------
-        # COORDINATION COMPONENTS
+        # COORDINATION MODULES
         # ---------------------------------------------------------------------
 
-        self.trust_manager = (
-            TrustManager()
-        )
+        self.trust_manager = TrustManager()
+
+        self.adaptive_fusion = AdaptiveFusion()
 
         self.conflict_detector = (
             ConflictDetector()
-        )
-
-        self.adaptive_fusion = (
-            AdaptiveFusion()
         )
 
         self.decision_engine = (
             DecisionEngine()
         )
 
+        # ---------------------------------------------------------------------
+        # STATE
+        # ---------------------------------------------------------------------
+
         self.last_results = {}
 
         self.execution_log = []
-
-        print("=" * 80)
-        print(
-            "LIVERAI ADAPTIVE MULTI-AGENT SYSTEM"
-        )
-        print("=" * 80)
-
-        for name, agent in self.agents.items():
-
-            if agent is not None:
-
-                print(
-                    f"✓ {name:<25}"
-                    f"{agent.__class__.__name__}"
-                )
-
-            else:
-
-                print(
-                    f"⚠ {name:<25}"
-                    "NOT AVAILABLE"
-                )
-
-        print("=" * 80)
 
     # =========================================================================
     # LOGGING
     # =========================================================================
 
-    def _log(
-        self,
-        message
-    ):
+    def _log(self, message):
 
         timestamp = (
-            datetime.now()
-            .strftime(
+            datetime.now().strftime(
                 "%Y-%m-%d %H:%M:%S"
             )
         )
@@ -145,301 +152,432 @@ class LiverAIOrchestrator:
                 timestamp,
 
             "message":
-                message
+                message,
         })
 
         print(message)
 
     # =========================================================================
-    # STANDARDIZE RESULT
-    # =========================================================================
-
-    def _standardize_result(
-        self,
-        agent_name,
-        raw_result,
-        latency_ms
-    ):
-
-        if raw_result is None:
-
-            raw_result = {}
-
-        if not isinstance(
-            raw_result,
-            dict
-        ):
-
-            raw_result = {
-                "prediction":
-                    raw_result
-            }
-
-        agent_id = raw_result.get(
-            "agent_id",
-            raw_result.get(
-                "agent",
-                agent_name
-            )
-        )
-
-        prediction = raw_result.get(
-            "prediction"
-        )
-
-        probability = raw_result.get(
-            "probability"
-        )
-
-        confidence = raw_result.get(
-            "confidence"
-        )
-
-        if confidence is None:
-
-            if probability is not None:
-
-                try:
-
-                    confidence = float(
-                        probability
-                    )
-
-                except Exception:
-
-                    confidence = 0.0
-
-            else:
-
-                confidence = 0.0
-
-        uncertainty = raw_result.get(
-            "uncertainty"
-        )
-
-        if uncertainty is None:
-
-            uncertainty = (
-                1.0
-                -
-                float(confidence)
-            )
-
-        quality = raw_result.get(
-            "quality",
-            1.0
-        )
-
-        details = raw_result.get(
-            "details",
-            {}
-        )
-
-        if details is None:
-
-            details = {}
-
-        task_type = raw_result.get(
-            "task_type",
-            details.get(
-                "task_type",
-                "unknown"
-            )
-        )
-
-        missing_data_ratio = (
-            raw_result.get(
-                "missing_data_ratio",
-                details.get(
-                    "missing_data_ratio",
-                    0.0
-                )
-            )
-        )
-
-        error = raw_result.get(
-            "error"
-        )
-
-        status = raw_result.get(
-            "status",
-            "success"
-        )
-
-        if status in [
-            "completed",
-            "ok"
-        ]:
-
-            status = "success"
-
-        if error is not None:
-
-            status = "error"
-
-        result = AgentResult(
-
-            agent_id=str(
-                agent_id
-            ),
-
-            prediction=prediction,
-
-            probability=probability,
-
-            confidence=float(
-                confidence
-                if confidence is not None
-                else 0.0
-            ),
-
-            uncertainty=float(
-                uncertainty
-                if uncertainty is not None
-                else 1.0
-            ),
-
-            quality=float(
-                quality
-                if quality is not None
-                else 0.0
-            ),
-
-            status=status,
-
-            task_type=str(
-                task_type
-            ),
-
-            latency_ms=float(
-                latency_ms
-            ),
-
-            missing_data_ratio=float(
-                missing_data_ratio
-                if missing_data_ratio
-                is not None
-                else 0.0
-            ),
-
-            details=details,
-
-            error=error
-        )
-
-        return result
-
-    # =========================================================================
-    # EXECUTE AGENT
+    # SAFE AGENT EXECUTION
     # =========================================================================
 
     def _execute_agent(
         self,
         agent_name,
         agent,
-        input_data
+        input_data,
+        task_type,
     ):
 
         if agent is None:
 
-            return AgentResult(
+            return {
 
-                agent_id=
+                "agent_id":
                     agent_name,
 
-                status=
-                    "error",
+                "agent":
+                    agent_name,
 
-                quality=
+                "task_type":
+                    task_type,
+
+                "status":
+                    "not_available",
+
+                "prediction":
+                    None,
+
+                "probability":
+                    None,
+
+                "confidence":
                     0.0,
 
-                error=
-                    "Agent not available"
-            )
+                "uncertainty":
+                    1.0,
+
+                "quality":
+                    0.0,
+
+                "latency_ms":
+                    0.0,
+
+                "missing_data_ratio":
+                    1.0,
+
+                "details":
+                    {},
+
+                "error":
+                    "Agent not available",
+            }
 
         if input_data is None:
 
-            return AgentResult(
+            return {
 
-                agent_id=
+                "agent_id":
                     agent_name,
 
-                status=
-                    "error",
+                "agent":
+                    agent_name,
 
-                quality=
+                "task_type":
+                    task_type,
+
+                "status":
+                    "no_input",
+
+                "prediction":
+                    None,
+
+                "probability":
+                    None,
+
+                "confidence":
                     0.0,
 
-                error=
-                    "No input provided"
-            )
+                "uncertainty":
+                    1.0,
+
+                "quality":
+                    0.0,
+
+                "latency_ms":
+                    0.0,
+
+                "missing_data_ratio":
+                    1.0,
+
+                "details":
+                    {},
+
+                "error":
+                    "No input provided",
+            }
 
         self._log(
             f"\n[{agent_name}] START"
         )
 
-        start_time = time.perf_counter()
+        start_time = datetime.now()
 
         try:
 
-            raw_result = agent.predict(
+            result = agent.predict(
                 input_data
             )
 
-            latency_ms = (
-                time.perf_counter()
+            # -------------------------------------------------------------
+            # NORMALIZE RETURN TYPE
+            # -------------------------------------------------------------
+
+            if result is None:
+
+                result = {}
+
+            if not isinstance(
+                result,
+                dict
+            ):
+
+                result = {
+                    "prediction":
+                        result
+                }
+
+            # -------------------------------------------------------------
+            # BASIC FIELDS
+            # -------------------------------------------------------------
+
+            result.setdefault(
+                "agent_id",
+                agent_name
+            )
+
+            result.setdefault(
+                "agent",
+                agent_name
+            )
+
+            result.setdefault(
+                "task_type",
+                task_type
+            )
+
+            result.setdefault(
+                "status",
+                "success"
+            )
+
+            result.setdefault(
+                "prediction",
+                None
+            )
+
+            result.setdefault(
+                "probability",
+                None
+            )
+
+            # -------------------------------------------------------------
+            # CONFIDENCE
+            # -------------------------------------------------------------
+
+            if result.get(
+                "confidence"
+            ) is None:
+
+                probability = result.get(
+                    "probability"
+                )
+
+                if isinstance(
+                    probability,
+                    (int, float)
+                ):
+
+                    result[
+                        "confidence"
+                    ] = float(
+                        probability
+                    )
+
+                elif isinstance(
+                    probability,
+                    (list, tuple)
+                ) and probability:
+
+                    result[
+                        "confidence"
+                    ] = float(
+                        max(
+                            probability
+                        )
+                    )
+
+                else:
+
+                    result[
+                        "confidence"
+                    ] = 0.0
+
+            # -------------------------------------------------------------
+            # UNCERTAINTY
+            # -------------------------------------------------------------
+
+            result.setdefault(
+                "uncertainty",
+                1.0
+                -
+                float(
+                    result.get(
+                        "confidence",
+                        0.0
+                    )
+                )
+            )
+
+            # -------------------------------------------------------------
+            # QUALITY
+            # -------------------------------------------------------------
+
+            result.setdefault(
+                "quality",
+                1.0
+            )
+
+            # -------------------------------------------------------------
+            # LATENCY
+            # -------------------------------------------------------------
+
+            elapsed = (
+                datetime.now()
                 -
                 start_time
-            ) * 1000.0
+            ).total_seconds() * 1000.0
 
-            result = (
-                self._standardize_result(
-                    agent_name,
-                    raw_result,
-                    latency_ms
+            result.setdefault(
+                "latency_ms",
+                elapsed
+            )
+
+            # -------------------------------------------------------------
+            # MISSING DATA
+            # -------------------------------------------------------------
+
+            result.setdefault(
+                "missing_data_ratio",
+                0.0
+            )
+
+            # -------------------------------------------------------------
+            # DETAILS
+            # -------------------------------------------------------------
+
+            result.setdefault(
+                "details",
+                {}
+            )
+
+            if not isinstance(
+                result["details"],
+                dict
+            ):
+
+                result["details"] = {}
+
+            result[
+                "details"
+            ].setdefault(
+                "task_type",
+                task_type
+            )
+
+            # -------------------------------------------------------------
+            # EXPLANATION
+            # -------------------------------------------------------------
+
+            result.setdefault(
+                "explanation",
+                None
+            )
+
+            # -------------------------------------------------------------
+            # ERROR
+            # -------------------------------------------------------------
+
+            result.setdefault(
+                "error",
+                None
+            )
+
+            if result["error"]:
+
+                result["status"] = (
+                    "error"
+                )
+
+            # -------------------------------------------------------------
+            # CLEAN NUMERIC VALUES
+            # -------------------------------------------------------------
+
+            result[
+                "confidence"
+            ] = self._clip(
+                result.get(
+                    "confidence",
+                    0.0
+                )
+            )
+
+            result[
+                "uncertainty"
+            ] = self._clip(
+                result.get(
+                    "uncertainty",
+                    1.0
+                )
+            )
+
+            result[
+                "quality"
+            ] = self._clip(
+                result.get(
+                    "quality",
+                    0.0
+                )
+            )
+
+            result[
+                "missing_data_ratio"
+            ] = self._clip(
+                result.get(
+                    "missing_data_ratio",
+                    0.0
+                )
+            )
+
+            result[
+                "latency_ms"
+            ] = float(
+                max(
+                    0.0,
+                    result.get(
+                        "latency_ms",
+                        elapsed
+                    )
                 )
             )
 
             self._log(
                 f"[{agent_name}] "
-                f"✓ COMPLETED "
-                f"({latency_ms:.2f} ms)"
+                f"COMPLETED "
+                f"| confidence="
+                f"{result['confidence']:.3f}"
             )
 
             return result
 
         except Exception as e:
 
-            latency_ms = (
-                time.perf_counter()
-                -
-                start_time
-            ) * 1000.0
-
             self._log(
-                f"[{agent_name}] "
-                f"✗ ERROR: {e}"
+                f"[{agent_name}] ERROR: {e}"
             )
 
             traceback.print_exc()
 
-            return AgentResult(
+            elapsed = (
+                datetime.now()
+                -
+                start_time
+            ).total_seconds() * 1000.0
 
-                agent_id=
+            return {
+
+                "agent_id":
                     agent_name,
 
-                status=
+                "agent":
+                    agent_name,
+
+                "task_type":
+                    task_type,
+
+                "status":
                     "error",
 
-                quality=
+                "prediction":
+                    None,
+
+                "probability":
+                    None,
+
+                "confidence":
                     0.0,
 
-                latency_ms=
-                    latency_ms,
+                "uncertainty":
+                    1.0,
 
-                error=
-                    str(e)
-            )
+                "quality":
+                    0.0,
+
+                "latency_ms":
+                    elapsed,
+
+                "missing_data_ratio":
+                    1.0,
+
+                "details":
+                    {},
+
+                "explanation":
+                    None,
+
+                "error":
+                    str(e),
+            }
 
     # =========================================================================
     # SPECIALIZED AGENTS
@@ -449,7 +587,7 @@ class LiverAIOrchestrator:
         self,
         clinical_data=None,
         image=None,
-        volume=None
+        volume=None,
     ):
 
         results = {}
@@ -460,15 +598,17 @@ class LiverAIOrchestrator:
 
         if clinical_data is not None:
 
-            results["cirrhosis"] = (
-                self._execute_agent(
+            results[
+                "cirrhosis"
+            ] = self._execute_agent(
 
-                    "CirrhosisAgent",
+                "CirrhosisAgent",
 
-                    self.cirrhosis_agent,
+                self.cirrhosis_agent,
 
-                    clinical_data
-                )
+                clinical_data,
+
+                "cirrhosis_classification",
             )
 
         # ---------------------------------------------------------------------
@@ -477,15 +617,17 @@ class LiverAIOrchestrator:
 
         if clinical_data is not None:
 
-            results["fatty_liver"] = (
-                self._execute_agent(
+            results[
+                "fatty_liver"
+            ] = self._execute_agent(
 
-                    "FattyLiverAgent",
+                "FattyLiverAgent",
 
-                    self.fatty_liver_agent,
+                self.fatty_liver_agent,
 
-                    clinical_data
-                )
+                clinical_data,
+
+                "fatty_liver_classification",
             )
 
         # ---------------------------------------------------------------------
@@ -494,15 +636,17 @@ class LiverAIOrchestrator:
 
         if clinical_data is not None:
 
-            results["fibrosis"] = (
-                self._execute_agent(
+            results[
+                "fibrosis"
+            ] = self._execute_agent(
 
-                    "FibrosisAgent",
+                "FibrosisAgent",
 
-                    self.fibrosis_agent,
+                self.fibrosis_agent,
 
-                    clinical_data
-                )
+                clinical_data,
+
+                "fibrosis_prediction",
             )
 
         # ---------------------------------------------------------------------
@@ -519,7 +663,9 @@ class LiverAIOrchestrator:
 
                 self.tumor_agent,
 
-                image
+                image,
+
+                "tumor_classification",
             )
 
         # ---------------------------------------------------------------------
@@ -536,104 +682,63 @@ class LiverAIOrchestrator:
 
                 self.segmentation_agent,
 
-                volume
+                volume,
+
+                "liver_segmentation",
             )
 
         return results
 
     # =========================================================================
-    # UPDATE TRUST
+    # STANDARDIZE RESULTS
     # =========================================================================
 
-    def update_agent_trust(
+    def _to_agent_results(
         self,
-        results
+        raw_results
     ):
 
-        result_list = list(
-            results.values()
-        )
+        agent_results = []
 
-        # ---------------------------------------------------------------------
-        # First pass: calculate agreement
-        # ---------------------------------------------------------------------
+        for result in raw_results.values():
 
-        agreement = (
-            self.conflict_detector
-            .agreement_score(
-                result_list
-            )
-        )
-
-        # ---------------------------------------------------------------------
-        # Patient-specific trust
-        # ---------------------------------------------------------------------
-
-        for result in result_list:
-
-            if not result.success:
-
-                result.trust = 0.0
-
-                continue
-
-            result.trust = (
-                self.trust_manager
-                .compute_trust(
-
-                    agent_id=
-                        result.agent_id,
-
-                    confidence=
-                        result.confidence,
-
-                    quality=
-                        result.quality,
-
-                    uncertainty=
-                        result.uncertainty,
-
-                    missing_data_ratio=
-                        result.missing_data_ratio,
-
-                    agreement=
-                        agreement
+            agent_result = (
+                AgentResult.from_dict(
+                    result
                 )
             )
 
-        return results
+            # -------------------------------------------------------------
+            # ADAPTIVE TRUST
+            # -------------------------------------------------------------
 
-    # =========================================================================
-    # CONFLICT DETECTION
-    # =========================================================================
+            trust = (
+                self.trust_manager.compute_trust(
 
-    def detect_conflicts(
-        self,
-        results
-    ):
+                    agent_id=
+                        agent_result.agent_id,
 
-        return (
-            self.conflict_detector
-            .detect(
-                list(results.values())
+                    confidence=
+                        agent_result.confidence,
+
+                    quality=
+                        agent_result.quality,
+
+                    uncertainty=
+                        agent_result.uncertainty,
+
+                    missing_data_ratio=
+                        agent_result.missing_data_ratio,
+                )
             )
-        )
 
-    # =========================================================================
-    # ADAPTIVE FUSION
-    # =========================================================================
+            agent_result.trust = trust
 
-    def perform_adaptive_fusion(
-        self,
-        results
-    ):
-
-        return (
-            self.adaptive_fusion
-            .fuse(
-                list(results.values())
+            agent_results.append(
+                agent_result
             )
-        )
+
+        return agent_results
 
     # =========================================================================
     # CLINICAL REASONING
@@ -641,143 +746,26 @@ class LiverAIOrchestrator:
 
     def run_clinical_reasoning(
         self,
-        results
+        agent_results,
+        fusion_result=None,
+        conflicts=None,
     ):
 
         if self.clinical_agent is None:
 
             return {
 
+                "agent_id":
+                    "ClinicalReasoningAgent",
+
                 "agent":
                     "ClinicalReasoningAgent",
+
+                "task_type":
+                    "clinical_reasoning",
 
                 "status":
                     "not_available",
-
-                "prediction":
-                    None,
-
-                "confidence":
-                    0.0,
-
-                "risk_score":
-                    0.0,
-
-                "error":
-                    "Clinical reasoning "
-                    "agent not available"
-            }
-
-        self._log(
-            "\n[ClinicalReasoningAgent] START"
-        )
-
-        # ---------------------------------------------------------------------
-        # Convert results to dictionaries
-        # ---------------------------------------------------------------------
-
-        result_dict = {}
-
-        for key, result in results.items():
-
-            result_dict[key] = (
-                result.to_dict()
-            )
-
-        try:
-
-            start_time = (
-                time.perf_counter()
-            )
-
-            raw_result = (
-                self.clinical_agent.predict(
-                    result_dict
-                )
-            )
-
-            latency_ms = (
-                time.perf_counter()
-                -
-                start_time
-            ) * 1000.0
-
-            if raw_result is None:
-
-                raw_result = {}
-
-            if not isinstance(
-                raw_result,
-                dict
-            ):
-
-                raw_result = {
-                    "prediction":
-                        raw_result
-                }
-
-            raw_result.setdefault(
-                "agent",
-                "ClinicalReasoningAgent"
-            )
-
-            raw_result.setdefault(
-                "status",
-                "completed"
-            )
-
-            raw_result.setdefault(
-                "confidence",
-                0.0
-            )
-
-            raw_result.setdefault(
-                "uncertainty",
-                1.0
-                -
-                raw_result.get(
-                    "confidence",
-                    0.0
-                )
-            )
-
-            raw_result.setdefault(
-                "quality",
-                1.0
-            )
-
-            raw_result.setdefault(
-                "details",
-                {}
-            )
-
-            raw_result[
-                "latency_ms"
-            ] = latency_ms
-
-            self._log(
-                "[ClinicalReasoningAgent] "
-                "✓ COMPLETED"
-            )
-
-            return raw_result
-
-        except Exception as e:
-
-            self._log(
-                "[ClinicalReasoningAgent] "
-                f"✗ ERROR: {e}"
-            )
-
-            traceback.print_exc()
-
-            return {
-
-                "agent":
-                    "ClinicalReasoningAgent",
-
-                "status":
-                    "error",
 
                 "prediction":
                     None,
@@ -791,11 +779,164 @@ class LiverAIOrchestrator:
                 "quality":
                     0.0,
 
-                "risk_score":
+                "error":
+                    "Clinical reasoning agent not available",
+            }
+
+        self._log(
+            "\n[ClinicalReasoningAgent] START"
+        )
+
+        try:
+
+            # -------------------------------------------------------------
+            # Convert AgentResult objects into dictionaries
+            # -------------------------------------------------------------
+
+            agent_data = {}
+
+            for result in agent_results:
+
+                data = result.to_dict()
+
+                agent_data[
+                    result.agent_id
+                ] = data
+
+            # -------------------------------------------------------------
+            # Add coordination information
+            # -------------------------------------------------------------
+
+            coordination_context = {
+
+                "agents":
+                    agent_data,
+
+                "adaptive_fusion":
+                    fusion_result or {},
+
+                "conflicts":
+                    conflicts or [],
+            }
+
+            result = (
+                self.clinical_agent.predict(
+                    coordination_context
+                )
+            )
+
+            if result is None:
+
+                result = {}
+
+            if not isinstance(
+                result,
+                dict
+            ):
+
+                result = {
+                    "prediction":
+                        result
+                }
+
+            result.setdefault(
+                "agent_id",
+                "ClinicalReasoningAgent"
+            )
+
+            result.setdefault(
+                "agent",
+                "ClinicalReasoningAgent"
+            )
+
+            result.setdefault(
+                "task_type",
+                "clinical_reasoning"
+            )
+
+            result.setdefault(
+                "status",
+                "success"
+            )
+
+            result.setdefault(
+                "confidence",
+                result.get(
+                    "probability",
+                    0.0
+                )
+                if isinstance(
+                    result.get(
+                        "probability"
+                    ),
+                    (int, float)
+                )
+                else 0.0
+            )
+
+            result.setdefault(
+                "uncertainty",
+                1.0
+                -
+                float(
+                    result.get(
+                        "confidence",
+                        0.0
+                    )
+                )
+            )
+
+            result.setdefault(
+                "quality",
+                1.0
+            )
+
+            result.setdefault(
+                "error",
+                None
+            )
+
+            self._log(
+                "[ClinicalReasoningAgent] "
+                "COMPLETED"
+            )
+
+            return result
+
+        except Exception as e:
+
+            self._log(
+                "[ClinicalReasoningAgent] "
+                f"ERROR: {e}"
+            )
+
+            traceback.print_exc()
+
+            return {
+
+                "agent_id":
+                    "ClinicalReasoningAgent",
+
+                "agent":
+                    "ClinicalReasoningAgent",
+
+                "task_type":
+                    "clinical_reasoning",
+
+                "status":
+                    "error",
+
+                "confidence":
+                    0.0,
+
+                "uncertainty":
+                    1.0,
+
+                "quality":
                     0.0,
 
                 "error":
-                    str(e)
+                    str(e),
             }
 
     # =========================================================================
@@ -807,25 +948,23 @@ class LiverAIOrchestrator:
         patient_id,
         clinical_data=None,
         image=None,
-        volume=None
+        volume=None,
     ):
 
         print("\n")
         print("=" * 80)
         print(
-            "LIVERAI ADAPTIVE PIPELINE"
-        )
-        print(
-            f"PATIENT: {patient_id}"
+            f"LIVERAI ADAPTIVE PIPELINE "
+            f"— PATIENT {patient_id}"
         )
         print("=" * 80)
 
         # ---------------------------------------------------------------------
         # STEP 1
-        # Specialized agents
+        # SPECIALIZED AGENTS
         # ---------------------------------------------------------------------
 
-        specialized_results = (
+        raw_results = (
             self.run_specialized_agents(
 
                 clinical_data=
@@ -835,92 +974,105 @@ class LiverAIOrchestrator:
                     image,
 
                 volume=
-                    volume
+                    volume,
             )
         )
 
         # ---------------------------------------------------------------------
         # STEP 2
-        # Patient-specific trust
+        # STANDARDIZATION + TRUST
         # ---------------------------------------------------------------------
 
-        specialized_results = (
-            self.update_agent_trust(
-                specialized_results
+        agent_results = (
+            self._to_agent_results(
+                raw_results
             )
         )
 
         # ---------------------------------------------------------------------
         # STEP 3
-        # Conflict detection
+        # ADAPTIVE EVIDENCE FUSION
         # ---------------------------------------------------------------------
 
-        conflicts = (
-            self.detect_conflicts(
-                specialized_results
+        fusion_result = (
+            self.adaptive_fusion.fuse(
+                agent_results
             )
         )
 
         # ---------------------------------------------------------------------
         # STEP 4
-        # Adaptive evidence fusion
+        # CONFLICT DETECTION
         # ---------------------------------------------------------------------
 
-        fusion_result = (
-            self.perform_adaptive_fusion(
-                specialized_results
+        conflicts = (
+            self.conflict_detector.detect(
+                agent_results
             )
         )
 
         # ---------------------------------------------------------------------
         # STEP 5
-        # Clinical reasoning
+        # CLINICAL REASONING
         # ---------------------------------------------------------------------
 
         clinical_result = (
             self.run_clinical_reasoning(
-                specialized_results
+
+                agent_results,
+
+                fusion_result=
+
+                    fusion_result,
+
+                conflicts=
+                    conflicts,
             )
         )
 
         # ---------------------------------------------------------------------
         # STEP 6
-        # Decision intelligence
+        # DECISION INTELLIGENCE
         # ---------------------------------------------------------------------
 
         decision = (
             self.decision_engine.decide(
 
-                agent_results=list(
-                    specialized_results.values()
-                ),
+                agent_results=
+                    agent_results,
 
-                conflicts=conflicts,
+                conflicts=
+                    conflicts,
 
-                fusion_result=fusion_result,
+                fused_results=
+                    fusion_result,
 
-                clinical_result=clinical_result
+                clinical_reasoning=
+                    clinical_result,
             )
         )
 
         # ---------------------------------------------------------------------
         # STEP 7
-        # FINAL OUTPUT
+        # SERIALIZE AGENTS
         # ---------------------------------------------------------------------
 
-        final_agents = {}
+        serialized_agents = {}
 
-        for key, result in (
-            specialized_results.items()
-        ):
+        for result in agent_results:
 
-            final_agents[key] = (
-                result.to_dict()
-            )
+            serialized_agents[
+                result.agent_id
+            ] = result.to_dict()
 
-        final_agents[
-            "clinical_reasoning"
+        # Add clinical reasoning
+        serialized_agents[
+            "ClinicalReasoningAgent"
         ] = clinical_result
+
+        # ---------------------------------------------------------------------
+        # FINAL RESULT
+        # ---------------------------------------------------------------------
 
         final_result = {
 
@@ -930,35 +1082,26 @@ class LiverAIOrchestrator:
             "status":
                 "completed",
 
+            "timestamp":
+                datetime.now().isoformat(),
+
             "agents":
-                final_agents,
+                serialized_agents,
 
-            "coordination": {
+            "adaptive_fusion":
+                fusion_result,
 
-                "trust": {
-
-                    agent_id:
-                        result.trust
-
-                    for agent_id, result
-                    in specialized_results.items()
-                },
-
-                "conflicts":
-                    conflicts,
-
-                "adaptive_fusion":
-                    fusion_result
-            },
-
-            "decision":
-                decision,
+            "conflicts":
+                conflicts,
 
             "clinical_reasoning":
                 clinical_result,
 
+            "decision":
+                decision,
+
             "execution_log":
-                self.execution_log
+                self.execution_log,
         }
 
         self.last_results = (
@@ -968,8 +1111,33 @@ class LiverAIOrchestrator:
         print("\n")
         print("=" * 80)
         print(
-            "LIVERAI PIPELINE COMPLETED"
+            "LIVERAI ADAPTIVE PIPELINE "
+            "COMPLETED"
         )
         print("=" * 80)
 
         return final_result
+
+    # =========================================================================
+    # UTILITY
+    # =========================================================================
+
+    @staticmethod
+    def _clip(value):
+
+        try:
+            value = float(value)
+
+        except (
+            TypeError,
+            ValueError
+        ):
+            value = 0.0
+
+        return max(
+            0.0,
+            min(
+                1.0,
+                value
+            )
+        )
