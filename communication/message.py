@@ -1,134 +1,116 @@
-# communication/message.py
-
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, Optional
-from datetime import datetime
+import json
+import time
 
 
 @dataclass
 class AgentMessage:
+    """
+    Standard communication format for every LiverAI specialist agent.
+
+    This implements the unified message structure required by
+    Phase 1 of the Adaptive Coordination Intelligence guide.
+    """
 
     patient_id: Any
-
     agent_id: str
 
-    model_version: str
+    # Core prediction
+    prediction: Any = None
+    probability: Any = None
 
-    task_type: str
+    # Uncertainty
+    confidence: float = 0.0
+    uncertainty: float = 1.0
 
-    prediction: Any
+    # Data / model quality
+    quality: float = 0.0
+    missing_data_ratio: float = 0.0
 
-    probabilities: Any
+    # Adaptive coordination
+    trust: float = 0.5
+    utility: float = 0.0
+    agreement: float = 0.0
+    stability: float = 0.0
 
-    confidence: float
-
-    uncertainty: float
-
-    data_quality: float
-
-    missing_data_ratio: float
-
-    feature_importance: Dict[str, float] = field(
-        default_factory=dict
-    )
-
-    embedding: Any = None
-
-    explanation: Optional[str] = None
-
+    # Metadata
+    task_type: str = "unknown"
+    modality: str = "unknown"
     latency_ms: float = 0.0
 
-    reliability: float = 0.5
+    # Additional information
+    class_probabilities: Dict[str, float] = field(default_factory=dict)
+    feature_importance: Dict[str, float] = field(default_factory=dict)
+    explanation: str = ""
+    embeddings: Any = None
 
-    utility: float = 0.5
+    details: Dict[str, Any] = field(default_factory=dict)
 
-    stability: float = 0.5
-
-    historical_performance: float = 0.5
-
-    trust: float = 0.5
-
-    modality_available: bool = True
-
-    timestamp: str = field(
-        default_factory=lambda:
-        datetime.utcnow().isoformat()
-    )
-
+    # Status
     status: str = "success"
-
     error: Optional[str] = None
 
+    timestamp: float = field(default_factory=time.time)
+
     def to_dict(self):
+        """Convert message to a JSON-compatible dictionary."""
 
-        return {
+        data = asdict(self)
 
-            "patient_id":
-                self.patient_id,
+        # Avoid serializing very large embeddings by default
+        if data.get("embeddings") is not None:
+            try:
+                if hasattr(data["embeddings"], "tolist"):
+                    data["embeddings"] = data["embeddings"].tolist()
+            except Exception:
+                data["embeddings"] = None
 
-            "agent_id":
-                self.agent_id,
+        return data
 
-            "model_version":
-                self.model_version,
+    def to_json(self):
+        """Serialize message."""
 
-            "task_type":
-                self.task_type,
+        return json.dumps(
+            self.to_dict(),
+            default=str,
+            indent=2
+        )
 
-            "prediction":
-                self.prediction,
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]):
+        """Create an AgentMessage from a dictionary."""
 
-            "probabilities":
-                self.probabilities,
-
-            "confidence":
-                self.confidence,
-
-            "uncertainty":
-                self.uncertainty,
-
-            "data_quality":
-                self.data_quality,
-
-            "missing_data_ratio":
-                self.missing_data_ratio,
-
-            "feature_importance":
-                self.feature_importance,
-
-            "embedding":
-                self.embedding,
-
-            "explanation":
-                self.explanation,
-
-            "latency_ms":
-                self.latency_ms,
-
-            "reliability":
-                self.reliability,
-
-            "utility":
-                self.utility,
-
-            "stability":
-                self.stability,
-
-            "historical_performance":
-                self.historical_performance,
-
-            "trust":
-                self.trust,
-
-            "modality_available":
-                self.modality_available,
-
-            "timestamp":
-                self.timestamp,
-
-            "status":
-                self.status,
-
-            "error":
-                self.error
+        allowed = {
+            "patient_id",
+            "agent_id",
+            "prediction",
+            "probability",
+            "confidence",
+            "uncertainty",
+            "quality",
+            "missing_data_ratio",
+            "trust",
+            "utility",
+            "agreement",
+            "stability",
+            "task_type",
+            "modality",
+            "latency_ms",
+            "class_probabilities",
+            "feature_importance",
+            "explanation",
+            "embeddings",
+            "details",
+            "status",
+            "error",
+            "timestamp",
         }
+
+        clean_data = {
+            key: value
+            for key, value in data.items()
+            if key in allowed
+        }
+
+        return cls(**clean_data)
