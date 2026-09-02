@@ -3,24 +3,19 @@ import numpy as np
 
 class AdaptiveTrustManager:
 
-    def __init__(
-        self,
-        alpha=0.30,
-        beta=0.20,
-        gamma=0.20,
-        delta=0.15,
-        epsilon=0.15
-    ):
-
-        self.alpha = alpha
-        self.beta = beta
-        self.gamma = gamma
-        self.delta = delta
-        self.epsilon = epsilon
+    def __init__(self):
 
         self.historical_performance = {}
-
         self.trust_history = {}
+
+        self.weights = {
+            "historical": 0.25,
+            "confidence": 0.20,
+            "uncertainty": 0.15,
+            "quality": 0.15,
+            "agreement": 0.15,
+            "availability": 0.10
+        }
 
     def register_agent(
         self,
@@ -30,7 +25,13 @@ class AdaptiveTrustManager:
 
         self.historical_performance[
             agent_id
-        ] = self._clip(performance)
+        ] = float(
+            np.clip(
+                performance,
+                0.0,
+                1.0
+            )
+        )
 
         self.trust_history.setdefault(
             agent_id,
@@ -63,34 +64,66 @@ class AdaptiveTrustManager:
             )
         )
 
-        confidence = self._clip(confidence)
-        uncertainty = self._clip(uncertainty)
-        quality = self._clip(quality)
-        agreement = self._clip(agreement)
-        modality_availability = self._clip(
-            modality_availability
+        confidence = np.clip(
+            confidence, 0, 1
         )
 
-        reliability = (
-            confidence
-            * (1.0 - uncertainty)
+        uncertainty = np.clip(
+            uncertainty, 0, 1
+        )
+
+        quality = np.clip(
+            quality, 0, 1
+        )
+
+        agreement = np.clip(
+            agreement, 0, 1
+        )
+
+        modality_availability = np.clip(
+            modality_availability,
+            0,
+            1
         )
 
         trust = (
 
-            self.alpha * historical
+            self.weights["historical"]
+            * historical
 
-            + self.beta * reliability
+            +
 
-            + self.gamma * quality
+            self.weights["confidence"]
+            * confidence
 
-            + self.delta * agreement
+            +
 
-            + self.epsilon
+            self.weights["uncertainty"]
+            * (1.0 - uncertainty)
+
+            +
+
+            self.weights["quality"]
+            * quality
+
+            +
+
+            self.weights["agreement"]
+            * agreement
+
+            +
+
+            self.weights["availability"]
             * modality_availability
         )
 
-        trust = self._clip(trust)
+        trust = float(
+            np.clip(
+                trust,
+                0,
+                1
+            )
+        )
 
         self.trust_history[
             agent_id
@@ -111,28 +144,30 @@ class AdaptiveTrustManager:
             )
         )
 
-        target = 1.0 if correct else 0.0
+        target = (
+            1.0
+            if correct
+            else 0.0
+        )
 
         updated = (
-            (1.0 - learning_rate) * previous
-            + learning_rate * target
+            (1 - learning_rate)
+            * previous
+            +
+            learning_rate
+            * target
         )
 
         self.historical_performance[
             agent_id
-        ] = self._clip(updated)
+        ] = float(
+            np.clip(
+                updated,
+                0,
+                1
+            )
+        )
 
         return self.historical_performance[
             agent_id
         ]
-
-    @staticmethod
-    def _clip(value):
-
-        return float(
-            np.clip(
-                value,
-                0.0,
-                1.0
-            )
-        )
