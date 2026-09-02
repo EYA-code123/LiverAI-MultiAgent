@@ -1,74 +1,49 @@
-# =============================================================================
-# LiverAI-MultiAgent
-# ADAPTIVE TRUST MANAGER
-# =============================================================================
+"""
+Adaptive Trust Intelligence
+============================
+
+Patient-specific trust computation.
+
+Trust is not a fixed weight.
+It changes according to:
+
+- historical performance
+- confidence
+- uncertainty
+- data quality
+- missing data
+- modality availability
+- agreement
+- stability
+- utility
+"""
 
 import numpy as np
 
 
 class TrustManager:
-    """
-    Computes dynamic trust for each agent.
-
-    Trust combines:
-
-        historical performance
-        current confidence
-        uncertainty
-        data quality
-        missing-data ratio
-
-    Formula:
-
-        reliability =
-            confidence
-            * (1 - uncertainty)
-            * quality
-            * (1 - missing_ratio)
-
-        trust =
-            historical_weight * historical
-            +
-            current_weight * reliability
-    """
 
     def __init__(
         self,
-        default_trust: float = 0.5,
-        historical_weight: float = 0.40,
-        current_weight: float = 0.60,
+        historical_weight=0.30,
+        current_weight=0.70
     ):
 
-        self.default_trust = float(
-            np.clip(default_trust, 0.0, 1.0)
-        )
-
-        self.historical_weight = float(
-            np.clip(historical_weight, 0.0, 1.0)
-        )
-
-        self.current_weight = float(
-            np.clip(current_weight, 0.0, 1.0)
-        )
-
-        total = (
-            self.historical_weight
-            + self.current_weight
-        )
-
-        if total <= 0:
-            self.historical_weight = 0.4
-            self.current_weight = 0.6
-
-        else:
-            self.historical_weight /= total
-            self.current_weight /= total
+        self.historical_weight = historical_weight
+        self.current_weight = current_weight
 
         self.historical_performance = {}
+        self.trust_history = {}
 
-    # -------------------------------------------------------------------------
-    # REGISTER
-    # -------------------------------------------------------------------------
+    @staticmethod
+    def clip(value):
+        return float(
+            np.clip(
+                float(value),
+                0.0,
+                1.0
+            )
+        )
 
     def register_agent(
         self,
@@ -77,18 +52,33 @@ class TrustManager:
     ):
 
         self.historical_performance[
-            str(agent_id)
-        ] = float(
-            np.clip(
-                performance,
-                0.0,
-                1.0
-            )
+            agent_id
+        ] = self.clip(performance)
+
+    def update_historical_performance(
+        self,
+        agent_id,
+        outcome_correct,
+        learning_rate=0.10
+    ):
+
+        old = self.historical_performance.get(
+            agent_id,
+            0.5
         )
 
-    # -------------------------------------------------------------------------
-    # GET HISTORICAL
-    # -------------------------------------------------------------------------
+        new_value = (
+            (1.0 - learning_rate) * old
+            + learning_rate * float(outcome_correct)
+        )
+
+        self.historical_performance[
+            agent_id
+        ] = self.clip(new_value)
+
+        return self.historical_performance[
+            agent_id
+        ]
 
     def get_historical_performance(
         self,
@@ -96,13 +86,9 @@ class TrustManager:
     ):
 
         return self.historical_performance.get(
-            str(agent_id),
-            self.default_trust
+            agent_id,
+            0.5
         )
-
-    # -------------------------------------------------------------------------
-    # COMPUTE TRUST
-    # -------------------------------------------------------------------------
 
     def compute_trust(
         self,
@@ -111,185 +97,99 @@ class TrustManager:
         quality,
         uncertainty,
         missing_data_ratio=0.0,
+        agreement=0.5,
+        stability=0.5,
+        utility=0.5,
+        modality_available=True
     ):
 
-        historical = (
-            self.get_historical_performance(
-                agent_id
-            )
+        historical = self.get_historical_performance(
+            agent_id
         )
 
-        confidence = self._clip(
-            confidence
-        )
-
-        quality = self._clip(
-            quality
-        )
-
-        uncertainty = self._clip(
-            uncertainty
-        )
-
-        missing_data_ratio = self._clip(
+        confidence = self.clip(confidence)
+        quality = self.clip(quality)
+        uncertainty = self.clip(uncertainty)
+        missing_data_ratio = self.clip(
             missing_data_ratio
         )
+        agreement = self.clip(agreement)
+        stability = self.clip(stability)
+        utility = self.clip(utility)
 
-        # -------------------------------------------------------------
-        # CURRENT RELIABILITY
-        # -------------------------------------------------------------
-
-        current_reliability = (
-            confidence
-            * (1.0 - uncertainty)
-            * quality
-            * (1.0 - missing_data_ratio)
+        modality_score = (
+            1.0
+            if modality_available
+            else 0.0
         )
 
-        # -------------------------------------------------------------
-        # ADAPTIVE TRUST
-        # -------------------------------------------------------------
+        # Current reliability
+        reliability = (
+            0.25 * confidence
+            + 0.20 * (1.0 - uncertainty)
+            + 0.20 * quality
+            + 0.10 * (1.0 - missing_data_ratio)
+            + 0.10 * agreement
+            + 0.10 * stability
+            + 0.05 * utility
+        )
+
+        reliability *= (
+            0.80 + 0.20 * modality_score
+        )
 
         trust = (
             self.historical_weight
             * historical
             +
             self.current_weight
-            * current_reliability
+            * reliability
         )
 
-        return float(
-            np.clip(
-                trust,
-                0.0,
-                1.0
-            )
-        )
+        trust = self.clip(trust)
 
-    # -------------------------------------------------------------------------
-    # UPDATE FROM FEEDBACK
-    # -------------------------------------------------------------------------
+        self.trust_history.setdefault(
+            agent_id,
+            []
+        ).append(trust)
 
-    def update_from_feedback(
+        return trust
+
+    def compute_message_trust(
         self,
-        agent_id,
-        correct: bool,
-        learning_rate: float = 0.10
+        message,
+        agreement=0.5,
+        stability=0.5,
+        utility=0.5,
+        modality_available=True
     ):
 
-        agent_id = str(agent_id)
-
-        old_value = (
-            self.get_historical_performance(
-                agent_id
-            )
+        trust = self.compute_trust(
+            agent_id=message.agent_id,
+            confidence=message.confidence,
+            quality=message.quality,
+            uncertainty=message.uncertainty,
+            missing_data_ratio=message.missing_data_ratio,
+            agreement=agreement,
+            stability=stability,
+            utility=utility,
+            modality_available=modality_available
         )
 
-        target = 1.0 if correct else 0.0
+        message.trust = trust
 
-        learning_rate = self._clip(
-            learning_rate
-        )
+        message.agreement = agreement
+        message.stability = stability
+        message.utility = utility
 
-        new_value = (
-            (1.0 - learning_rate)
-            * old_value
-            +
-            learning_rate
-            * target
-        )
+        return message
 
-        self.historical_performance[
-            agent_id
-        ] = float(
-            np.clip(
-                new_value,
-                0.0,
-                1.0
-            )
-        )
+    def get_trust_history(
+        self,
+        agent_id
+    ):
 
-        return self.historical_performance[
-            agent_id
-        ]
-
-    # -------------------------------------------------------------------------
-    # BATCH TRUST
-    # -------------------------------------------------------------------------
-
-    def evaluate_result(self, result):
-        """
-        Compute trust directly from an AgentResult-like object
-        or dictionary.
-        """
-
-        if isinstance(result, dict):
-
-            agent_id = result.get(
-                "agent_id",
-                result.get("agent", "unknown")
-            )
-
-            confidence = result.get(
-                "confidence",
-                0.0
-            )
-
-            quality = result.get(
-                "quality",
-                0.0
-            )
-
-            uncertainty = result.get(
-                "uncertainty",
-                1.0
-            )
-
-            missing_ratio = result.get(
-                "missing_data_ratio",
-                0.0
-            )
-
-        else:
-
-            agent_id = result.agent_id
-            confidence = result.confidence
-            quality = result.quality
-            uncertainty = result.uncertainty
-            missing_ratio = getattr(
-                result,
-                "missing_data_ratio",
-                0.0
-            )
-
-        return self.compute_trust(
-            agent_id=agent_id,
-            confidence=confidence,
-            quality=quality,
-            uncertainty=uncertainty,
-            missing_data_ratio=missing_ratio,
-        )
-
-    # -------------------------------------------------------------------------
-    # UTILITY
-    # -------------------------------------------------------------------------
-
-    @staticmethod
-    def _clip(value):
-
-        try:
-            value = float(value)
-
-        except (
-            TypeError,
-            ValueError
-        ):
-            value = 0.0
-
-        return float(
-            np.clip(
-                value,
-                0.0,
-                1.0
-            )
+        return self.trust_history.get(
+            agent_id,
+            []
         )
