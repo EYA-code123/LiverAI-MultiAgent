@@ -1,63 +1,202 @@
+# =============================================================================
+# LiverAI-MultiAgent
+# CONFLICT DETECTOR
+# =============================================================================
+
+import numpy as np
+
+
 class ConflictDetector:
 
     def __init__(
         self,
-        prediction_threshold=0.5,
         confidence_threshold=0.20
     ):
 
-        self.prediction_threshold = prediction_threshold
-        self.confidence_threshold = confidence_threshold
+        self.confidence_threshold = (
+            confidence_threshold
+        )
 
-    def detect(self, messages):
+    # -------------------------------------------------------------------------
+    # DETECT CONFLICTS
+    # -------------------------------------------------------------------------
+
+    def detect(
+        self,
+        results
+    ):
 
         conflicts = []
 
-        valid_messages = [
-            m for m in messages
-            if m.error is None
+        valid_results = [
+            r for r in results
+            if getattr(r, "success", False)
         ]
 
-        for i in range(len(valid_messages)):
+        groups = {}
 
-            for j in range(i + 1, len(valid_messages)):
+        for result in valid_results:
 
-                a = valid_messages[i]
-                b = valid_messages[j]
+            task_type = getattr(
+                result,
+                "task_type",
+                "unknown"
+            )
 
-                # Les agents spécialisés peuvent avoir
-                # des espaces de prédiction différents.
-                # On compare donc uniquement les agents
-                # ayant le même type de tâche.
+            groups.setdefault(
+                task_type,
+                []
+            )
 
-                task_a = a.details.get(
-                    "task_type"
-                )
+            groups[
+                task_type
+            ].append(result)
 
-                task_b = b.details.get(
-                    "task_type"
-                )
+        # ---------------------------------------------------------------------
+        # COMPARE ONLY SAME TASK
+        # ---------------------------------------------------------------------
 
-                if task_a != task_b:
-                    continue
+        for task_type, task_results in groups.items():
 
-                if a.prediction != b.prediction:
+            if len(task_results) < 2:
+                continue
+
+            for i in range(
+                len(task_results)
+            ):
+
+                for j in range(
+                    i + 1,
+                    len(task_results)
+                ):
+
+                    a = task_results[i]
+                    b = task_results[j]
+
+                    if (
+                        a.prediction
+                        ==
+                        b.prediction
+                    ):
+                        continue
 
                     confidence_gap = abs(
-                        a.confidence -
-                        b.confidence
+                        float(a.confidence)
+                        -
+                        float(b.confidence)
                     )
 
-                    if confidence_gap >= self.confidence_threshold:
+                    conflicts.append({
 
-                        conflicts.append({
-                            "agent_a": a.agent_id,
-                            "agent_b": b.agent_id,
-                            "prediction_a": a.prediction,
-                            "prediction_b": b.prediction,
-                            "confidence_a": a.confidence,
-                            "confidence_b": b.confidence,
-                            "confidence_gap": confidence_gap
-                        })
+                        "task_type":
+                            task_type,
+
+                        "agent_a":
+                            a.agent_id,
+
+                        "agent_b":
+                            b.agent_id,
+
+                        "prediction_a":
+                            a.prediction,
+
+                        "prediction_b":
+                            b.prediction,
+
+                        "confidence_a":
+                            float(
+                                a.confidence
+                            ),
+
+                        "confidence_b":
+                            float(
+                                b.confidence
+                            ),
+
+                        "trust_a":
+                            float(
+                                a.trust
+                            ),
+
+                        "trust_b":
+                            float(
+                                b.trust
+                            ),
+
+                        "confidence_gap":
+                            float(
+                                confidence_gap
+                            ),
+
+                        "severity":
+                            self._severity(
+                                confidence_gap
+                            )
+                    })
 
         return conflicts
+
+    # -------------------------------------------------------------------------
+    # SEVERITY
+    # -------------------------------------------------------------------------
+
+    def _severity(
+        self,
+        confidence_gap
+    ):
+
+        if confidence_gap < 0.20:
+            return "low"
+
+        if confidence_gap < 0.40:
+            return "medium"
+
+        return "high"
+
+    # -------------------------------------------------------------------------
+    # AGREEMENT
+    # -------------------------------------------------------------------------
+
+    def agreement_score(
+        self,
+        results
+    ):
+
+        valid_results = [
+            r for r in results
+            if getattr(r, "success", False)
+        ]
+
+        if len(valid_results) <= 1:
+
+            return 1.0
+
+        predictions = [
+            str(r.prediction)
+            for r in valid_results
+        ]
+
+        counts = {}
+
+        for prediction in predictions:
+
+            counts[prediction] = (
+                counts.get(
+                    prediction,
+                    0
+                ) + 1
+            )
+
+        maximum = max(
+            counts.values()
+        )
+
+        return float(
+            np.clip(
+                maximum
+                /
+                len(predictions),
+                0.0,
+                1.0
+            )
+        )
