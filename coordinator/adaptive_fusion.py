@@ -1,64 +1,159 @@
-class AdaptiveFusion:
+class ConflictDetector:
 
-    def fuse(self, results):
+    def __init__(
+        self,
+        confidence_threshold=0.20
+    ):
 
-        valid_results = [
-            r for r in results
-            if r.status == "success"
-            and r.prediction is not None
+        self.confidence_threshold = (
+            confidence_threshold
+        )
+
+    def detect(
+        self,
+        messages
+    ):
+
+        conflicts = []
+
+        valid = [
+
+            m for m in messages
+
+            if m.error is None
+
+            and m.prediction is not None
+
         ]
 
-        if not valid_results:
-            return None
+        groups = {}
 
-        weighted_votes = {}
+        for message in valid:
 
-        for result in valid_results:
+            groups.setdefault(
+                message.task_type,
+                []
+            ).append(message)
 
-            trust = (
-                result.trust
-                if result.trust is not None
-                else 0.5
+        for task_type, group in groups.items():
+
+            for i in range(
+                len(group)
+            ):
+
+                for j in range(
+                    i + 1,
+                    len(group)
+                ):
+
+                    a = group[i]
+                    b = group[j]
+
+                    if (
+                        a.prediction
+                        == b.prediction
+                    ):
+                        continue
+
+                    confidence_gap = abs(
+                        a.confidence
+                        - b.confidence
+                    )
+
+                    severity = (
+                        "high"
+                        if confidence_gap >= 0.40
+                        else "medium"
+                        if confidence_gap >= 0.20
+                        else "low"
+                    )
+
+                    conflicts.append({
+
+                        "task_type":
+                            task_type,
+
+                        "agent_a":
+                            a.agent_id,
+
+                        "agent_b":
+                            b.agent_id,
+
+                        "prediction_a":
+                            a.prediction,
+
+                        "prediction_b":
+                            b.prediction,
+
+                        "confidence_a":
+                            a.confidence,
+
+                        "confidence_b":
+                            b.confidence,
+
+                        "confidence_gap":
+                            confidence_gap,
+
+                        "severity":
+                            severity
+                    })
+
+        return conflicts
+
+    def consensus(
+        self,
+        messages
+    ):
+
+        predictions = [
+
+            m.prediction
+
+            for m in messages
+
+            if m.error is None
+
+            and m.prediction is not None
+        ]
+
+        if not predictions:
+
+            return {
+                "agreement": 0.0,
+                "consensus": None
+            }
+
+        counts = {}
+
+        for prediction in predictions:
+
+            key = str(prediction)
+
+            counts[key] = (
+                counts.get(
+                    key,
+                    0
+                ) + 1
             )
 
-            confidence = (
-                result.confidence
-                if result.confidence is not None
-                else 0.5
-            )
-
-            weight = trust * confidence
-
-            prediction = str(
-                result.prediction
-            )
-
-            weighted_votes[prediction] = (
-                weighted_votes.get(
-                    prediction,
-                    0.0
-                )
-                + weight
-            )
-
-        final_prediction = max(
-            weighted_votes,
-            key=weighted_votes.get
+        winner = max(
+            counts,
+            key=counts.get
         )
 
-        total_weight = sum(
-            weighted_votes.values()
-        )
-
-        final_confidence = (
-            weighted_votes[final_prediction]
-            / total_weight
-            if total_weight > 0
-            else 0.0
+        agreement = (
+            counts[winner]
+            / len(predictions)
         )
 
         return {
-            "prediction": final_prediction,
-            "confidence": final_confidence,
-            "weighted_votes": weighted_votes
+
+            "agreement":
+                float(agreement),
+
+            "consensus":
+                winner,
+
+            "counts":
+                counts
         }
