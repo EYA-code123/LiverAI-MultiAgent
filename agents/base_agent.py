@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-import time
 
 
 class BaseAgent(ABC):
@@ -10,14 +9,12 @@ class BaseAgent(ABC):
         model=None,
         task_type="unknown"
     ):
-
         self.agent_id = agent_id
         self.model = model
         self.task_type = task_type
 
     @abstractmethod
     def predict(self, X):
-
         raise NotImplementedError
 
     def build_result(
@@ -26,62 +23,45 @@ class BaseAgent(ABC):
         probability=None,
         confidence=0.0,
         uncertainty=1.0,
-        quality=1.0,
+        quality=0.0,
         missing_data_ratio=0.0,
+        latency_ms=0.0,
         feature_importance=None,
         embedding=None,
         explanation=None,
-        latency_ms=0.0,
         details=None,
         error=None
     ):
 
         return {
+            "agent_id": self.agent_id,
+            "task_type": self.task_type,
 
-            "agent_id":
-                self.agent_id,
+            "prediction": prediction,
+            "probability": probability,
 
-            "task_type":
-                self.task_type,
+            "confidence": float(
+                max(0.0, min(1.0, confidence))
+            ),
 
-            "prediction":
-                prediction,
+            "uncertainty": float(
+                max(0.0, min(1.0, uncertainty))
+            ),
 
-            "probability":
-                probability,
+            "quality": float(
+                max(0.0, min(1.0, quality))
+            ),
 
-            "confidence":
-                float(
-                    max(
-                        0.0,
-                        min(1.0, confidence)
-                    )
-                ),
+            "missing_data_ratio": float(
+                max(
+                    0.0,
+                    min(1.0, missing_data_ratio)
+                )
+            ),
 
-            "uncertainty":
-                float(
-                    max(
-                        0.0,
-                        min(1.0, uncertainty)
-                    )
-                ),
-
-            "quality":
-                float(
-                    max(
-                        0.0,
-                        min(1.0, quality)
-                    )
-                ),
-
-            "missing_data_ratio":
-                float(
-                    max(
-                        0.0,
-                        min(1.0,
-                        missing_data_ratio
-                    )
-                ),
+            "latency_ms": float(
+                max(0.0, latency_ms)
+            ),
 
             "feature_importance":
                 feature_importance,
@@ -91,9 +71,6 @@ class BaseAgent(ABC):
 
             "explanation":
                 explanation,
-
-            "latency_ms":
-                float(latency_ms),
 
             "details":
                 details or {},
