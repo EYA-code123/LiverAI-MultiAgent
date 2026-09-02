@@ -536,10 +536,25 @@ class LiverAICoordinator:
         # FINAL OUTPUT
         # ====================================================
 
-        return {
+       adaptive_result = self.adaptive_pipeline.run(
+    raw_results=results,
+    patient_id=(
+        patient_data.get("patient_id", "unknown")
+        if isinstance(patient_data, dict)
+        else "unknown"
+    ),
+    agents={
+        "cirrhosis": self.cirrhosis_agent,
+        "fatty_liver": self.fatty_liver_agent,
+        "fibrosis": self.fibrosis_agent,
+        "tumor": self.tumor_agent,
+        "segmentation": self.segmentation_agent,
+    },
+    input_data=patient_data
+)
 
-            "agents": results,
-
-            "clinical_reasoning":
-                clinical_result
-        }
+return {
+    "agents": results,
+    "clinical_reasoning": clinical_result,
+    "adaptive_coordination": adaptive_result
+}
