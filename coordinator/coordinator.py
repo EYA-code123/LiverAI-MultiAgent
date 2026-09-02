@@ -240,53 +240,55 @@ class LiverAICoordinator:
                 e
             )
 
-    # ========================================================
-    # SEGMENTATION
-    # ========================================================
+  # ========================================================
+# SEGMENTATION
+# ========================================================
 
-    def _load_segmentation(self):
+def _load_segmentation(self):
 
-        if not self.segmentation_model_path:
+    if not self.segmentation_model_path:
 
-            print(
-                "⚠️ SegmentationAgent : modèle non fourni"
-            )
+        print(
+            "⚠️ SegmentationAgent : modèle non fourni"
+        )
 
-            return
+        return
 
-        if not os.path.exists(
+    if not os.path.exists(
+        self.segmentation_model_path
+    ):
+
+        print(
+            "⚠️ Segmentation model absent :",
             self.segmentation_model_path
-        ):
+        )
 
-            print(
-                "⚠️ Segmentation model absent :",
+        return
+
+    try:
+
+        # The LiverSegmentationAgent expects
+        # the MODEL PATH, not a joblib-loaded object.
+        self.segmentation_agent = (
+            self.LiverSegmentationAgent(
                 self.segmentation_model_path
             )
+        )
 
-            return
+        print(
+            "✅ LiverSegmentationAgent chargé"
+        )
 
-        try:
+    except Exception as e:
 
-            model = joblib.load(
-                self.segmentation_model_path
-            )
+        print(
+            "❌ Erreur LiverSegmentationAgent :",
+            e
+        )
 
-            self.segmentation_agent = (
-                self.LiverSegmentationAgent(
-                    model
-                )
-            )
+        self.segmentation_agent = None
 
-            print(
-                "✅ LiverSegmentationAgent chargé"
-            )
-
-        except Exception as e:
-
-            print(
-                "❌ Erreur LiverSegmentationAgent :",
-                e
-            )
+           
 
     # ========================================================
     # SAFE RESULT
