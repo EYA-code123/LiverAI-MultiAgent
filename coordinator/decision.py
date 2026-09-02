@@ -1,137 +1,202 @@
-class DecisionEngine:
+# =============================================================================
+# LiverAI-MultiAgent
+# CONFLICT DETECTOR
+# =============================================================================
+
+import numpy as np
+
+
+class ConflictDetector:
 
     def __init__(
         self,
-        confidence_threshold=0.70,
-        uncertainty_threshold=0.40,
-        agreement_threshold=0.60
+        confidence_threshold=0.20
     ):
 
         self.confidence_threshold = (
             confidence_threshold
         )
 
-        self.uncertainty_threshold = (
-            uncertainty_threshold
-        )
+    # -------------------------------------------------------------------------
+    # DETECT CONFLICTS
+    # -------------------------------------------------------------------------
 
-        self.agreement_threshold = (
-            agreement_threshold
-        )
-
-    def decide(
+    def detect(
         self,
-        agent_results,
-        conflicts,
-        fused_results,
-        consensus=None
+        results
     ):
 
-        if fused_results is None:
+        conflicts = []
 
-            return {
+        valid_results = [
+            r for r in results
+            if getattr(r, "success", False)
+        ]
 
-                "status":
-                    "insufficient_evidence",
+        groups = {}
 
-                "decision":
-                    "additional_tests_required",
+        for result in valid_results:
 
-                "confidence":
-                    0.0,
-
-                "uncertainty":
-                    1.0,
-
-                "risk_score":
-                    1.0,
-
-                "request_additional_tests":
-                    True,
-
-                "reason":
-                    "No reliable agent output."
-            }
-
-        confidence = float(
-            fused_results.get(
-                "confidence",
-                0.0
-            )
-        )
-
-        agreement = float(
-            consensus.get(
-                "agreement",
-                0.0
-            )
-            if consensus
-            else 0.0
-        )
-
-        uncertainty = 1.0 - confidence
-
-        risk_score = (
-            0.5 * uncertainty
-            + 0.5 * (1.0 - agreement)
-        )
-
-        request_tests = (
-
-            confidence
-            < self.confidence_threshold
-
-            or uncertainty
-            > self.uncertainty_threshold
-
-            or agreement
-            < self.agreement_threshold
-        )
-
-        if request_tests:
-
-            decision = (
-                "additional_tests_required"
+            task_type = getattr(
+                result,
+                "task_type",
+                "unknown"
             )
 
-            status = "uncertain"
-
-        else:
-
-            decision = (
-                fused_results[
-                    "prediction"
-                ]
+            groups.setdefault(
+                task_type,
+                []
             )
 
-            status = "completed"
+            groups[
+                task_type
+            ].append(result)
 
-        return {
+        # ---------------------------------------------------------------------
+        # COMPARE ONLY SAME TASK
+        # ---------------------------------------------------------------------
 
-            "status":
-                status,
+        for task_type, task_results in groups.items():
 
-            "decision":
-                decision,
+            if len(task_results) < 2:
+                continue
 
-            "confidence":
-                confidence,
+            for i in range(
+                len(task_results)
+            ):
 
-            "uncertainty":
-                uncertainty,
+                for j in range(
+                    i + 1,
+                    len(task_results)
+                ):
 
-            "risk_score":
-                float(risk_score),
+                    a = task_results[i]
+                    b = task_results[j]
 
-            "agreement":
-                agreement,
+                    if (
+                        a.prediction
+                        ==
+                        b.prediction
+                    ):
+                        continue
 
-            "conflicts":
-                conflicts,
+                    confidence_gap = abs(
+                        float(a.confidence)
+                        -
+                        float(b.confidence)
+                    )
 
-            "request_additional_tests":
-                request_tests,
+                    conflicts.append({
 
-            "num_agents":
-                len(agent_results)
-        }
+                        "task_type":
+                            task_type,
+
+                        "agent_a":
+                            a.agent_id,
+
+                        "agent_b":
+                            b.agent_id,
+
+                        "prediction_a":
+                            a.prediction,
+
+                        "prediction_b":
+                            b.prediction,
+
+                        "confidence_a":
+                            float(
+                                a.confidence
+                            ),
+
+                        "confidence_b":
+                            float(
+                                b.confidence
+                            ),
+
+                        "trust_a":
+                            float(
+                                a.trust
+                            ),
+
+                        "trust_b":
+                            float(
+                                b.trust
+                            ),
+
+                        "confidence_gap":
+                            float(
+                                confidence_gap
+                            ),
+
+                        "severity":
+                            self._severity(
+                                confidence_gap
+                            )
+                    })
+
+        return conflicts
+
+    # -------------------------------------------------------------------------
+    # SEVERITY
+    # -------------------------------------------------------------------------
+
+    def _severity(
+        self,
+        confidence_gap
+    ):
+
+        if confidence_gap < 0.20:
+            return "low"
+
+        if confidence_gap < 0.40:
+            return "medium"
+
+        return "high"
+
+    # -------------------------------------------------------------------------
+    # AGREEMENT
+    # -------------------------------------------------------------------------
+
+    def agreement_score(
+        self,
+        results
+    ):
+
+        valid_results = [
+            r for r in results
+            if getattr(r, "success", False)
+        ]
+
+        if len(valid_results) <= 1:
+
+            return 1.0
+
+        predictions = [
+            str(r.prediction)
+            for r in valid_results
+        ]
+
+        counts = {}
+
+        for prediction in predictions:
+
+            counts[prediction] = (
+                counts.get(
+                    prediction,
+                    0
+                ) + 1
+            )
+
+        maximum = max(
+            counts.values()
+        )
+
+        return float(
+            np.clip(
+                maximum
+                /
+                len(predictions),
+                0.0,
+                1.0
+            )
+        )
