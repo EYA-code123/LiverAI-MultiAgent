@@ -54,15 +54,21 @@ class AgentResult:
             "missing_data_ratio":
                 self.missing_data_ratio,
 
-            "latency_ms": self.latency_ms,
+            "latency_ms":
+                self.latency_ms,
 
-            "trust": self.trust,
+            "trust":
+                self.trust,
 
-            "explanation": self.explanation,
+            "explanation":
+                self.explanation,
 
-            "details": self.details,
+            "details":
+                self.details,
 
-            "error": self.error,
+            "error":
+                self.error,
 
-            "status": self.status
+            "status":
+                self.status
         }
