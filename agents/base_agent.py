@@ -1,80 +1,122 @@
+# =============================================================================
+# LiverAI-MultiAgent
+# BASE AGENT
+# =============================================================================
+
 from abc import ABC, abstractmethod
+from typing import Any, Dict, Optional
 
 
 class BaseAgent(ABC):
+    """
+    Base class for all LiverAI agents.
 
-    def __init__(
-        self,
-        agent_id,
-        model=None,
-        task_type="unknown"
-    ):
+    Every specialized agent should return a standardized dictionary
+    compatible with the LiverAI coordination layer.
+    """
+
+    def __init__(self, agent_id: str, model=None):
         self.agent_id = agent_id
         self.model = model
-        self.task_type = task_type
+
+    # -------------------------------------------------------------------------
+    # PREDICTION
+    # -------------------------------------------------------------------------
 
     @abstractmethod
     def predict(self, X):
+        """
+        Execute the agent prediction.
+
+        Must return a dictionary containing at least:
+            prediction
+            probability
+            confidence
+            uncertainty
+            quality
+            details
+            error
+        """
         raise NotImplementedError
+
+    # -------------------------------------------------------------------------
+    # STANDARD RESULT
+    # -------------------------------------------------------------------------
 
     def build_result(
         self,
-        prediction=None,
-        probability=None,
-        confidence=0.0,
-        uncertainty=1.0,
-        quality=0.0,
-        missing_data_ratio=0.0,
-        latency_ms=0.0,
-        feature_importance=None,
-        embedding=None,
-        explanation=None,
-        details=None,
-        error=None
-    ):
+        prediction: Any = None,
+        probability: Any = None,
+        confidence: float = 0.0,
+        uncertainty: float = 1.0,
+        quality: float = 0.0,
+        details: Optional[Dict[str, Any]] = None,
+        error: Optional[str] = None,
+        task_type: Optional[str] = None,
+        status: Optional[str] = None,
+        latency_ms: float = 0.0,
+        missing_data_ratio: float = 0.0,
+        explanation: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Build a standardized agent result.
 
-        return {
+        This format is used by:
+            AgentResult
+            TrustManager
+            ConflictDetector
+            AdaptiveFusion
+            DecisionEngine
+            LiverAIOrchestrator
+        """
+
+        confidence = self._clip(confidence)
+        uncertainty = self._clip(uncertainty)
+        quality = self._clip(quality)
+        missing_data_ratio = self._clip(missing_data_ratio)
+
+        if status is None:
+            status = "error" if error else "success"
+
+        result = {
             "agent_id": self.agent_id,
-            "task_type": self.task_type,
+            "agent": self.agent_id,
+
+            "task_type": task_type,
 
             "prediction": prediction,
             "probability": probability,
 
-            "confidence": float(
-                max(0.0, min(1.0, confidence))
-            ),
+            "confidence": confidence,
+            "uncertainty": uncertainty,
+            "quality": quality,
 
-            "uncertainty": float(
-                max(0.0, min(1.0, uncertainty))
-            ),
+            "latency_ms": float(max(0.0, latency_ms)),
+            "missing_data_ratio": missing_data_ratio,
 
-            "quality": float(
-                max(0.0, min(1.0, quality))
-            ),
+            "details": details or {},
 
-            "missing_data_ratio": float(
-                max(
-                    0.0,
-                    min(1.0, missing_data_ratio)
-                )
-            ),
+            "explanation": explanation,
 
-            "latency_ms": float(
-                max(0.0, latency_ms)
-            ),
-
-            "feature_importance":
-                feature_importance,
-
-            "embedding":
-                embedding,
-
-            "explanation":
-                explanation,
-
-            "details":
-                details or {},
-
-            "error":
-                error
+            "status": status,
+            "error": error,
         }
+
+        return result
+
+    # -------------------------------------------------------------------------
+    # UTILS
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def _clip(value: Any) -> float:
+        """
+        Convert value to [0, 1].
+        """
+
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            value = 0.0
+
+        return max(0.0, min(1.0, value))
