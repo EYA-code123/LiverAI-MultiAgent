@@ -1,8 +1,8 @@
+%%writefile coordinator/adaptive_pipeline.py
+
 """
 Adaptive Coordination Intelligence Pipeline
 ============================================
-
-Implements the complete coordination pipeline:
 
 Phase 1  - Agent communication
 Phase 2  - Agent assessment
@@ -13,9 +13,6 @@ Phase 7  - Conflict resolution
 Phase 8  - Decision intelligence
 Phase 9  - Action intelligence
 Phase 10 - Feedback intelligence
-
-Phase 3 from the original guide is intentionally skipped here
-because the supplied guide jumps from Phase 2 to Phase 4.
 """
 
 import time
@@ -36,58 +33,25 @@ from coordinator.feedback import FeedbackIntelligence
 class AdaptiveCoordinationPipeline:
 
     def __init__(self):
-
-        # Phase 1
         self.adapter = AgentAdapter()
-
-        # Phase 2 + Phase 4
         self.trust_manager = TrustManager()
-
-        # Phase 5
         self.fusion = AdaptiveFusion()
 
-        # Phase 7
-        self.conflict_detector = (
-            ConflictDetector()
+        self.conflict_detector = ConflictDetector()
+
+        self.conflict_engine = ConflictResolutionEngine(
+            self.conflict_detector
         )
 
-        self.conflict_engine = (
-            ConflictResolutionEngine(
-                self.conflict_detector
-            )
-        )
-
-        # Phase 6
         self.reasoner = EvidenceReasoner()
-
-        # Phase 8
         self.decision_engine = DecisionEngine()
+        self.action_engine = ActionIntelligence()
 
-        # Phase 9
-        self.action_engine = (
-            ActionIntelligence()
+        self.feedback_engine = FeedbackIntelligence(
+            self.trust_manager
         )
 
-        # Phase 10
-        self.feedback_engine = (
-            FeedbackIntelligence(
-                self.trust_manager
-            )
-        )
-
-    def assess_agents(
-        self,
-        messages
-    ):
-
-        """
-        Phase 2 + Phase 4.
-
-        Computes patient-specific trust.
-        """
-
-        # First determine agreement inside
-        # each task group.
+    def assess_agents(self, messages):
 
         task_predictions = {}
 
@@ -117,28 +81,16 @@ class AdaptiveCoordinationPipeline:
                     1
                     for prediction in predictions
                     if str(prediction)
-                    ==
-                    str(message.prediction)
+                    == str(message.prediction)
                 )
 
-                agreement = (
-                    same / len(predictions)
-                )
+                agreement = same / len(predictions)
 
-            # Stability is estimated from
-            # confidence/uncertainty unless
-            # historical repeated predictions
-            # are available.
-
-            stability = (
-                1.0
-                - message.uncertainty
-            )
+            stability = 1.0 - message.uncertainty
 
             utility = (
                 0.5 * message.confidence
-                +
-                0.5 * message.quality
+                + 0.5 * message.quality
             )
 
             self.trust_manager.compute_message_trust(
@@ -147,8 +99,7 @@ class AdaptiveCoordinationPipeline:
                 stability=stability,
                 utility=utility,
                 modality_available=(
-                    message.modality
-                    != "unknown"
+                    message.modality != "unknown"
                 )
             )
 
@@ -167,10 +118,9 @@ class AdaptiveCoordinationPipeline:
 
         agents = agents or {}
 
-        # =====================================================
-        # PHASE 1
-        # Unified Agent Messages
-        # =====================================================
+        # ====================================================
+        # PHASE 1 - AGENT COMMUNICATION
+        # ====================================================
 
         messages = self.adapter.adapt_many(
             results=raw_results,
@@ -179,53 +129,42 @@ class AdaptiveCoordinationPipeline:
             input_data=input_data
         )
 
-        # =====================================================
-        # PHASE 2 + 4
-        # Agent Assessment + Adaptive Trust
-        # =====================================================
+        # ====================================================
+        # PHASE 2 + 4 - ASSESSMENT + ADAPTIVE TRUST
+        # ====================================================
 
-        messages = self.assess_agents(
+        messages = self.assess_agents(messages)
+
+        # ====================================================
+        # PHASE 7 - CONFLICT RESOLUTION
+        # ====================================================
+
+        conflict_result = self.conflict_engine.resolve(
             messages
         )
 
-        # =====================================================
-        # PHASE 7
-        # Conflict Detection
-        # =====================================================
+        conflicts = conflict_result["conflicts"]
 
-        conflict_result = (
-            self.conflict_engine.resolve(
-                messages
-            )
-        )
-
-        conflicts = (
-            conflict_result["conflicts"]
-        )
-
-        # =====================================================
-        # PHASE 5
-        # Adaptive Task-Aware Fusion
-        # =====================================================
+        # ====================================================
+        # PHASE 5 - ADAPTIVE FUSION
+        # ====================================================
 
         fused_results = self.fusion.fuse(
             messages
         )
 
-        # =====================================================
-        # PHASE 6
-        # Evidence Reasoning
-        # =====================================================
+        # ====================================================
+        # PHASE 6 - REASONING
+        # ====================================================
 
         reasoning = self.reasoner.synthesize(
             fused_results,
             conflicts
         )
 
-        # =====================================================
-        # PHASE 8
-        # Confidence-Aware Decision
-        # =====================================================
+        # ====================================================
+        # PHASE 8 - DECISION
+        # ====================================================
 
         decisions = self.decision_engine.decide(
             agent_results=messages,
@@ -233,108 +172,82 @@ class AdaptiveCoordinationPipeline:
             fused_results=fused_results
         )
 
-        # =====================================================
-        # PHASE 9
-        # Action Intelligence
-        # =====================================================
+        # ====================================================
+        # PHASE 9 - ACTION
+        # ====================================================
 
         actions = self.action_engine.generate(
             decisions,
             reasoning
         )
 
-        # =====================================================
-        # PHASE 10
-        # Feedback Intelligence
-        # =====================================================
+        # ====================================================
+        # PHASE 10 - FEEDBACK
+        # ====================================================
 
         feedback = None
 
         if ground_truths is not None:
 
-            feedback = (
-                self.feedback_engine.update(
-                    messages,
-                    ground_truths
-                )
+            feedback = self.feedback_engine.update(
+                messages,
+                ground_truths
             )
 
-        total_latency = (
-            time.perf_counter()
-            - start
-        ) * 1000.0
+        # ====================================================
+        # FINAL COORDINATION
+        # ====================================================
 
-        # =====================================================
-        # FINAL COORDINATION OUTPUT
-        # =====================================================
+        total_latency = (
+            time.perf_counter() - start
+        ) * 1000.0
 
         return {
 
-            "patient_id":
-                patient_id,
+            "patient_id": patient_id,
 
             "coordination": {
 
-                "status":
-                    "completed",
+                "status": "completed",
 
-                "latency_ms":
-                    total_latency,
+                "latency_ms": total_latency,
 
-                "num_agents":
-                    len(messages),
+                "num_agents": len(messages),
 
-                "successful_agents":
-                    sum(
-                        1
-                        for message in messages
-                        if message.status
-                        == "success"
-                    ),
+                "successful_agents": sum(
+                    1
+                    for message in messages
+                    if message.status == "success"
+                ),
 
-                "failed_agents":
-                    sum(
-                        1
-                        for message in messages
-                        if message.status
-                        != "success"
-                    )
+                "failed_agents": sum(
+                    1
+                    for message in messages
+                    if message.status != "success"
+                )
             },
 
-            # Phase 1
             "agent_messages": [
                 message.to_dict()
                 for message in messages
             ],
 
-            # Phase 2 / 4
             "agent_trust": {
-                message.agent_id:
-                    message.trust
+
+                message.agent_id: message.trust
+
                 for message in messages
             },
 
-            # Phase 5
-            "adaptive_fusion":
-                fused_results,
+            "adaptive_fusion": fused_results,
 
-            # Phase 7
-            "conflict_resolution":
-                conflict_result,
+            "conflict_resolution": conflict_result,
 
-            # Phase 6
-            "reasoning":
-                reasoning,
+            "reasoning": reasoning,
 
-            # Phase 8
-            "decision":
-                decisions,
+            "decision": decisions,
 
-            # Phase 9
-            "actions":
-                actions,
+            "actions": actions,
 
-            # Phase 10
-            "feedback":
-                feedback
-        } 
+            "feedback": feedback
+        }
