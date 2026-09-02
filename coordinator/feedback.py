@@ -1,4 +1,16 @@
-class FeedbackEngine:
+"""
+Feedback Intelligence
+======================
+
+Updates agent historical performance when a verified
+ground-truth outcome becomes available.
+
+IMPORTANT:
+Never call this with a guessed clinical outcome.
+"""
+
+
+class FeedbackIntelligence:
 
     def __init__(
         self,
@@ -13,50 +25,68 @@ class FeedbackEngine:
 
     def update(
         self,
-        agent_results,
-        ground_truth
+        messages,
+        ground_truths
     ):
 
-        feedback = []
+        updates = []
 
-        for result in agent_results:
+        for message in messages:
 
-            if result.prediction is None:
+            if message.agent_id not in ground_truths:
                 continue
 
-            correct = (
-                str(result.prediction)
-                == str(ground_truth)
-            )
+            truth = ground_truths[
+                message.agent_id
+            ]
+
+            prediction = message.prediction
+
+            if prediction is None:
+                continue
+
+            try:
+
+                correct = (
+                    str(prediction)
+                    ==
+                    str(truth)
+                )
+
+            except Exception:
+
+                correct = False
 
             new_performance = (
                 self.trust_manager
-                .update_from_feedback(
-                    result.agent_id,
-                    correct
+                .update_historical_performance(
+                    message.agent_id,
+                    int(correct)
                 )
             )
 
-            feedback.append({
-
+            updates.append({
                 "agent_id":
-                    result.agent_id,
+                    message.agent_id,
 
                 "prediction":
-                    result.prediction,
+                    prediction,
 
                 "ground_truth":
-                    ground_truth,
+                    truth,
 
                 "correct":
                     correct,
 
-                "updated_performance":
+                "new_historical_performance":
                     new_performance
             })
 
-        self.history.append(
-            feedback
+        self.history.extend(
+            updates
         )
 
-        return feedback
+        return {
+            "updates": updates,
+            "num_updates": len(updates)
+        }
