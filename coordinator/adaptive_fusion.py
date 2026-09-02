@@ -1,3 +1,8 @@
+# =============================================================================
+# LiverAI-MultiAgent
+# ADAPTIVE EVIDENCE FUSION
+# =============================================================================
+
 import numpy as np
 
 
@@ -5,131 +10,219 @@ class AdaptiveFusion:
 
     def __init__(self):
 
-        self.temperature = 1.0
+        self.minimum_weight = 1e-8
 
-    def _softmax(self, values):
+    # -------------------------------------------------------------------------
+    # COMPUTE AGENT WEIGHT
+    # -------------------------------------------------------------------------
 
-        values = np.asarray(
-            values,
-            dtype=float
-        )
+    def _compute_weight(
+        self,
+        result
+    ):
 
-        values = values / max(
-            self.temperature,
-            1e-6
-        )
-
-        values = (
-            values
-            - np.max(values)
-        )
-
-        exp_values = np.exp(values)
-
-        return (
-            exp_values
-            /
-            (
-                np.sum(exp_values)
-                + 1e-8
+        trust = float(
+            getattr(
+                result,
+                "trust",
+                0.5
             )
         )
 
-    def fuse(self, results):
+        confidence = float(
+            getattr(
+                result,
+                "confidence",
+                0.0
+            )
+        )
 
-        valid = [
+        quality = float(
+            getattr(
+                result,
+                "quality",
+                0.0
+            )
+        )
 
+        uncertainty = float(
+            getattr(
+                result,
+                "uncertainty",
+                1.0
+            )
+        )
+
+        weight = (
+            trust
+            * confidence
+            * quality
+            * (1.0 - uncertainty)
+        )
+
+        return max(
+            self.minimum_weight,
+            weight
+        )
+
+    # -------------------------------------------------------------------------
+    # ADAPTIVE EVIDENCE FUSION
+    # -------------------------------------------------------------------------
+
+    def fuse(
+        self,
+        results
+    ):
+
+        valid_results = [
             r for r in results
-
-            if r.status == "success"
-
-            and r.prediction is not None
+            if getattr(r, "success", False)
         ]
 
-        if not valid:
+        if not valid_results:
 
             return {
-                "prediction": None,
-                "confidence": 0.0,
+                "status": "no_valid_agents",
                 "weights": {},
-                "support": 0
+                "evidence": [],
+                "total_weight": 0.0,
+                "confidence": 0.0
             }
 
-        scores = []
+        raw_weights = {}
 
-        for r in valid:
+        for result in valid_results:
 
-            score = (
-
-                r.trust
-
-                * r.confidence
-
-                * (1.0 - r.uncertainty)
-
-                * r.quality
+            raw_weights[
+                result.agent_id
+            ] = self._compute_weight(
+                result
             )
 
-            scores.append(score)
-
-        weights = self._softmax(
-            scores
+        total_weight = sum(
+            raw_weights.values()
         )
 
-        votes = {}
+        normalized_weights = {
+            agent_id:
+                weight / total_weight
+            for agent_id, weight
+            in raw_weights.items()
+        }
 
-        weight_map = {}
+        evidence = []
 
-        for r, weight in zip(
-            valid,
-            weights
-        ):
+        for result in valid_results:
 
-            prediction = str(
-                r.prediction
-            )
+            agent_id = result.agent_id
 
-            weight = float(weight)
+            evidence.append({
 
-            weight_map[
-                r.agent_id
-            ] = weight
+                "agent_id":
+                    agent_id,
 
-            votes[
-                prediction
-            ] = (
-                votes.get(
-                    prediction,
-                    0.0
-                )
-                + weight
-            )
+                "task_type":
+                    getattr(
+                        result,
+                        "task_type",
+                        "unknown"
+                    ),
 
-        final_prediction = max(
-            votes,
-            key=votes.get
-        )
+                "prediction":
+                    result.prediction,
 
-        final_confidence = float(
-            votes[
-                final_prediction
-            ]
+                "confidence":
+                    float(
+                        result.confidence
+                    ),
+
+                "uncertainty":
+                    float(
+                        result.uncertainty
+                    ),
+
+                "quality":
+                    float(
+                        result.quality
+                    ),
+
+                "trust":
+                    float(
+                        result.trust
+                    ),
+
+                "weight":
+                    float(
+                        normalized_weights[
+                            agent_id
+                        ]
+                    ),
+
+                "contribution":
+                    float(
+                        normalized_weights[
+                            agent_id
+                        ]
+                        * result.confidence
+                    )
+            })
+
+        global_confidence = sum(
+            item["weight"]
+            * item["confidence"]
+            for item in evidence
         )
 
         return {
 
-            "prediction":
-                final_prediction,
-
-            "confidence":
-                final_confidence,
+            "status":
+                "completed",
 
             "weights":
-                weight_map,
+                normalized_weights,
 
-            "weighted_votes":
-                votes,
+            "evidence":
+                evidence,
 
-            "support":
-                len(valid)
+            "total_weight":
+                float(total_weight),
+
+            "confidence":
+                float(
+                    np.clip(
+                        global_confidence,
+                        0.0,
+                        1.0
+                    )
+                )
         }
+
+    # -------------------------------------------------------------------------
+    # FUSION BY TASK
+    # -------------------------------------------------------------------------
+
+    def group_by_task(
+        self,
+        results
+    ):
+
+        groups = {}
+
+        for result in results:
+
+            task = getattr(
+                result,
+                "task_type",
+                "unknown"
+            )
+
+            groups.setdefault(
+                task,
+                []
+            )
+
+            groups[task].append(
+                result
+            )
+
+        return groups
