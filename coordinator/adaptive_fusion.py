@@ -1,159 +1,135 @@
-class ConflictDetector:
+import numpy as np
 
-    def __init__(
-        self,
-        confidence_threshold=0.20
-    ):
 
-        self.confidence_threshold = (
-            confidence_threshold
+class AdaptiveFusion:
+
+    def __init__(self):
+
+        self.temperature = 1.0
+
+    def _softmax(self, values):
+
+        values = np.asarray(
+            values,
+            dtype=float
         )
 
-    def detect(
-        self,
-        messages
-    ):
+        values = values / max(
+            self.temperature,
+            1e-6
+        )
 
-        conflicts = []
+        values = (
+            values
+            - np.max(values)
+        )
+
+        exp_values = np.exp(values)
+
+        return (
+            exp_values
+            /
+            (
+                np.sum(exp_values)
+                + 1e-8
+            )
+        )
+
+    def fuse(self, results):
 
         valid = [
 
-            m for m in messages
+            r for r in results
 
-            if m.error is None
+            if r.status == "success"
 
-            and m.prediction is not None
-
+            and r.prediction is not None
         ]
 
-        groups = {}
-
-        for message in valid:
-
-            groups.setdefault(
-                message.task_type,
-                []
-            ).append(message)
-
-        for task_type, group in groups.items():
-
-            for i in range(
-                len(group)
-            ):
-
-                for j in range(
-                    i + 1,
-                    len(group)
-                ):
-
-                    a = group[i]
-                    b = group[j]
-
-                    if (
-                        a.prediction
-                        == b.prediction
-                    ):
-                        continue
-
-                    confidence_gap = abs(
-                        a.confidence
-                        - b.confidence
-                    )
-
-                    severity = (
-                        "high"
-                        if confidence_gap >= 0.40
-                        else "medium"
-                        if confidence_gap >= 0.20
-                        else "low"
-                    )
-
-                    conflicts.append({
-
-                        "task_type":
-                            task_type,
-
-                        "agent_a":
-                            a.agent_id,
-
-                        "agent_b":
-                            b.agent_id,
-
-                        "prediction_a":
-                            a.prediction,
-
-                        "prediction_b":
-                            b.prediction,
-
-                        "confidence_a":
-                            a.confidence,
-
-                        "confidence_b":
-                            b.confidence,
-
-                        "confidence_gap":
-                            confidence_gap,
-
-                        "severity":
-                            severity
-                    })
-
-        return conflicts
-
-    def consensus(
-        self,
-        messages
-    ):
-
-        predictions = [
-
-            m.prediction
-
-            for m in messages
-
-            if m.error is None
-
-            and m.prediction is not None
-        ]
-
-        if not predictions:
+        if not valid:
 
             return {
-                "agreement": 0.0,
-                "consensus": None
+                "prediction": None,
+                "confidence": 0.0,
+                "weights": {},
+                "support": 0
             }
 
-        counts = {}
+        scores = []
 
-        for prediction in predictions:
+        for r in valid:
 
-            key = str(prediction)
+            score = (
 
-            counts[key] = (
-                counts.get(
-                    key,
-                    0
-                ) + 1
+                r.trust
+
+                * r.confidence
+
+                * (1.0 - r.uncertainty)
+
+                * r.quality
             )
 
-        winner = max(
-            counts,
-            key=counts.get
+            scores.append(score)
+
+        weights = self._softmax(
+            scores
         )
 
-        agreement = (
-            counts[winner]
-            / len(predictions)
+        votes = {}
+
+        weight_map = {}
+
+        for r, weight in zip(
+            valid,
+            weights
+        ):
+
+            prediction = str(
+                r.prediction
+            )
+
+            weight = float(weight)
+
+            weight_map[
+                r.agent_id
+            ] = weight
+
+            votes[
+                prediction
+            ] = (
+                votes.get(
+                    prediction,
+                    0.0
+                )
+                + weight
+            )
+
+        final_prediction = max(
+            votes,
+            key=votes.get
+        )
+
+        final_confidence = float(
+            votes[
+                final_prediction
+            ]
         )
 
         return {
 
-            "agreement":
-                float(agreement),
+            "prediction":
+                final_prediction,
 
-            "consensus":
-                winner,
+            "confidence":
+                final_confidence,
 
-            "counts":
-                counts
+            "weights":
+                weight_map,
+
+            "weighted_votes":
+                votes,
+
+            "support":
+                len(valid)
         }
