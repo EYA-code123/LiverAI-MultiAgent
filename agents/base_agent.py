@@ -1,17 +1,23 @@
 from abc import ABC, abstractmethod
+import time
 
 
 class BaseAgent(ABC):
 
-    def __init__(self, agent_id, model=None):
+    def __init__(
+        self,
+        agent_id,
+        model=None,
+        task_type="unknown"
+    ):
+
         self.agent_id = agent_id
         self.model = model
+        self.task_type = task_type
 
     @abstractmethod
     def predict(self, X):
-        """
-        Chaque agent doit retourner un résultat standardisé.
-        """
+
         raise NotImplementedError
 
     def build_result(
@@ -20,17 +26,78 @@ class BaseAgent(ABC):
         probability=None,
         confidence=0.0,
         uncertainty=1.0,
-        quality=0.0,
+        quality=1.0,
+        missing_data_ratio=0.0,
+        feature_importance=None,
+        embedding=None,
+        explanation=None,
+        latency_ms=0.0,
         details=None,
         error=None
     ):
+
         return {
-            "agent_id": self.agent_id,
-            "prediction": prediction,
-            "probability": probability,
-            "confidence": float(confidence),
-            "uncertainty": float(uncertainty),
-            "quality": float(quality),
-            "details": details or {},
-            "error": error
+
+            "agent_id":
+                self.agent_id,
+
+            "task_type":
+                self.task_type,
+
+            "prediction":
+                prediction,
+
+            "probability":
+                probability,
+
+            "confidence":
+                float(
+                    max(
+                        0.0,
+                        min(1.0, confidence)
+                    )
+                ),
+
+            "uncertainty":
+                float(
+                    max(
+                        0.0,
+                        min(1.0, uncertainty)
+                    )
+                ),
+
+            "quality":
+                float(
+                    max(
+                        0.0,
+                        min(1.0, quality)
+                    )
+                ),
+
+            "missing_data_ratio":
+                float(
+                    max(
+                        0.0,
+                        min(1.0,
+                        missing_data_ratio
+                    )
+                ),
+
+            "feature_importance":
+                feature_importance,
+
+            "embedding":
+                embedding,
+
+            "explanation":
+                explanation,
+
+            "latency_ms":
+                float(latency_ms),
+
+            "details":
+                details or {},
+
+            "error":
+                error
         }
