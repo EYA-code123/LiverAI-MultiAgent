@@ -1,205 +1,225 @@
+%%writefile coordinator/conflict.py
+
 """
-Decision Intelligence
-======================
+Conflict Detection and Resolution
+=================================
 
-Confidence-aware final clinical decision layer.
+Detects disagreements between agents performing
+the same task and resolves them using adaptive trust.
 """
 
-import numpy as np
+from collections import defaultdict
 
 
-class DecisionEngine:
+class ConflictDetector:
 
     def __init__(
         self,
-        minimum_confidence=0.60,
-        high_confidence=0.80
+        confidence_threshold=0.20
     ):
-
-        self.minimum_confidence = (
-            minimum_confidence
+        self.confidence_threshold = float(
+            confidence_threshold
         )
 
-        self.high_confidence = (
-            high_confidence
-        )
+    def detect(self, messages):
 
-    @staticmethod
-    def _clip(value):
+        conflicts = []
 
-        return float(
-            np.clip(
-                float(value),
-                0.0,
-                1.0
-            )
-        )
+        # Group messages by task
+        grouped = defaultdict(list)
 
-    def _risk_level(
-        self,
-        confidence,
-        uncertainty
-    ):
+        for message in messages:
 
-        confidence = self._clip(
-            confidence
-        )
-
-        uncertainty = self._clip(
-            uncertainty
-        )
-
-        risk = (
-            0.60 * uncertainty
-            +
-            0.40 * (1.0 - confidence)
-        )
-
-        if risk >= 0.65:
-            return "high"
-
-        if risk >= 0.35:
-            return "moderate"
-
-        return "low"
-
-    def decide(
-        self,
-        agent_results,
-        conflicts=None,
-        fused_results=None
-    ):
-
-        conflicts = conflicts or []
-
-        fused_results = (
-            fused_results
-            or {}
-        )
-
-        successful_agents = [
-            result
-            for result in agent_results
-            if getattr(
-                result,
-                "status",
-                "success"
-            ) == "success"
-        ]
-
-        failed_agents = [
-            result
-            for result in agent_results
-            if getattr(
-                result,
-                "status",
-                "success"
-            ) != "success"
-        ]
-
-        task_decisions = {}
-
-        for task_type, result in fused_results.items():
-
-            if result is None:
+            if message.status != "success":
                 continue
 
-            confidence = self._clip(
-                result.get(
-                    "confidence",
-                    0.0
+            if message.prediction is None:
+                continue
+
+            grouped[message.task_type].append(message)
+
+        # Compare agents solving the same task
+        for task_type, task_messages in grouped.items():
+
+            for i in range(len(task_messages)):
+
+                for j in range(i + 1, len(task_messages)):
+
+                    a = task_messages[i]
+                    b = task_messages[j]
+
+                    prediction_a = str(a.prediction)
+                    prediction_b = str(b.prediction)
+
+                    if prediction_a == prediction_b:
+                        continue
+
+                    confidence_gap = abs(
+                        float(a.confidence)
+                        - float(b.confidence)
+                    )
+
+                    severity = (
+                        "high"
+                        if confidence_gap >= 0.40
+                        else "medium"
+                        if confidence_gap >= 0.20
+                        else "low"
+                    )
+
+                    conflicts.append({
+
+                        "task_type": task_type,
+
+                        "agent_a": a.agent_id,
+
+                        "agent_b": b.agent_id,
+
+                        "prediction_a": a.prediction,
+
+                        "prediction_b": b.prediction,
+
+                        "confidence_a": float(
+                            a.confidence
+                        ),
+
+                        "confidence_b": float(
+                            b.confidence
+                        ),
+
+                        "trust_a": float(
+                            a.trust
+                        ),
+
+                        "trust_b": float(
+                            b.trust
+                        ),
+
+                        "confidence_gap": confidence_gap,
+
+                        "severity": severity
+                    })
+
+        return conflicts
+
+
+class ConflictResolutionEngine:
+
+    def __init__(self, detector=None):
+
+        self.detector = (
+            detector
+            if detector is not None
+            else ConflictDetector()
+        )
+
+    def resolve(self, messages):
+
+        conflicts = self.detector.detect(
+            messages
+        )
+
+        resolutions = []
+
+        for conflict in conflicts:
+
+            agent_a = next(
+                (
+                    m for m in messages
+                    if m.agent_id
+                    == conflict["agent_a"]
+                ),
+                None
+            )
+
+            agent_b = next(
+                (
+                    m for m in messages
+                    if m.agent_id
+                    == conflict["agent_b"]
+                ),
+                None
+            )
+
+            if agent_a is None or agent_b is None:
+                continue
+
+            score_a = (
+                float(agent_a.trust)
+                * float(agent_a.confidence)
+                * float(agent_a.quality)
+            )
+
+            score_b = (
+                float(agent_b.trust)
+                * float(agent_b.confidence)
+                * float(agent_b.quality)
+            )
+
+            if abs(score_a - score_b) < 0.05:
+
+                resolution = "uncertain"
+
+                selected_agent = None
+
+                selected_prediction = None
+
+            elif score_a > score_b:
+
+                resolution = "agent_a"
+
+                selected_agent = agent_a.agent_id
+
+                selected_prediction = (
+                    agent_a.prediction
                 )
-            )
-
-            uncertainty = self._clip(
-                result.get(
-                    "uncertainty",
-                    1.0 - confidence
-                )
-            )
-
-            prediction = result.get(
-                "prediction"
-            )
-
-            if confidence >= self.high_confidence:
-
-                decision_level = "high_confidence"
-
-            elif confidence >= self.minimum_confidence:
-
-                decision_level = "moderate_confidence"
 
             else:
 
-                decision_level = "low_confidence"
+                resolution = "agent_b"
 
-            request_additional_tests = (
-                confidence
-                < self.minimum_confidence
-                or uncertainty > 0.50
-            )
+                selected_agent = agent_b.agent_id
 
-            task_decisions[task_type] = {
-                "prediction": prediction,
-                "confidence": confidence,
-                "uncertainty": uncertainty,
-                "risk_level": self._risk_level(
-                    confidence,
-                    uncertainty
-                ),
-                "decision_level": decision_level,
-                "request_additional_tests":
-                    request_additional_tests
-            }
+                selected_prediction = (
+                    agent_b.prediction
+                )
 
-        overall_confidences = [
-            item["confidence"]
-            for item in task_decisions.values()
-        ]
+            resolutions.append({
 
-        overall_confidence = (
-            float(np.mean(overall_confidences))
-            if overall_confidences
-            else 0.0
-        )
+                "task_type":
+                    conflict["task_type"],
+
+                "agent_a":
+                    conflict["agent_a"],
+
+                "agent_b":
+                    conflict["agent_b"],
+
+                "resolution":
+                    resolution,
+
+                "selected_agent":
+                    selected_agent,
+
+                "selected_prediction":
+                    selected_prediction,
+
+                "score_a":
+                    score_a,
+
+                "score_b":
+                    score_b,
+
+                "severity":
+                    conflict["severity"]
+            })
 
         return {
-            "status": (
-                "completed"
-                if successful_agents
-                else "failed"
-            ),
 
-            "num_agents": len(
-                agent_results
-            ),
+            "conflicts": conflicts,
 
-            "successful_agents": len(
-                successful_agents
-            ),
+            "resolutions": resolutions,
 
-            "failed_agents": len(
-                failed_agents
-            ),
-
-            "num_conflicts": len(
-                conflicts
-            ),
-
-            "overall_confidence":
-                overall_confidence,
-
-            "request_additional_tests":
-                overall_confidence
-                < self.minimum_confidence,
-
-            "task_decisions":
-                task_decisions,
-
-            "warning": (
-                "Conflicting agent predictions detected."
-                if conflicts
-                else None
-            )
+            "num_conflicts":
+                len(conflicts)
         }
