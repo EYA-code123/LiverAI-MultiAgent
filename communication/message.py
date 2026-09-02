@@ -1,10 +1,8 @@
-# =============================================================================
-# LiverAI-MultiAgent
-# STANDARD AGENT MESSAGE
-# =============================================================================
+# communication/message.py
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
+from datetime import datetime
 
 
 @dataclass
@@ -14,48 +12,123 @@ class AgentMessage:
 
     agent_id: str
 
-    prediction: Any = None
+    model_version: str
 
-    probability: Any = None
+    task_type: str
 
-    confidence: float = 0.0
+    prediction: Any
 
-    uncertainty: float = 1.0
+    probabilities: Any
 
-    quality: float = 0.0
+    confidence: float
 
-    trust: float = 0.5
+    uncertainty: float
 
-    task_type: str = "unknown"
+    data_quality: float
 
-    latency_ms: float = 0.0
+    missing_data_ratio: float
 
-    missing_data_ratio: float = 0.0
-
-    details: Dict[str, Any] = field(
+    feature_importance: Dict[str, float] = field(
         default_factory=dict
     )
 
-    error: Optional[str] = None
+    embedding: Any = None
+
+    explanation: Optional[str] = None
+
+    latency_ms: float = 0.0
+
+    reliability: float = 0.5
+
+    utility: float = 0.5
+
+    stability: float = 0.5
+
+    historical_performance: float = 0.5
+
+    trust: float = 0.5
+
+    modality_available: bool = True
+
+    timestamp: str = field(
+        default_factory=lambda:
+        datetime.utcnow().isoformat()
+    )
 
     status: str = "success"
+
+    error: Optional[str] = None
 
     def to_dict(self):
 
         return {
-            "patient_id": self.patient_id,
-            "agent_id": self.agent_id,
-            "prediction": self.prediction,
-            "probability": self.probability,
-            "confidence": self.confidence,
-            "uncertainty": self.uncertainty,
-            "quality": self.quality,
-            "trust": self.trust,
-            "task_type": self.task_type,
-            "latency_ms": self.latency_ms,
+
+            "patient_id":
+                self.patient_id,
+
+            "agent_id":
+                self.agent_id,
+
+            "model_version":
+                self.model_version,
+
+            "task_type":
+                self.task_type,
+
+            "prediction":
+                self.prediction,
+
+            "probabilities":
+                self.probabilities,
+
+            "confidence":
+                self.confidence,
+
+            "uncertainty":
+                self.uncertainty,
+
+            "data_quality":
+                self.data_quality,
+
             "missing_data_ratio":
                 self.missing_data_ratio,
-            "details": self.details,
-            "error": self.error,
-            "status": self.status
+
+            "feature_importance":
+                self.feature_importance,
+
+            "embedding":
+                self.embedding,
+
+            "explanation":
+                self.explanation,
+
+            "latency_ms":
+                self.latency_ms,
+
+            "reliability":
+                self.reliability,
+
+            "utility":
+                self.utility,
+
+            "stability":
+                self.stability,
+
+            "historical_performance":
+                self.historical_performance,
+
+            "trust":
+                self.trust,
+
+            "modality_available":
+                self.modality_available,
+
+            "timestamp":
+                self.timestamp,
+
+            "status":
+                self.status,
+
+            "error":
+                self.error
         }
