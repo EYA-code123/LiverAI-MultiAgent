@@ -40,7 +40,9 @@ class LiverAICoordinator:
         from agents.tumor_classification_agent import TumorClassificationAgent
         from agents.liver_segmentation_agent import LiverSegmentationAgent
         from agents.clinical_reasoning_agent import ClinicalReasoningAgent
-
+         from coordinator.adaptive_pipeline import (
+    AdaptiveCoordinationPipeline
+)
         self.CirrhosisAgent = CirrhosisAgent
         self.FattyLiverAgent = FattyLiverAgent
         self.FibrosisAgent = FibrosisAgent
