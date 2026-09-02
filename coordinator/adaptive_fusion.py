@@ -1,457 +1,371 @@
-# =============================================================================
-# LiverAI-MultiAgent
-# ADAPTIVE EVIDENCE FUSION
-# =============================================================================
+"""
+Adaptive Fusion Intelligence
+============================
 
+Task-aware dynamic fusion.
+
+IMPORTANT:
+Heterogeneous medical tasks are NOT directly voted together.
+
+Examples:
+
+Cirrhosis classification
+        -> classification fusion
+
+Fatty liver classification
+        -> classification fusion
+
+Fibrosis
+        -> regression fusion
+
+Tumor classification
+        -> image classification fusion
+
+Segmentation
+        -> segmentation quality fusion
+
+Cross-task synthesis is performed later by the reasoning layer.
+"""
+
+import numpy as np
 from collections import defaultdict
 
 
 class AdaptiveFusion:
-    """
-    Adaptive evidence fusion for heterogeneous medical agents.
-
-    IMPORTANT:
-    We do NOT perform a global majority vote between heterogeneous
-    tasks such as:
-
-        cirrhosis
-        fibrosis
-        fatty liver
-        tumor
-        segmentation
-
-    Instead, each agent keeps its own task prediction and receives
-    an adaptive contribution weight.
-
-    If several agents perform the SAME task, their probabilities
-    can also be fused.
-    """
 
     def __init__(
         self,
-        minimum_trust: float = 0.05,
+        temperature=1.0
     ):
 
-        self.minimum_trust = float(
-            max(
+        self.temperature = temperature
+
+    @staticmethod
+    def clip(value):
+
+        return float(
+            np.clip(
+                float(value),
                 0.0,
-                min(
-                    1.0,
-                    minimum_trust
-                )
-            )
-        )
-
-    # -------------------------------------------------------------------------
-    # MAIN FUSION
-    # -------------------------------------------------------------------------
-
-    def fuse(self, results):
-
-        if not results:
-            return {
-                "status": "no_results",
-                "evidence": [],
-                "task_groups": {},
-                "weights": {},
-            }
-
-        valid_results = []
-
-        for result in results:
-
-            if result is None:
-                continue
-
-            status = self._get(
-                result,
-                "status",
-                "success"
-            )
-
-            prediction = self._get(
-                result,
-                "prediction",
-                None
-            )
-
-            if status not in (
-                "success",
-                "completed"
-            ):
-                continue
-
-            if prediction is None:
-                continue
-
-            valid_results.append(
-                result
-            )
-
-        if not valid_results:
-
-            return {
-                "status": "no_valid_results",
-                "evidence": [],
-                "task_groups": {},
-                "weights": {},
-            }
-
-        # -------------------------------------------------------------
-        # CALCULATE RAW WEIGHTS
-        # -------------------------------------------------------------
-
-        raw_weights = {}
-
-        for result in valid_results:
-
-            agent_id = self._get(
-                result,
-                "agent_id",
-                self._get(
-                    result,
-                    "agent",
-                    "unknown"
-                )
-            )
-
-            trust = self._get(
-                result,
-                "trust",
-                None
-            )
-
-            if trust is None:
-                trust = 0.5
-
-            confidence = self._get(
-                result,
-                "confidence",
-                0.0
-            )
-
-            quality = self._get(
-                result,
-                "quality",
-                0.0
-            )
-
-            uncertainty = self._get(
-                result,
-                "uncertainty",
                 1.0
             )
+        )
 
-            # Patient-specific adaptive weight
-            weight = (
-                float(trust)
-                *
-                float(confidence)
-                *
-                float(quality)
-                *
-                (1.0 - float(uncertainty))
+    def compute_dynamic_weight(
+        self,
+        message
+    ):
+
+        trust = self.clip(
+            message.trust
+        )
+
+        confidence = self.clip(
+            message.confidence
+        )
+
+        quality = self.clip(
+            message.quality
+        )
+
+        uncertainty = self.clip(
+            message.uncertainty
+        )
+
+        agreement = self.clip(
+            message.agreement
+        )
+
+        stability = self.clip(
+            message.stability
+        )
+
+        utility = self.clip(
+            message.utility
+        )
+
+        weight = (
+            0.30 * trust
+            +
+            0.20 * confidence
+            +
+            0.15 * quality
+            +
+            0.10 * (1.0 - uncertainty)
+            +
+            0.10 * agreement
+            +
+            0.10 * stability
+            +
+            0.05 * utility
+        )
+
+        return max(
+            0.000001,
+            weight
+        )
+
+    def _classification_fusion(
+        self,
+        messages
+    ):
+
+        votes = defaultdict(float)
+
+        weights = {}
+
+        for message in messages:
+
+            weight = self.compute_dynamic_weight(
+                message
             )
 
-            weight = max(
-                self.minimum_trust,
-                weight
-            )
-
-            raw_weights[
-                str(agent_id)
+            weights[
+                message.agent_id
             ] = weight
 
-        # -------------------------------------------------------------
-        # NORMALIZE WEIGHTS
-        # -------------------------------------------------------------
+            probabilities = (
+                message.class_probabilities
+            )
 
-        total_weight = sum(
-            raw_weights.values()
-        )
+            if probabilities:
 
-        if total_weight <= 0:
+                for label, probability in probabilities.items():
 
-            normalized_weights = {
-                agent_id: 0.0
-                for agent_id in raw_weights
-            }
-
-        else:
-
-            normalized_weights = {
-                agent_id:
-                    weight / total_weight
-                for agent_id, weight
-                in raw_weights.items()
-            }
-
-        # -------------------------------------------------------------
-        # BUILD EVIDENCE
-        # -------------------------------------------------------------
-
-        evidence = []
-
-        for result in valid_results:
-
-            agent_id = str(
-                self._get(
-                    result,
-                    "agent_id",
-                    self._get(
-                        result,
-                        "agent",
-                        "unknown"
+                    votes[str(label)] += (
+                        weight
+                        * float(probability)
                     )
-                )
-            )
 
-            task_type = self._get(
-                result,
-                "task_type",
-                None
-            )
+            elif message.prediction is not None:
 
-            if not task_type:
+                votes[
+                    str(message.prediction)
+                ] += weight
 
-                details = self._get(
-                    result,
-                    "details",
-                    {}
-                ) or {}
+        if not votes:
+            return None
 
-                task_type = details.get(
-                    "task_type",
-                    "unknown"
-                )
+        total = sum(votes.values())
 
-            evidence.append({
-
-                "agent_id": agent_id,
-
-                "task_type": task_type,
-
-                "prediction": self._get(
-                    result,
-                    "prediction"
-                ),
-
-                "probability": self._get(
-                    result,
-                    "probability"
-                ),
-
-                "confidence": self._get(
-                    result,
-                    "confidence",
-                    0.0
-                ),
-
-                "uncertainty": self._get(
-                    result,
-                    "uncertainty",
-                    1.0
-                ),
-
-                "quality": self._get(
-                    result,
-                    "quality",
-                    0.0
-                ),
-
-                "trust": self._get(
-                    result,
-                    "trust",
-                    0.0
-                ),
-
-                "adaptive_weight":
-                    normalized_weights.get(
-                        agent_id,
-                        0.0
-                    ),
-
-                "explanation":
-                    self._get(
-                        result,
-                        "explanation",
-                        None
-                    ),
-            })
-
-        # -------------------------------------------------------------
-        # GROUP BY TASK
-        # -------------------------------------------------------------
-
-        task_groups = defaultdict(list)
-
-        for item in evidence:
-
-            task_groups[
-                item["task_type"]
-            ].append(item)
-
-        task_groups = dict(
-            task_groups
-        )
-
-        # -------------------------------------------------------------
-        # OPTIONAL SAME-TASK PROBABILITY FUSION
-        # -------------------------------------------------------------
-
-        fused_tasks = {}
-
-        for task_type, items in task_groups.items():
-
-            if len(items) <= 1:
-                continue
-
-            fused = self._fuse_same_task(
-                items
-            )
-
-            if fused is not None:
-                fused_tasks[
-                    task_type
-                ] = fused
-
-        return {
-            "status": "success",
-
-            "evidence": evidence,
-
-            "weights": normalized_weights,
-
-            "task_groups": task_groups,
-
-            "same_task_fusion":
-                fused_tasks,
-
-            "num_valid_agents":
-                len(valid_results),
+        normalized = {
+            key: value / total
+            for key, value in votes.items()
         }
 
-    # -------------------------------------------------------------------------
-    # SAME TASK FUSION
-    # -------------------------------------------------------------------------
+        prediction = max(
+            normalized,
+            key=normalized.get
+        )
 
-    def _fuse_same_task(self, items):
+        confidence = normalized[
+            prediction
+        ]
 
-        probability_vectors = []
+        return {
+            "task_type": "classification",
+            "prediction": prediction,
+            "confidence": confidence,
+            "probabilities": normalized,
+            "weights": weights,
+        }
 
-        for item in items:
+    def _regression_fusion(
+        self,
+        messages
+    ):
 
-            probability = item.get(
-                "probability"
-            )
+        values = []
+        weights = {}
 
-            if not isinstance(
-                probability,
-                (list, tuple)
-            ):
+        for message in messages:
+
+            if message.prediction is None:
                 continue
 
             try:
-
-                vector = [
-                    float(x)
-                    for x in probability
-                ]
-
-            except (
-                TypeError,
-                ValueError
-            ):
-
-                continue
-
-            if not vector:
-                continue
-
-            probability_vectors.append(
-                (
-                    vector,
-                    item[
-                        "adaptive_weight"
-                    ]
+                value = float(
+                    message.prediction
                 )
+            except Exception:
+                continue
+
+            weight = self.compute_dynamic_weight(
+                message
             )
 
-        if not probability_vectors:
+            values.append(
+                (value, weight)
+            )
+
+            weights[
+                message.agent_id
+            ] = weight
+
+        if not values:
             return None
 
-        dimension = len(
-            probability_vectors[0][0]
+        total_weight = sum(
+            weight
+            for _, weight in values
         )
 
-        if any(
-            len(vector) != dimension
-            for vector, _ in probability_vectors
-        ):
-            return None
+        prediction = sum(
+            value * weight
+            for value, weight in values
+        ) / max(
+            total_weight,
+            1e-12
+        )
 
-        fused = [
-            0.0
-            for _ in range(dimension)
-        ]
+        # Weighted disagreement
+        variance = sum(
+            weight * (value - prediction) ** 2
+            for value, weight in values
+        ) / max(
+            total_weight,
+            1e-12
+        )
 
-        total_weight = 0.0
+        uncertainty = float(
+            np.sqrt(max(variance, 0.0))
+        )
 
-        for vector, weight in probability_vectors:
-
-            total_weight += weight
-
-            for i in range(dimension):
-
-                fused[i] += (
-                    vector[i]
-                    * weight
-                )
-
-        if total_weight > 0:
-
-            fused = [
-                value / total_weight
-                for value in fused
-            ]
-
-        best_index = max(
-            range(len(fused)),
-            key=lambda i: fused[i]
+        confidence = 1.0 / (
+            1.0 + uncertainty
         )
 
         return {
-            "probabilities": fused,
-            "predicted_class_index":
-                best_index,
-
-            "confidence":
-                fused[best_index],
-
-            "num_agents":
-                len(probability_vectors),
+            "task_type": "regression",
+            "prediction": float(prediction),
+            "confidence": self.clip(confidence),
+            "uncertainty": uncertainty,
+            "weights": weights,
         }
 
-    # -------------------------------------------------------------------------
-    # DICTIONARY / OBJECT ACCESS
-    # -------------------------------------------------------------------------
-
-    @staticmethod
-    def _get(
-        obj,
-        key,
-        default=None
+    def _segmentation_fusion(
+        self,
+        messages
     ):
 
-        if isinstance(obj, dict):
+        successful = [
+            m for m in messages
+            if m.status == "success"
+        ]
 
-            return obj.get(
-                key,
-                default
+        if not successful:
+            return None
+
+        weights = {
+            m.agent_id:
+            self.compute_dynamic_weight(m)
+            for m in successful
+        }
+
+        total = sum(weights.values())
+
+        average_quality = sum(
+            m.quality * weights[m.agent_id]
+            for m in successful
+        ) / max(total, 1e-12)
+
+        return {
+            "task_type": "segmentation",
+            "prediction": successful[0].prediction,
+            "confidence": self.clip(
+                average_quality
+            ),
+            "segmentation_quality": self.clip(
+                average_quality
+            ),
+            "weights": weights,
+        }
+
+    def fuse_task(
+        self,
+        messages,
+        task_type
+    ):
+
+        if not messages:
+            return None
+
+        if task_type == "classification":
+            return self._classification_fusion(
+                messages
             )
 
-        return getattr(
-            obj,
-            key,
-            default
-        )
+        if task_type in (
+            "regression",
+            "prediction"
+        ):
+            return self._regression_fusion(
+                messages
+            )
+
+        if task_type == "segmentation":
+            return self._segmentation_fusion(
+                messages
+            )
+
+        # Reasoning is not numerically fused
+        if task_type == "reasoning":
+
+            return {
+                "task_type": "reasoning",
+                "prediction": None,
+                "confidence": max(
+                    (
+                        m.confidence
+                        for m in messages
+                    ),
+                    default=0.0
+                ),
+                "weights": {
+                    m.agent_id:
+                    self.compute_dynamic_weight(m)
+                    for m in messages
+                }
+            }
+
+        return None
+
+    def fuse(
+        self,
+        messages
+    ):
+
+        """
+        Main entry point.
+
+        Groups messages by task type before fusion.
+        """
+
+        groups = defaultdict(list)
+
+        for message in messages:
+
+            if message.status != "success":
+                continue
+
+            if message.prediction is None:
+                continue
+
+            groups[
+                message.task_type
+            ].append(message)
+
+        fused = {}
+
+        for task_type, group in groups.items():
+
+            result = self.fuse_task(
+                group,
+                task_type
+            )
+
+            if result is not None:
+
+                fused[task_type] = result
+
+        return fused
