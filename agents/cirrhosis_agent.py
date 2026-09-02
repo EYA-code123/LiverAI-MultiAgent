@@ -1,27 +1,33 @@
+# =============================================================================
+# Cirrhosis Agent
+# =============================================================================
+
+import time
 import numpy as np
 import pandas as pd
 
 
 class CirrhosisAgent:
 
-    def __init__(self, model_package):
+    def __init__(
+        self,
+        model_package
+    ):
 
-        self.name = "CirrhosisAgent"
-
-        self.model_name = model_package.get(
-            "model_name",
-            "XGBoost"
+        self.name = (
+            "CirrhosisAgent"
         )
 
-        # ==========================================================
-        # MODEL
-        # ==========================================================
+        self.model_name = (
+            model_package.get(
+                "model_name",
+                "XGBoost"
+            )
+        )
 
-        self.model = model_package["model"]
-
-        # ==========================================================
-        # FEATURES
-        # ==========================================================
+        self.model = (
+            model_package["model"]
+        )
 
         self.feature_names = list(
             model_package.get(
@@ -44,37 +50,30 @@ class CirrhosisAgent:
             )
         )
 
-        # ==========================================================
-        # PREPROCESSING
-        # ==========================================================
-
-        self.encoders = model_package.get(
-            "encoders",
-            {}
+        self.encoders = (
+            model_package.get(
+                "encoders",
+                {}
+            )
         )
 
-        self.target_encoder = model_package.get(
-            "target_encoder",
-            None
+        self.target_encoder = (
+            model_package.get(
+                "target_encoder"
+            )
         )
 
         self.numerical_imputer = (
             model_package.get(
-                "numerical_imputer",
-                None
+                "numerical_imputer"
             )
         )
 
         self.categorical_imputer = (
             model_package.get(
-                "categorical_imputer",
-                None
+                "categorical_imputer"
             )
         )
-
-        # ==========================================================
-        # TARGET
-        # ==========================================================
 
         self.target_name = "Stage"
 
@@ -84,11 +83,14 @@ class CirrhosisAgent:
             "3.0"
         ]
 
-    # ==============================================================
-    # CREATE DATAFRAME
-    # ==============================================================
+    # =========================================================================
+    # DATAFRAME
+    # =========================================================================
 
-    def _create_dataframe(self, patient_data):
+    def _create_dataframe(
+        self,
+        patient_data
+    ):
 
         if isinstance(
             patient_data,
@@ -111,39 +113,45 @@ class CirrhosisAgent:
             columns=self.feature_names
         )
 
-    # ==============================================================
+    # =========================================================================
     # PREPROCESS
-    # ==============================================================
+    # =========================================================================
 
-    def _preprocess(self, patient_data):
+    def _preprocess(
+        self,
+        patient_data
+    ):
 
         X = self._create_dataframe(
             patient_data
         )
 
-        # ----------------------------------------------------------
-        # TARGET MUST NOT BE USED AS INPUT
-        # ----------------------------------------------------------
+        # ---------------------------------------------------------------------
+        # REMOVE TARGET
+        # ---------------------------------------------------------------------
 
         if self.target_name in X.columns:
 
             X = X.drop(
-                columns=[self.target_name]
+                columns=[
+                    self.target_name
+                ]
             )
 
-        # ----------------------------------------------------------
-        # MODEL FEATURE CHECK
-        # ----------------------------------------------------------
-
         expected_features = [
+
             feature
-            for feature in self.feature_names
-            if feature != self.target_name
+
+            for feature in
+            self.feature_names
+
+            if feature
+            != self.target_name
         ]
 
-        # ----------------------------------------------------------
+        # ---------------------------------------------------------------------
         # ADD MISSING FEATURES
-        # ----------------------------------------------------------
+        # ---------------------------------------------------------------------
 
         for col in expected_features:
 
@@ -151,86 +159,108 @@ class CirrhosisAgent:
 
                 X[col] = np.nan
 
-        # ----------------------------------------------------------
+        # ---------------------------------------------------------------------
         # NUMERICAL IMPUTATION
-        # ----------------------------------------------------------
+        # ---------------------------------------------------------------------
 
         numerical_features = [
+
             col
-            for col in self.numerical_columns
+
+            for col in
+            self.numerical_columns
+
             if col in X.columns
-            and col != self.target_name
         ]
 
         if (
-            self.numerical_imputer is not None
+            self.numerical_imputer
+            is not None
             and numerical_features
         ):
 
-            X[numerical_features] = (
-                self.numerical_imputer.transform(
-                    X[numerical_features]
+            X[
+                numerical_features
+            ] = (
+                self.numerical_imputer
+                .transform(
+                    X[
+                        numerical_features
+                    ]
                 )
             )
 
-        # ----------------------------------------------------------
+        # ---------------------------------------------------------------------
         # CATEGORICAL IMPUTATION
-        # ----------------------------------------------------------
+        # ---------------------------------------------------------------------
 
         categorical_features = [
+
             col
-            for col in self.categorical_columns
+
+            for col in
+            self.categorical_columns
+
             if col in X.columns
-            and col != self.target_name
         ]
 
         if (
-            self.categorical_imputer is not None
+            self.categorical_imputer
+            is not None
             and categorical_features
         ):
 
-            X[categorical_features] = (
-                self.categorical_imputer.transform(
-                    X[categorical_features]
+            X[
+                categorical_features
+            ] = (
+                self.categorical_imputer
+                .transform(
+                    X[
+                        categorical_features
+                    ]
                 )
             )
 
-        # ----------------------------------------------------------
-        # CATEGORICAL ENCODING
-        # ----------------------------------------------------------
+        # ---------------------------------------------------------------------
+        # ENCODING
+        # ---------------------------------------------------------------------
 
         for col in categorical_features:
 
             if col not in self.encoders:
+
                 continue
 
-            encoder = self.encoders[col]
+            encoder = (
+                self.encoders[col]
+            )
 
             values = (
-                X[col]
-                .astype(str)
+                X[col].astype(str)
             )
 
             known_values = set(
                 encoder.classes_
             )
 
-            # Unknown values are replaced by
-            # the first known category.
             values = values.apply(
+
                 lambda value:
+
                 value
-                if value in known_values
-                else encoder.classes_[0]
+
+                if value
+                in known_values
+
+                else
+                encoder.classes_[0]
             )
 
-            X[col] = encoder.transform(
-                values
+            X[col] = (
+                encoder.transform(
+                    values
+                )
             )
-
-        # ----------------------------------------------------------
-        # FINAL FEATURE LIST
-        # ----------------------------------------------------------
 
         X = X[
             expected_features
@@ -238,172 +268,80 @@ class CirrhosisAgent:
 
         return X
 
-    # ==============================================================
+    # =========================================================================
     # PREDICT
-    # ==============================================================
+    # =========================================================================
 
-    def predict(self, patient_data):
+    def predict(
+        self,
+        patient_data
+    ):
+
+        start_time = (
+            time.perf_counter()
+        )
 
         try:
-
-            # ------------------------------------------------------
-            # PREPROCESS
-            # ------------------------------------------------------
 
             X = self._preprocess(
                 patient_data
             )
 
-            # ------------------------------------------------------
-            # IMPORTANT MODEL VALIDATION
-            # ------------------------------------------------------
+            # -----------------------------------------------------------------
+            # MODEL FEATURE CHECK
+            # -----------------------------------------------------------------
 
-            model_feature_count = getattr(
-                self.model,
-                "n_features_in_",
-                None
+            model_feature_count = (
+                getattr(
+                    self.model,
+                    "n_features_in_",
+                    None
+                )
             )
 
-            expected_feature_count = len(
-                self.feature_names
+            if (
+                model_feature_count
+                is not None
+                and
+                model_feature_count
+                != len(X.columns)
+            ):
+
+                raise ValueError(
+
+                    "Feature count mismatch: "
+                    f"model expects "
+                    f"{model_feature_count}, "
+                    f"but input contains "
+                    f"{len(X.columns)}."
+                )
+
+            # -----------------------------------------------------------------
+            # MISSING DATA
+            # -----------------------------------------------------------------
+
+            missing_ratio = float(
+                X.isna()
+                .sum()
+                .sum()
+                /
+                max(
+                    X.shape[1],
+                    1
+                )
             )
 
-            # The current package contains Stage
-            # in feature_names although Stage is the target.
-            if (
-                self.target_name in self.feature_names
-            ):
-
-                return {
-
-                    "agent":
-                        self.name,
-
-                    "model":
-                        self.model_name,
-
-                    "prediction":
-                        None,
-
-                    "probability":
-                        None,
-
-                    "confidence":
-                        None,
-
-                    "uncertainty":
-                        None,
-
-                    "quality":
-                        0.0,
-
-                    "status":
-                        "error",
-
-                    "details": {
-
-                        "task_type":
-                            "classification",
-
-                        "disease":
-                            "cirrhosis",
-
-                        "classes":
-                            self.classes,
-
-                        "problem":
-                            "Target Stage is incorrectly "
-                            "included in the saved model "
-                            "feature list.",
-
-                        "expected_model_features":
-                            expected_feature_count,
-
-                        "usable_input_features":
-                            len(X.columns)
-                    },
-
-                    "error":
-                        (
-                            "The saved XGBoost package "
-                            "contains the target 'Stage' "
-                            "inside feature_names. "
-                            "The model must be re-saved "
-                            "without Stage as an input feature."
-                        )
-                }
-
-            # ------------------------------------------------------
-            # FEATURE COUNT
-            # ------------------------------------------------------
-
-            if (
-                model_feature_count is not None
-                and model_feature_count != len(X.columns)
-            ):
-
-                return {
-
-                    "agent":
-                        self.name,
-
-                    "model":
-                        self.model_name,
-
-                    "prediction":
-                        None,
-
-                    "probability":
-                        None,
-
-                    "confidence":
-                        None,
-
-                    "uncertainty":
-                        None,
-
-                    "quality":
-                        0.0,
-
-                    "status":
-                        "error",
-
-                    "details": {
-
-                        "task_type":
-                            "classification",
-
-                        "disease":
-                            "cirrhosis",
-
-                        "model_features":
-                            model_feature_count,
-
-                        "input_features":
-                            len(X.columns)
-                    },
-
-                    "error":
-                        (
-                            "Feature count mismatch: "
-                            f"model expects "
-                            f"{model_feature_count} features, "
-                            f"but the agent provides "
-                            f"{len(X.columns)}."
-                        )
-                }
-
-            # ------------------------------------------------------
-            # PREDICTION
-            # ------------------------------------------------------
+            # -----------------------------------------------------------------
+            # PREDICT
+            # -----------------------------------------------------------------
 
             prediction_encoded = (
                 self.model.predict(X)[0]
             )
 
-            # ------------------------------------------------------
-            # PROBABILITIES
-            # ------------------------------------------------------
+            # -----------------------------------------------------------------
+            # PROBABILITY
+            # -----------------------------------------------------------------
 
             probabilities = None
 
@@ -417,10 +355,6 @@ class CirrhosisAgent:
                     .predict_proba(X)[0]
                 )
 
-            # ------------------------------------------------------
-            # CONFIDENCE
-            # ------------------------------------------------------
-
             if probabilities is not None:
 
                 confidence = float(
@@ -429,24 +363,41 @@ class CirrhosisAgent:
                     )
                 )
 
-                uncertainty = float(
-                    1.0 - confidence
-                )
+                class_probabilities = [
+
+                    float(value)
+
+                    for value
+                    in probabilities
+                ]
 
             else:
 
-                confidence = None
-                uncertainty = None
+                confidence = 0.0
 
-            # ------------------------------------------------------
-            # DECODE TARGET
-            # ------------------------------------------------------
+                class_probabilities = None
+
+            uncertainty = (
+                1.0 - confidence
+            )
+
+            quality = max(
+                0.0,
+                1.0 - missing_ratio
+            )
+
+            # -----------------------------------------------------------------
+            # DECODE
+            # -----------------------------------------------------------------
 
             prediction = (
                 prediction_encoded
             )
 
-            if self.target_encoder is not None:
+            if (
+                self.target_encoder
+                is not None
+            ):
 
                 try:
 
@@ -463,32 +414,32 @@ class CirrhosisAgent:
                         prediction_encoded
                     )
 
-            # ------------------------------------------------------
-            # QUALITY
-            # ------------------------------------------------------
+            prediction = str(
+                prediction
+            )
 
-            if confidence is not None:
+            latency_ms = (
+                time.perf_counter()
+                -
+                start_time
+            ) * 1000.0
 
-                quality = confidence
-
-            else:
-
-                quality = 0.0
-
-            # ------------------------------------------------------
-            # STANDARDIZED OUTPUT
-            # ------------------------------------------------------
-
-            result = {
+            return {
 
                 "agent":
                     self.name,
 
+                "task_type":
+                    "cirrhosis_classification",
+
                 "model":
                     self.model_name,
 
+                "status":
+                    "success",
+
                 "prediction":
-                    str(prediction),
+                    prediction,
 
                 "probability":
                     confidence,
@@ -502,55 +453,63 @@ class CirrhosisAgent:
                 "quality":
                     quality,
 
-                "status":
-                    "completed",
+                "missing_data_ratio":
+                    missing_ratio,
+
+                "latency_ms":
+                    latency_ms,
+
+                "class_probabilities":
+                    class_probabilities,
 
                 "details": {
 
                     "task_type":
-                        "classification",
+                        "cirrhosis_classification",
 
                     "disease":
                         "cirrhosis",
 
                     "classes":
-                        self.classes
+                        self.classes,
+
+                    "features":
+                        [
+                            feature
+
+                            for feature
+                            in self.feature_names
+
+                            if feature
+                            != self.target_name
+                        ]
                 },
 
                 "error":
                     None
             }
 
-            # ------------------------------------------------------
-            # CLASS PROBABILITIES
-            # ------------------------------------------------------
-
-            if probabilities is not None:
-
-                result[
-                    "class_probabilities"
-                ] = [
-
-                    float(value)
-                    for value in probabilities
-
-                ]
-
-            return result
-
-        # ==========================================================
-        # GLOBAL ERROR HANDLING
-        # ==========================================================
-
         except Exception as e:
+
+            latency_ms = (
+                time.perf_counter()
+                -
+                start_time
+            ) * 1000.0
 
             return {
 
                 "agent":
                     self.name,
 
+                "task_type":
+                    "cirrhosis_classification",
+
                 "model":
                     self.model_name,
+
+                "status":
+                    "error",
 
                 "prediction":
                     None,
@@ -559,21 +518,24 @@ class CirrhosisAgent:
                     None,
 
                 "confidence":
-                    None,
+                    0.0,
 
                 "uncertainty":
-                    None,
+                    1.0,
 
                 "quality":
                     0.0,
 
-                "status":
-                    "error",
+                "missing_data_ratio":
+                    1.0,
+
+                "latency_ms":
+                    latency_ms,
 
                 "details": {
 
                     "task_type":
-                        "classification",
+                        "cirrhosis_classification",
 
                     "disease":
                         "cirrhosis"
