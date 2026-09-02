@@ -29,7 +29,9 @@ class LiverAICoordinator:
         self.fibrosis_model_path = fibrosis_model_path
         self.tumor_model_path = tumor_model_path
         self.segmentation_model_path = segmentation_model_path
-
+        self.adaptive_pipeline = (
+    AdaptiveCoordinationPipeline()
+)
         # ====================================================
         # IMPORT AGENTS
         # ====================================================
