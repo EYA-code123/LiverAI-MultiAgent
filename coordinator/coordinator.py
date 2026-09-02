@@ -547,8 +547,8 @@ class LiverAICoordinator:
         "cirrhosis": self.cirrhosis_agent,
         "fatty_liver": self.fatty_liver_agent,
         "fibrosis": self.fibrosis_agent,
-        "tumor": self.tumor_agent,
-        "segmentation": self.segmentation_agent,
+        "tumor": self.tumor_classification_agent,
+        "segmentation": self.liver_segmentation_agent,
     },
     input_data=patient_data
 )
