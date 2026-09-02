@@ -20,43 +20,46 @@ class CirrhosisAgent:
 
         self.model = model_package["model"]
 
-        # ---------------------------------------------------------------------
+        # =========================================================================
         # MODEL FEATURES
-        # ---------------------------------------------------------------------
+        # =========================================================================
 
-        # The XGBoost model is the final authority for the input features.
         if hasattr(self.model, "feature_names_in_"):
 
-            self.feature_names = list(
-                self.model.feature_names_in_
-            )
+            self.feature_names = [
+                str(x)
+                for x in self.model.feature_names_in_
+            ]
 
         else:
 
-            self.feature_names = list(
-                model_package.get(
+            self.feature_names = [
+                str(x)
+                for x in model_package.get(
                     "feature_names",
                     []
                 )
-            )
+            ]
 
-        # ---------------------------------------------------------------------
-        # PREPROCESSING INFORMATION
-        # ---------------------------------------------------------------------
+        # =========================================================================
+        # PREPROCESSING
+        # =========================================================================
 
-        self.numerical_columns = list(
-            model_package.get(
+        self.numerical_columns = [
+            str(x)
+            for x in model_package.get(
                 "numerical_columns",
                 []
             )
-        )
+        ]
 
-        self.categorical_columns = list(
-            model_package.get(
+        self.categorical_columns = [
+            str(x)
+            for x in model_package.get(
                 "categorical_columns",
                 []
             )
-        )
+        ]
 
         self.encoders = model_package.get(
             "encoders",
@@ -75,9 +78,9 @@ class CirrhosisAgent:
             "categorical_imputer"
         )
 
-        # ---------------------------------------------------------------------
+        # =========================================================================
         # TARGET
-        # ---------------------------------------------------------------------
+        # =========================================================================
 
         self.target_name = "Stage"
 
@@ -87,15 +90,15 @@ class CirrhosisAgent:
             "3.0"
         ]
 
-        # ---------------------------------------------------------------------
+        # =========================================================================
         # SAFETY CHECK
-        # ---------------------------------------------------------------------
+        # =========================================================================
 
         if self.target_name in self.feature_names:
 
             raise ValueError(
                 "Invalid model package: "
-                "Stage is present in model features."
+                "Stage is present in XGBoost model features."
             )
 
     # =========================================================================
@@ -125,17 +128,13 @@ class CirrhosisAgent:
 
     def _preprocess(self, patient_data):
 
-        # ---------------------------------------------------------------------
-        # CREATE DATAFRAME
-        # ---------------------------------------------------------------------
-
         X = self._create_dataframe(
             patient_data
         )
 
-        # ---------------------------------------------------------------------
-        # TARGET MUST NEVER BE USED
-        # ---------------------------------------------------------------------
+        # -------------------------------------------------------------------------
+        # Remove target if supplied by mistake
+        # -------------------------------------------------------------------------
 
         if self.target_name in X.columns:
 
@@ -143,42 +142,34 @@ class CirrhosisAgent:
                 columns=[self.target_name]
             )
 
-        # ---------------------------------------------------------------------
-        # EXPECTED FEATURES
-        # ---------------------------------------------------------------------
+        # -------------------------------------------------------------------------
+        # Model features
+        # -------------------------------------------------------------------------
 
-        expected_features = [
+        model_features = [
             feature
             for feature in self.feature_names
             if feature != self.target_name
         ]
 
-        # ---------------------------------------------------------------------
-        # ADD MISSING FEATURES
-        # ---------------------------------------------------------------------
+        # -------------------------------------------------------------------------
+        # Add missing model features
+        # -------------------------------------------------------------------------
 
-        for feature in expected_features:
+        for feature in model_features:
 
             if feature not in X.columns:
 
                 X[feature] = np.nan
 
-        # ---------------------------------------------------------------------
-        # KEEP ONLY EXPECTED FEATURES
-        # ---------------------------------------------------------------------
-
-        X = X[
-            expected_features
-        ].copy()
-
-        # =====================================================================
+        # =========================================================================
         # NUMERICAL IMPUTATION
-        # =====================================================================
+        # =========================================================================
 
         numerical_features = [
             col
             for col in self.numerical_columns
-            if col in expected_features
+            if col in model_features
         ]
 
         if (
@@ -186,85 +177,74 @@ class CirrhosisAgent:
             and numerical_features
         ):
 
-            try:
+            # The saved imputer was fitted with Stage.
+            # Therefore we must reproduce its exact input schema.
 
-                # Check what the imputer expects.
-                if hasattr(
-                    self.numerical_imputer,
-                    "feature_names_in_"
-                ):
+            if hasattr(
+                self.numerical_imputer,
+                "feature_names_in_"
+            ):
 
-                    imputer_features = list(
-                        self.numerical_imputer.feature_names_in_
-                    )
+                imputer_features = [
+                    str(x)
+                    for x in self.numerical_imputer.feature_names_in_
+                ]
+
+            else:
+
+                imputer_features = numerical_features
+
+            X_num = pd.DataFrame(
+                index=X.index
+            )
+
+            for feature in imputer_features:
+
+                if feature == self.target_name:
+
+                    # Stage is the target.
+                    # Never use the patient's target here.
+                    X_num[feature] = np.nan
+
+                elif feature in X.columns:
+
+                    X_num[feature] = X[feature]
 
                 else:
 
-                    imputer_features = numerical_features
+                    X_num[feature] = np.nan
 
-                # Build exactly what the imputer expects.
-                X_num = pd.DataFrame(
-                    index=X.index
-                )
+            # Exact order expected by the imputer
+            X_num = X_num[
+                imputer_features
+            ]
 
-                for col in imputer_features:
+            transformed = (
+                self.numerical_imputer
+                .transform(X_num)
+            )
 
-                    if col in X.columns:
+            transformed = pd.DataFrame(
+                transformed,
+                columns=imputer_features,
+                index=X.index
+            )
 
-                        X_num[col] = X[col]
+            # Copy only the numerical model features.
+            for feature in numerical_features:
 
-                    else:
+                if feature in transformed.columns:
 
-                        X_num[col] = np.nan
+                    X[feature] = transformed[feature]
 
-                # If the imputer was incorrectly fitted with Stage,
-                # provide an empty Stage column only to the imputer.
-                if (
-                    self.target_name
-                    in imputer_features
-                    and self.target_name not in X_num.columns
-                ):
-
-                    X_num[self.target_name] = np.nan
-
-                # Exact column order.
-                X_num = X_num[
-                    imputer_features
-                ]
-
-                transformed = (
-                    self.numerical_imputer
-                    .transform(X_num)
-                )
-
-                transformed = pd.DataFrame(
-                    transformed,
-                    columns=imputer_features,
-                    index=X.index
-                )
-
-                # Copy only real model features back.
-                for col in numerical_features:
-
-                    if col in transformed.columns:
-
-                        X[col] = transformed[col]
-
-            except Exception as e:
-
-                raise ValueError(
-                    "Numerical preprocessing error: "
-                    + str(e)
-                )
-
-        # =====================================================================
+        # =========================================================================
         # CATEGORICAL IMPUTATION
-        # =====================================================================
+        # =========================================================================
 
         categorical_features = [
             col
             for col in self.categorical_columns
-            if col in expected_features
+            if col in model_features
         ]
 
         if (
@@ -272,164 +252,149 @@ class CirrhosisAgent:
             and categorical_features
         ):
 
-            try:
+            if hasattr(
+                self.categorical_imputer,
+                "feature_names_in_"
+            ):
 
-                # Check what the imputer expects.
-                if hasattr(
-                    self.categorical_imputer,
-                    "feature_names_in_"
-                ):
+                imputer_features = [
+                    str(x)
+                    for x in self.categorical_imputer.feature_names_in_
+                ]
 
-                    imputer_features = list(
-                        self.categorical_imputer.feature_names_in_
-                    )
+            else:
+
+                imputer_features = categorical_features
+
+            X_cat = pd.DataFrame(
+                index=X.index
+            )
+
+            for feature in imputer_features:
+
+                if feature in X.columns:
+
+                    X_cat[feature] = X[feature]
 
                 else:
 
-                    imputer_features = categorical_features
+                    X_cat[feature] = np.nan
 
-                # Build exactly what the imputer expects.
-                X_cat = pd.DataFrame(
-                    index=X.index
-                )
+            # Exact order expected by categorical imputer
+            X_cat = X_cat[
+                imputer_features
+            ]
 
-                for col in imputer_features:
+            transformed = (
+                self.categorical_imputer
+                .transform(X_cat)
+            )
 
-                    if col in X.columns:
+            transformed = pd.DataFrame(
+                transformed,
+                columns=imputer_features,
+                index=X.index
+            )
 
-                        X_cat[col] = X[col]
+            for feature in categorical_features:
 
-                    else:
+                if feature in transformed.columns:
 
-                        X_cat[col] = np.nan
+                    X[feature] = transformed[feature]
 
-                # If Stage was included when the imputer was fitted,
-                # give it a temporary empty value.
-                if (
-                    self.target_name
-                    in imputer_features
-                    and self.target_name not in X_cat.columns
-                ):
-
-                    X_cat[self.target_name] = np.nan
-
-                # Exact column order.
-                X_cat = X_cat[
-                    imputer_features
-                ]
-
-                transformed = (
-                    self.categorical_imputer
-                    .transform(X_cat)
-                )
-
-                transformed = pd.DataFrame(
-                    transformed,
-                    columns=imputer_features,
-                    index=X.index
-                )
-
-                # Copy only real categorical model features.
-                for col in categorical_features:
-
-                    if col in transformed.columns:
-
-                        X[col] = transformed[col]
-
-            except Exception as e:
-
-                raise ValueError(
-                    "Categorical preprocessing error: "
-                    + str(e)
-                )
-
-        # =====================================================================
+        # =========================================================================
         # CATEGORICAL ENCODING
-        # =====================================================================
+        # =========================================================================
 
-        for col in categorical_features:
+        for feature in categorical_features:
 
-            if col not in self.encoders:
+            if feature not in self.encoders:
 
                 continue
 
-            encoder = self.encoders[col]
+            encoder = self.encoders[
+                feature
+            ]
 
-            values = X[col].astype(str)
+            values = X[
+                feature
+            ].astype(str)
 
             known_values = set(
-                encoder.classes_
+                str(value)
+                for value in encoder.classes_
             )
 
             # Unknown categories are replaced by
-            # the first known category.
+            # the first category known by the encoder.
             values = values.apply(
                 lambda value:
                 value
                 if value in known_values
-                else encoder.classes_[0]
+                else str(encoder.classes_[0])
             )
 
-            X[col] = encoder.transform(
+            X[feature] = encoder.transform(
                 values
             )
 
-        # =====================================================================
-        # FINAL FEATURE ORDER
-        # =====================================================================
+        # =========================================================================
+        # FINAL MODEL INPUT
+        # =========================================================================
 
         X = X[
-            expected_features
+            model_features
         ].copy()
 
-        # ---------------------------------------------------------------------
-        # FINAL SAFETY CHECK
-        # ---------------------------------------------------------------------
+        # -------------------------------------------------------------------------
+        # Absolute safety check
+        # -------------------------------------------------------------------------
 
         if self.target_name in X.columns:
 
             raise ValueError(
-                "CRITICAL ERROR: Stage is present "
-                "in the prediction input."
+                "CRITICAL ERROR: Stage is still present "
+                "in XGBoost input."
             )
 
-        # ---------------------------------------------------------------------
-        # MATCH XGBOOST FEATURE ORDER
-        # ---------------------------------------------------------------------
+        # -------------------------------------------------------------------------
+        # Match exact XGBoost feature order
+        # -------------------------------------------------------------------------
 
         if hasattr(
             self.model,
             "feature_names_in_"
         ):
 
-            model_features = list(
-                self.model.feature_names_in_
-            )
+            model_order = [
+                str(x)
+                for x in self.model.feature_names_in_
+            ]
 
             X = X[
-                model_features
+                model_order
             ].copy()
 
-        # ---------------------------------------------------------------------
-        # FINAL CHECK
-        # ---------------------------------------------------------------------
+        # -------------------------------------------------------------------------
+        # Final validation
+        # -------------------------------------------------------------------------
 
-        if list(X.columns) != expected_features:
+        if hasattr(
+            self.model,
+            "n_features_in_"
+        ):
 
-            # If the model provides its own feature list,
-            # use that list as the final reference.
-            if hasattr(
-                self.model,
-                "feature_names_in_"
+            if (
+                X.shape[1]
+                != self.model.n_features_in_
             ):
 
-                model_features = list(
-                    self.model.feature_names_in_
+                raise ValueError(
+                    "Final feature count mismatch: "
+                    f"XGBoost expects "
+                    f"{self.model.n_features_in_}, "
+                    f"received {X.shape[1]}."
                 )
-
-                X = X[
-                    model_features
-                ].copy()
 
         return X
 
@@ -443,48 +408,17 @@ class CirrhosisAgent:
 
         try:
 
-            # -----------------------------------------------------------------
-            # PREPROCESS
-            # -----------------------------------------------------------------
+            # ---------------------------------------------------------------------
+            # Preprocessing
+            # ---------------------------------------------------------------------
 
             X = self._preprocess(
                 patient_data
             )
 
-            # -----------------------------------------------------------------
-            # FEATURE VALIDATION
-            # -----------------------------------------------------------------
-
-            if self.target_name in X.columns:
-
-                raise ValueError(
-                    "Stage must not be present "
-                    "in model input."
-                )
-
-            model_feature_count = getattr(
-                self.model,
-                "n_features_in_",
-                None
-            )
-
-            if (
-                model_feature_count is not None
-                and model_feature_count
-                != len(X.columns)
-            ):
-
-                raise ValueError(
-                    "Feature count mismatch: "
-                    f"model expects "
-                    f"{model_feature_count}, "
-                    f"but input contains "
-                    f"{len(X.columns)}."
-                )
-
-            # -----------------------------------------------------------------
-            # MISSING DATA
-            # -----------------------------------------------------------------
+            # ---------------------------------------------------------------------
+            # Missing data ratio
+            # ---------------------------------------------------------------------
 
             missing_values = (
                 X.isna()
@@ -501,17 +435,17 @@ class CirrhosisAgent:
                 )
             )
 
-            # -----------------------------------------------------------------
-            # MODEL PREDICTION
-            # -----------------------------------------------------------------
+            # =========================================================================
+            # PREDICTION
+            # =========================================================================
 
             prediction_encoded = (
                 self.model.predict(X)[0]
             )
 
-            # -----------------------------------------------------------------
+            # =========================================================================
             # PROBABILITIES
-            # -----------------------------------------------------------------
+            # =========================================================================
 
             probabilities = None
 
@@ -525,9 +459,9 @@ class CirrhosisAgent:
                     .predict_proba(X)[0]
                 )
 
-            # -----------------------------------------------------------------
+            # =========================================================================
             # CONFIDENCE
-            # -----------------------------------------------------------------
+            # =========================================================================
 
             if probabilities is not None:
 
@@ -548,17 +482,17 @@ class CirrhosisAgent:
 
                 class_probabilities = None
 
-            # -----------------------------------------------------------------
+            # =========================================================================
             # UNCERTAINTY
-            # -----------------------------------------------------------------
+            # =========================================================================
 
             uncertainty = float(
                 1.0 - confidence
             )
 
-            # -----------------------------------------------------------------
-            # QUALITY
-            # -----------------------------------------------------------------
+            # =========================================================================
+            # DATA QUALITY
+            # =========================================================================
 
             quality = float(
                 max(
@@ -570,9 +504,9 @@ class CirrhosisAgent:
                 )
             )
 
-            # -----------------------------------------------------------------
+            # =========================================================================
             # DECODE PREDICTION
-            # -----------------------------------------------------------------
+            # =========================================================================
 
             prediction = prediction_encoded
 
@@ -595,9 +529,9 @@ class CirrhosisAgent:
                 prediction
             )
 
-            # -----------------------------------------------------------------
+            # =========================================================================
             # LATENCY
-            # -----------------------------------------------------------------
+            # =========================================================================
 
             latency_ms = (
                 time.perf_counter()
@@ -605,9 +539,9 @@ class CirrhosisAgent:
                 start_time
             ) * 1000.0
 
-            # -----------------------------------------------------------------
-            # SUCCESS RESULT
-            # -----------------------------------------------------------------
+            # =========================================================================
+            # SUCCESS
+            # =========================================================================
 
             return {
 
@@ -676,6 +610,10 @@ class CirrhosisAgent:
                 "error":
                     None
             }
+
+        # =========================================================================
+        # ERROR
+        # =========================================================================
 
         except Exception as e:
 
