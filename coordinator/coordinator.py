@@ -1,84 +1,237 @@
-# ============================================================
-# LIVER AI MULTI-AGENT COORDINATOR
-# ============================================================
+# =============================================================================
+# Liver AI Coordinator
+# =============================================================================
+#
+# Main coordinator for the LiverAI-MultiAgent project.
+#
+# Available agents are loaded when their model is provided.
+# Missing models do NOT prevent the coordinator from starting.
+#
+# =============================================================================
 
 import os
-import joblib
-import numpy as np
-from coordinator.adaptive_pipeline import ( AdaptiveCoordinationPipeline)
+import time
+
 
 class LiverAICoordinator:
 
+    # =========================================================================
+    # INITIALIZATION
+    # =========================================================================
+
     def __init__(
         self,
-        cirrhosis_model_path,
-        fatty_liver_model_path,
+        cirrhosis_model_path=None,
+        fatty_liver_model_path=None,
         fibrosis_model_path=None,
         tumor_model_path=None,
-        segmentation_model_path=None
+        segmentation_model_path=None,
+        clinical_reasoning_model_path=None
     ):
 
-        self.name = "LiverAICoordinator"
+        print("\n" + "=" * 70)
+        print("INITIALIZING LIVER AI COORDINATOR")
+        print("=" * 70)
 
-        # ====================================================
-        # PATHS
-        # ====================================================
+        # =====================================================================
+        # AGENT CLASSES
+        # =====================================================================
 
-        self.cirrhosis_model_path = cirrhosis_model_path
-        self.fatty_liver_model_path = fatty_liver_model_path
-        self.fibrosis_model_path = fibrosis_model_path
-        self.tumor_model_path = tumor_model_path
-        self.segmentation_model_path = segmentation_model_path
-        self.adaptive_pipeline = (
-    AdaptiveCoordinationPipeline()
-)
-        # ====================================================
-        # IMPORT AGENTS
-        # ====================================================
+        self.CirrhosisAgent = None
+        self.FattyLiverAgent = None
+        self.FibrosisAgent = None
+        self.TumorClassificationAgent = None
+        self.LiverSegmentationAgent = None
+        self.ClinicalReasoningAgent = None
 
-        from agents.cirrhosis_agent import CirrhosisAgent
-        from agents.fatty_liver_agent import FattyLiverAgent
-        from agents.fibrosis_agent import FibrosisAgent
-        from agents.tumor_classification_agent import TumorClassificationAgent
-        from agents.liver_segmentation_agent import LiverSegmentationAgent
-        from agents.clinical_reasoning_agent import ClinicalReasoningAgent
- 
-        self.CirrhosisAgent = CirrhosisAgent
-        self.FattyLiverAgent = FattyLiverAgent
-        self.FibrosisAgent = FibrosisAgent
-        self.TumorClassificationAgent = TumorClassificationAgent
-        self.LiverSegmentationAgent = LiverSegmentationAgent
-        self.ClinicalReasoningAgent = ClinicalReasoningAgent
-
-        # ====================================================
-        # LOAD AVAILABLE MODELS
-        # ====================================================
+        # =====================================================================
+        # AGENT INSTANCES
+        # =====================================================================
 
         self.cirrhosis_agent = None
         self.fatty_liver_agent = None
         self.fibrosis_agent = None
         self.tumor_agent = None
         self.segmentation_agent = None
+        self.clinical_agent = None
+
+        # =====================================================================
+        # SAVE PATHS
+        # =====================================================================
+
+        self.cirrhosis_model_path = cirrhosis_model_path
+        self.fatty_liver_model_path = fatty_liver_model_path
+        self.fibrosis_model_path = fibrosis_model_path
+        self.tumor_model_path = tumor_model_path
+        self.segmentation_model_path = segmentation_model_path
+        self.clinical_reasoning_model_path = (
+            clinical_reasoning_model_path
+        )
+
+        # =====================================================================
+        # IMPORT AGENTS
+        # =====================================================================
+
+        self._import_agents()
+
+        # =====================================================================
+        # LOAD AGENTS
+        # =====================================================================
 
         self._load_cirrhosis()
         self._load_fatty_liver()
         self._load_fibrosis()
         self._load_tumor()
         self._load_segmentation()
+        self._load_clinical_reasoning()
 
-        # ====================================================
-        # CLINICAL REASONING
-        # ====================================================
+        print("\n" + "=" * 70)
+        print("LIVER AI COORDINATOR READY")
+        print("=" * 70)
 
-        self.clinical_agent = self.ClinicalReasoningAgent()
+    # =========================================================================
+    # IMPORT AGENTS
+    # =========================================================================
 
-    # ========================================================
+    def _import_agents(self):
+
+        # ---------------------------------------------------------------------
+        # Cirrhosis
+        # ---------------------------------------------------------------------
+
+        try:
+
+            from agents.cirrhosis_agent import (
+                CirrhosisAgent
+            )
+
+            self.CirrhosisAgent = CirrhosisAgent
+
+        except Exception as e:
+
+            print(
+                "❌ Impossible d'importer CirrhosisAgent :",
+                e
+            )
+
+        # ---------------------------------------------------------------------
+        # Fatty Liver
+        # ---------------------------------------------------------------------
+
+        try:
+
+            from agents.fatty_liver_agent import (
+                FattyLiverAgent
+            )
+
+            self.FattyLiverAgent = FattyLiverAgent
+
+        except Exception as e:
+
+            print(
+                "⚠️ Impossible d'importer FattyLiverAgent :",
+                e
+            )
+
+        # ---------------------------------------------------------------------
+        # Fibrosis
+        # ---------------------------------------------------------------------
+
+        try:
+
+            from agents.fibrosis_agent import (
+                FibrosisAgent
+            )
+
+            self.FibrosisAgent = FibrosisAgent
+
+        except Exception as e:
+
+            print(
+                "⚠️ Impossible d'importer FibrosisAgent :",
+                e
+            )
+
+        # ---------------------------------------------------------------------
+        # Tumor
+        # ---------------------------------------------------------------------
+
+        try:
+
+            from agents.tumor_classification_agent import (
+                TumorClassificationAgent
+            )
+
+            self.TumorClassificationAgent = (
+                TumorClassificationAgent
+            )
+
+        except Exception as e:
+
+            print(
+                "⚠️ Impossible d'importer TumorClassificationAgent :",
+                e
+            )
+
+        # ---------------------------------------------------------------------
+        # Segmentation
+        # ---------------------------------------------------------------------
+
+        try:
+
+            from agents.liver_segmentation_agent import (
+                LiverSegmentationAgent
+            )
+
+            self.LiverSegmentationAgent = (
+                LiverSegmentationAgent
+            )
+
+        except Exception as e:
+
+            print(
+                "⚠️ Impossible d'importer LiverSegmentationAgent :",
+                e
+            )
+
+        # ---------------------------------------------------------------------
+        # Clinical Reasoning
+        # ---------------------------------------------------------------------
+
+        try:
+
+            from agents.clinical_reasoning_agent import (
+                ClinicalReasoningAgent
+            )
+
+            self.ClinicalReasoningAgent = (
+                ClinicalReasoningAgent
+            )
+
+        except Exception as e:
+
+            print(
+                "⚠️ Impossible d'importer ClinicalReasoningAgent :",
+                e
+            )
+
+    # =========================================================================
     # CIRRHOSIS
-    # ========================================================
+    # =========================================================================
 
     def _load_cirrhosis(self):
 
-        if not os.path.exists(self.cirrhosis_model_path):
+        if not self.cirrhosis_model_path:
+
+            print(
+                "⚠️ CirrhosisAgent : modèle non fourni"
+            )
+
+            return
+
+        if not os.path.exists(
+            self.cirrhosis_model_path
+        ):
 
             print(
                 "⚠️ Cirrhosis model absent :",
@@ -87,14 +240,26 @@ class LiverAICoordinator:
 
             return
 
+        if self.CirrhosisAgent is None:
+
+            print(
+                "⚠️ CirrhosisAgent indisponible"
+            )
+
+            return
+
         try:
 
-            package = joblib.load(
+            import joblib
+
+            model_package = joblib.load(
                 self.cirrhosis_model_path
             )
 
-            self.cirrhosis_agent = self.CirrhosisAgent(
-                package
+            self.cirrhosis_agent = (
+                self.CirrhosisAgent(
+                    model_package
+                )
             )
 
             print(
@@ -108,11 +273,21 @@ class LiverAICoordinator:
                 e
             )
 
-    # ========================================================
+            self.cirrhosis_agent = None
+
+    # =========================================================================
     # FATTY LIVER
-    # ========================================================
+    # =========================================================================
 
     def _load_fatty_liver(self):
+
+        if not self.fatty_liver_model_path:
+
+            print(
+                "⚠️ Fatty Liver Agent : modèle non fourni"
+            )
+
+            return
 
         if not os.path.exists(
             self.fatty_liver_model_path
@@ -125,15 +300,25 @@ class LiverAICoordinator:
 
             return
 
+        if self.FattyLiverAgent is None:
+
+            print(
+                "⚠️ FattyLiverAgent indisponible"
+            )
+
+            return
+
         try:
 
-            package = joblib.load(
+            import joblib
+
+            model_package = joblib.load(
                 self.fatty_liver_model_path
             )
 
             self.fatty_liver_agent = (
                 self.FattyLiverAgent(
-                    package
+                    model_package
                 )
             )
 
@@ -148,9 +333,11 @@ class LiverAICoordinator:
                 e
             )
 
-    # ========================================================
+            self.fatty_liver_agent = None
+
+    # =========================================================================
     # FIBROSIS
-    # ========================================================
+    # =========================================================================
 
     def _load_fibrosis(self):
 
@@ -173,15 +360,19 @@ class LiverAICoordinator:
 
             return
 
-        try:
+        if self.FibrosisAgent is None:
 
-            model = joblib.load(
-                self.fibrosis_model_path
+            print(
+                "⚠️ FibrosisAgent indisponible"
             )
+
+            return
+
+        try:
 
             self.fibrosis_agent = (
                 self.FibrosisAgent(
-                    model
+                    self.fibrosis_model_path
                 )
             )
 
@@ -196,9 +387,11 @@ class LiverAICoordinator:
                 e
             )
 
-    # ========================================================
+            self.fibrosis_agent = None
+
+    # =========================================================================
     # TUMOR
-    # ========================================================
+    # =========================================================================
 
     def _load_tumor(self):
 
@@ -217,6 +410,14 @@ class LiverAICoordinator:
             print(
                 "⚠️ Tumor model absent :",
                 self.tumor_model_path
+            )
+
+            return
+
+        if self.TumorClassificationAgent is None:
+
+            print(
+                "⚠️ TumorClassificationAgent indisponible"
             )
 
             return
@@ -240,90 +441,152 @@ class LiverAICoordinator:
                 e
             )
 
-  # ========================================================
-# SEGMENTATION
-# ========================================================
+            self.tumor_agent = None
 
-def _load_segmentation(self):
+    # =========================================================================
+    # SEGMENTATION
+    # =========================================================================
 
-    if not self.segmentation_model_path:
+    def _load_segmentation(self):
 
-        print(
-            "⚠️ SegmentationAgent : modèle non fourni"
-        )
+        if not self.segmentation_model_path:
 
-        return
+            print(
+                "⚠️ SegmentationAgent : modèle non fourni"
+            )
 
-    if not os.path.exists(
-        self.segmentation_model_path
-    ):
+            return
 
-        print(
-            "⚠️ Segmentation model absent :",
+        if not os.path.exists(
             self.segmentation_model_path
-        )
+        ):
 
-        return
-
-    try:
-
-        # The LiverSegmentationAgent expects
-        # the MODEL PATH, not a joblib-loaded object.
-        self.segmentation_agent = (
-            self.LiverSegmentationAgent(
+            print(
+                "⚠️ Segmentation model absent :",
                 self.segmentation_model_path
             )
-        )
 
-        print(
-            "✅ LiverSegmentationAgent chargé"
-        )
+            return
 
-    except Exception as e:
+        if self.LiverSegmentationAgent is None:
 
-        print(
-            "❌ Erreur LiverSegmentationAgent :",
-            e
-        )
+            print(
+                "⚠️ LiverSegmentationAgent indisponible"
+            )
 
-        self.segmentation_agent = None
+            return
 
-           
+        try:
 
-    # ========================================================
-    # SAFE RESULT
-    # ========================================================
+            # LiverSegmentationAgent expects
+            # the model path directly.
 
-    def _not_available(self, agent_name):
+            self.segmentation_agent = (
+                self.LiverSegmentationAgent(
+                    self.segmentation_model_path
+                )
+            )
 
-        return {
+            print(
+                "✅ LiverSegmentationAgent chargé"
+            )
 
-            "agent": agent_name,
+        except Exception as e:
 
-            "prediction": None,
+            print(
+                "❌ Erreur LiverSegmentationAgent :",
+                e
+            )
 
-            "probability": None,
+            self.segmentation_agent = None
 
-            "status": "not_available",
+    # =========================================================================
+    # CLINICAL REASONING
+    # =========================================================================
 
-            "error": None
-        }
+    def _load_clinical_reasoning(self):
 
-    # ========================================================
-    # RUN ALL AGENTS
-    # ========================================================
+        # ---------------------------------------------------------------------
+        # No model supplied
+        # ---------------------------------------------------------------------
 
-    def predict(
-        self,
-        patient_data,
-        image=None
-    ):
+        if not self.clinical_reasoning_model_path:
+
+            print(
+                "⚠️ ClinicalReasoningAgent : modèle non fourni"
+            )
+
+            return
+
+        # ---------------------------------------------------------------------
+        # Model path does not exist
+        # ---------------------------------------------------------------------
+
+        if not os.path.exists(
+            self.clinical_reasoning_model_path
+        ):
+
+            print(
+                "⚠️ Clinical reasoning model absent :",
+                self.clinical_reasoning_model_path
+            )
+
+            return
+
+        # ---------------------------------------------------------------------
+        # Agent import failed
+        # ---------------------------------------------------------------------
+
+        if self.ClinicalReasoningAgent is None:
+
+            print(
+                "⚠️ ClinicalReasoningAgent indisponible"
+            )
+
+            return
+
+        # ---------------------------------------------------------------------
+        # Load model
+        # ---------------------------------------------------------------------
+
+        try:
+
+            import joblib
+
+            model_package = joblib.load(
+                self.clinical_reasoning_model_path
+            )
+
+            self.clinical_agent = (
+                self.ClinicalReasoningAgent(
+                    model_package
+                )
+            )
+
+            print(
+                "✅ ClinicalReasoningAgent chargé"
+            )
+
+        except Exception as e:
+
+            print(
+                "❌ Erreur ClinicalReasoningAgent :",
+                e
+            )
+
+            self.clinical_agent = None
+
+    # =========================================================================
+    # SINGLE PATIENT PREDICTION
+    # =========================================================================
+
+    def predict(self, patient_data):
 
         results = {}
 
-        # ====================================================
-        # CIRRHOSIS
-        # ====================================================
+        # ---------------------------------------------------------------------
+        # Cirrhosis
+        # ---------------------------------------------------------------------
 
         if self.cirrhosis_agent is not None:
 
@@ -338,29 +601,14 @@ def _load_segmentation(self):
             except Exception as e:
 
                 results["cirrhosis"] = {
-
                     "agent": "CirrhosisAgent",
-
-                    "prediction": None,
-
-                    "probability": None,
-
                     "status": "error",
-
                     "error": str(e)
                 }
 
-        else:
-
-            results["cirrhosis"] = (
-                self._not_available(
-                    "CirrhosisAgent"
-                )
-            )
-
-        # ====================================================
-        # FATTY LIVER
-        # ====================================================
+        # ---------------------------------------------------------------------
+        # Fatty liver
+        # ---------------------------------------------------------------------
 
         if self.fatty_liver_agent is not None:
 
@@ -375,29 +623,14 @@ def _load_segmentation(self):
             except Exception as e:
 
                 results["fatty_liver"] = {
-
                     "agent": "FattyLiverAgent",
-
-                    "prediction": None,
-
-                    "probability": None,
-
                     "status": "error",
-
                     "error": str(e)
                 }
 
-        else:
-
-            results["fatty_liver"] = (
-                self._not_available(
-                    "FattyLiverAgent"
-                )
-            )
-
-        # ====================================================
-        # FIBROSIS
-        # ====================================================
+        # ---------------------------------------------------------------------
+        # Fibrosis
+        # ---------------------------------------------------------------------
 
         if self.fibrosis_agent is not None:
 
@@ -412,148 +645,133 @@ def _load_segmentation(self):
             except Exception as e:
 
                 results["fibrosis"] = {
-
                     "agent": "FibrosisAgent",
-
-                    "prediction": None,
-
-                    "probability": None,
-
                     "status": "error",
-
                     "error": str(e)
                 }
 
-        else:
+        # ---------------------------------------------------------------------
+        # Tumor
+        # ---------------------------------------------------------------------
 
-            results["fibrosis"] = (
-                self._not_available(
-                    "FibrosisAgent"
-                )
-            )
-
-        # ====================================================
-        # TUMOR
-        # ====================================================
-
-        if self.tumor_agent is not None and image is not None:
+        if self.tumor_agent is not None:
 
             try:
 
-                results["tumor_classification"] = (
+                results["tumor"] = (
                     self.tumor_agent.predict(
-                        image
+                        patient_data
                     )
                 )
 
             except Exception as e:
 
-                results["tumor_classification"] = {
-
-                    "agent":
-                        "TumorClassificationAgent",
-
-                    "prediction": None,
-
-                    "probability": None,
-
+                results["tumor"] = {
+                    "agent": "TumorClassificationAgent",
                     "status": "error",
-
                     "error": str(e)
                 }
 
-        else:
+        # ---------------------------------------------------------------------
+        # Segmentation
+        # ---------------------------------------------------------------------
 
-            results["tumor_classification"] = (
-                self._not_available(
-                    "TumorClassificationAgent"
-                )
-            )
-
-        # ====================================================
-        # SEGMENTATION
-        # ====================================================
-
-        if self.segmentation_agent is not None and image is not None:
+        if self.segmentation_agent is not None:
 
             try:
 
-                results["liver_segmentation"] = (
+                results["segmentation"] = (
                     self.segmentation_agent.predict(
-                        image
+                        patient_data
                     )
                 )
 
             except Exception as e:
 
-                results["liver_segmentation"] = {
-
-                    "agent":
-                        "LiverSegmentationAgent",
-
-                    "prediction": None,
-
-                    "probability": None,
-
+                results["segmentation"] = {
+                    "agent": "LiverSegmentationAgent",
                     "status": "error",
-
                     "error": str(e)
                 }
 
-        else:
+        # ---------------------------------------------------------------------
+        # Clinical reasoning
+        # ---------------------------------------------------------------------
 
-            results["liver_segmentation"] = (
-                self._not_available(
-                    "LiverSegmentationAgent"
+        if self.clinical_agent is not None:
+
+            try:
+
+                results["clinical_reasoning"] = (
+                    self.clinical_agent.predict(
+                        patient_data
+                    )
                 )
-            )
 
-        # ====================================================
-        # CLINICAL REASONING
-        # ====================================================
+            except Exception as e:
 
-        try:
+                results["clinical_reasoning"] = {
+                    "agent": "ClinicalReasoningAgent",
+                    "status": "error",
+                    "error": str(e)
+                }
 
-            clinical_result = (
-                self.clinical_agent.predict(
-                    results
-                )
-            )
+        return results
 
-        except Exception as e:
+    # =========================================================================
+    # STATUS
+    # =========================================================================
 
-            clinical_result = {
+    def get_status(self):
 
-                "agent":
-                    "Clinical Reasoning Agent",
+        return {
 
-                "status": "error",
-
-                "error": str(e)
-            }
-
-        # ====================================================
-        # FINAL OUTPUT
-        # ====================================================
-
-         adaptive_result = self.adaptive_pipeline.run(
-            raw_results=results,
-            patient_id=(
-                patient_data.get("patient_id", "unknown")
-                if isinstance(patient_data, dict)
-                else "unknown"
+            "cirrhosis": (
+                self.cirrhosis_agent is not None
             ),
-            agents={
-                "cirrhosis": self.cirrhosis_agent,
-                "fatty_liver": self.fatty_liver_agent,
-                "fibrosis": self.fibrosis_agent,
-                "tumor": self.tumor_agent,
-                "segmentation": self.segmentation_agent,
-            },
-            input_data=patient_data
-        )
-return {
-    "agents": results,
-    "clinical_reasoning": clinical_result,
-    "adaptive_coordination": adaptive_result
-}
+
+            "fatty_liver": (
+                self.fatty_liver_agent is not None
+            ),
+
+            "fibrosis": (
+                self.fibrosis_agent is not None
+            ),
+
+            "tumor": (
+                self.tumor_agent is not None
+            ),
+
+            "segmentation": (
+                self.segmentation_agent is not None
+            ),
+
+            "clinical_reasoning": (
+                self.clinical_agent is not None
+            )
+        }
+
+    # =========================================================================
+    # SUMMARY
+    # =========================================================================
+
+    def summary(self):
+
+        status = self.get_status()
+
+        print("\n" + "=" * 70)
+        print("LIVER AI COORDINATOR STATUS")
+        print("=" * 70)
+
+        for agent_name, available in status.items():
+
+            symbol = "✅" if available else "⚠️"
+
+            print(
+                f"{symbol} {agent_name}: "
+                f"{'AVAILABLE' if available else 'NOT AVAILABLE'}"
+            )
+
+        print("=" * 70)
+
+        return status
