@@ -1,42 +1,40 @@
+# =============================================================================
+# LiverAI-MultiAgent
+# ADAPTIVE TRUST MANAGER
+# =============================================================================
+
 import numpy as np
 
 
-class AdaptiveTrustManager:
+class TrustManager:
 
     def __init__(self):
 
         self.historical_performance = {}
-        self.trust_history = {}
 
-        self.weights = {
-            "historical": 0.25,
-            "confidence": 0.20,
-            "uncertainty": 0.15,
-            "quality": 0.15,
-            "agreement": 0.15,
-            "availability": 0.10
-        }
+        self.default_performance = 0.5
+
+    # -------------------------------------------------------------------------
+    # REGISTER HISTORICAL PERFORMANCE
+    # -------------------------------------------------------------------------
 
     def register_agent(
         self,
         agent_id,
-        performance=0.5
+        performance
     ):
+
+        performance = self._clip(
+            performance
+        )
 
         self.historical_performance[
             agent_id
-        ] = float(
-            np.clip(
-                performance,
-                0.0,
-                1.0
-            )
-        )
+        ] = performance
 
-        self.trust_history.setdefault(
-            agent_id,
-            []
-        )
+    # -------------------------------------------------------------------------
+    # GET HISTORICAL PERFORMANCE
+    # -------------------------------------------------------------------------
 
     def get_historical_performance(
         self,
@@ -45,17 +43,21 @@ class AdaptiveTrustManager:
 
         return self.historical_performance.get(
             agent_id,
-            0.5
+            self.default_performance
         )
+
+    # -------------------------------------------------------------------------
+    # COMPUTE PATIENT-SPECIFIC TRUST
+    # -------------------------------------------------------------------------
 
     def compute_trust(
         self,
         agent_id,
-        confidence,
-        uncertainty,
-        quality,
-        agreement=1.0,
-        modality_availability=1.0
+        confidence=0.0,
+        quality=0.0,
+        uncertainty=1.0,
+        missing_data_ratio=0.0,
+        agreement=1.0
     ):
 
         historical = (
@@ -64,110 +66,109 @@ class AdaptiveTrustManager:
             )
         )
 
-        confidence = np.clip(
-            confidence, 0, 1
+        confidence = self._clip(
+            confidence
         )
 
-        uncertainty = np.clip(
-            uncertainty, 0, 1
+        quality = self._clip(
+            quality
         )
 
-        quality = np.clip(
-            quality, 0, 1
+        uncertainty = self._clip(
+            uncertainty
         )
 
-        agreement = np.clip(
-            agreement, 0, 1
+        missing_data_ratio = self._clip(
+            missing_data_ratio
         )
 
-        modality_availability = np.clip(
-            modality_availability,
-            0,
-            1
+        agreement = self._clip(
+            agreement
         )
 
+        # Current reliability
+        reliability = (
+            0.40 * confidence
+            + 0.25 * (1.0 - uncertainty)
+            + 0.20 * quality
+            + 0.15 * agreement
+        )
+
+        # Penalize missing data
+        data_factor = (
+            1.0 - missing_data_ratio
+        )
+
+        # Patient-specific trust
         trust = (
-
-            self.weights["historical"]
-            * historical
-
-            +
-
-            self.weights["confidence"]
-            * confidence
-
-            +
-
-            self.weights["uncertainty"]
-            * (1.0 - uncertainty)
-
-            +
-
-            self.weights["quality"]
-            * quality
-
-            +
-
-            self.weights["agreement"]
-            * agreement
-
-            +
-
-            self.weights["availability"]
-            * modality_availability
+            0.50 * historical
+            + 0.50 * reliability
         )
 
-        trust = float(
+        trust *= data_factor
+
+        return float(
             np.clip(
                 trust,
-                0,
-                1
+                0.0,
+                1.0
             )
         )
 
-        self.trust_history[
-            agent_id
-        ].append(trust)
-
-        return trust
+    # -------------------------------------------------------------------------
+    # UPDATE FROM FEEDBACK
+    # -------------------------------------------------------------------------
 
     def update_from_feedback(
         self,
         agent_id,
         correct,
-        learning_rate=0.1
+        learning_rate=0.10
     ):
 
-        previous = (
+        old_value = (
             self.get_historical_performance(
                 agent_id
             )
         )
 
-        target = (
-            1.0
-            if correct
-            else 0.0
-        )
+        target = 1.0 if correct else 0.0
 
-        updated = (
-            (1 - learning_rate)
-            * previous
-            +
-            learning_rate
-            * target
+        new_value = (
+            (1.0 - learning_rate) * old_value
+            + learning_rate * target
         )
 
         self.historical_performance[
             agent_id
         ] = float(
             np.clip(
-                updated,
-                0,
-                1
+                new_value,
+                0.0,
+                1.0
             )
         )
 
         return self.historical_performance[
             agent_id
         ]
+
+    # -------------------------------------------------------------------------
+    # CLIP
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def _clip(value):
+
+        try:
+            value = float(value)
+        except Exception:
+            value = 0.0
+
+        return float(
+            np.clip(
+                value,
+                0.0,
+                1.0
+            )
+        )
