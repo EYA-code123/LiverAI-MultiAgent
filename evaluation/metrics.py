@@ -6,52 +6,216 @@ from sklearn.metrics import (
     recall_score,
     f1_score,
     roc_auc_score,
-    confusion_matrix
+    confusion_matrix,
+    balanced_accuracy_score
 )
 
 
-def classification_metrics(y_true, y_pred, y_prob=None):
+def classification_metrics(
+    y_true,
+    y_pred,
+    y_prob=None
+):
 
     results = {
-        "accuracy": accuracy_score(y_true, y_pred),
-        "precision": precision_score(
-            y_true,
-            y_pred,
-            average="weighted",
-            zero_division=0
-        ),
-        "recall": recall_score(
-            y_true,
-            y_pred,
-            average="weighted",
-            zero_division=0
-        ),
-        "f1": f1_score(
-            y_true,
-            y_pred,
-            average="weighted",
-            zero_division=0
-        )
+
+        "accuracy":
+            float(
+                accuracy_score(
+                    y_true,
+                    y_pred
+                )
+            ),
+
+        "balanced_accuracy":
+            float(
+                balanced_accuracy_score(
+                    y_true,
+                    y_pred
+                )
+            ),
+
+        "precision":
+            float(
+                precision_score(
+                    y_true,
+                    y_pred,
+                    average="weighted",
+                    zero_division=0
+                )
+            ),
+
+        "recall":
+            float(
+                recall_score(
+                    y_true,
+                    y_pred,
+                    average="weighted",
+                    zero_division=0
+                )
+            ),
+
+        "f1":
+            float(
+                f1_score(
+                    y_true,
+                    y_pred,
+                    average="weighted",
+                    zero_division=0
+                )
+            )
     }
 
     if y_prob is not None:
+
         try:
-            if len(np.unique(y_true)) == 2:
-                results["auc"] = roc_auc_score(
-                    y_true,
-                    y_prob
+
+            y_prob = np.asarray(
+                y_prob
+            )
+
+            classes = np.unique(
+                y_true
+            )
+
+            if len(classes) == 2:
+
+                results["auc"] = float(
+                    roc_auc_score(
+                        y_true,
+                        y_prob
+                    )
                 )
+
+            elif y_prob.ndim == 2:
+
+                results["auc"] = float(
+                    roc_auc_score(
+                        y_true,
+                        y_prob,
+                        multi_class="ovr",
+                        average="weighted"
+                    )
+                )
+
         except Exception:
+
             results["auc"] = None
+
+    results[
+        "confusion_matrix"
+    ] = confusion_matrix(
+        y_true,
+        y_pred
+    ).tolist()
 
     return results
 
 
-def binary_confidence(probabilities):
+def coordination_metrics(
+    agent_results,
+    conflicts,
+    decision
+):
 
-    probabilities = np.asarray(probabilities)
+    total = len(
+        agent_results
+    )
 
-    if probabilities.ndim == 1:
-        return np.maximum(probabilities, 1 - probabilities)
+    valid = [
 
-    return np.max(probabilities, axis=1) 
+        r for r in agent_results
+
+        if r.get(
+            "prediction"
+        ) is not None
+    ]
+
+    coverage = (
+
+        len(valid) / total
+
+        if total > 0
+
+        else 0.0
+    )
+
+    conflict_rate = (
+
+        len(conflicts)
+        /
+        max(
+            len(valid),
+            1
+        )
+    )
+
+    if valid:
+
+        mean_trust = np.mean([
+
+            float(
+                r.get(
+                    "trust",
+                    0.0
+                )
+            )
+
+            for r in valid
+        ])
+
+        mean_confidence = np.mean([
+
+            float(
+                r.get(
+                    "confidence",
+                    0.0
+                )
+            )
+
+            for r in valid
+        ])
+
+        mean_quality = np.mean([
+
+            float(
+                r.get(
+                    "quality",
+                    0.0
+                )
+            )
+
+            for r in valid
+        ])
+
+    else:
+
+        mean_trust = 0.0
+        mean_confidence = 0.0
+        mean_quality = 0.0
+
+    return {
+
+        "agent_coverage":
+            float(coverage),
+
+        "conflict_rate":
+            float(conflict_rate),
+
+        "mean_trust":
+            float(mean_trust),
+
+        "mean_confidence":
+            float(mean_confidence),
+
+        "mean_quality":
+            float(mean_quality),
+
+        "decision_confidence":
+            float(
+                decision.get(
+                    "confidence",
+                    0.0
+                )
+            )
+    }
