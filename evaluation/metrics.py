@@ -2,12 +2,12 @@ import numpy as np
 
 from sklearn.metrics import (
     accuracy_score,
+    balanced_accuracy_score,
     precision_score,
     recall_score,
     f1_score,
     roc_auc_score,
-    confusion_matrix,
-    balanced_accuracy_score
+    confusion_matrix
 )
 
 
@@ -63,8 +63,18 @@ def classification_metrics(
                     average="weighted",
                     zero_division=0
                 )
-            )
+            ),
+
+        "confusion_matrix":
+            confusion_matrix(
+                y_true,
+                y_pred
+            ).tolist()
     }
+
+    # ---------------------------------------------------------
+    # AUC
+    # ---------------------------------------------------------
 
     if y_prob is not None:
 
@@ -80,20 +90,38 @@ def classification_metrics(
 
             if len(classes) == 2:
 
-                results["auc"] = float(
-                    roc_auc_score(
-                        y_true,
-                        y_prob
+                if y_prob.ndim == 1:
+
+                    results["auc"] = float(
+
+                        roc_auc_score(
+                            y_true,
+                            y_prob
+                        )
                     )
-                )
+
+                else:
+
+                    results["auc"] = float(
+
+                        roc_auc_score(
+                            y_true,
+                            y_prob[:, 1]
+                        )
+                    )
 
             elif y_prob.ndim == 2:
 
                 results["auc"] = float(
+
                     roc_auc_score(
+
                         y_true,
+
                         y_prob,
+
                         multi_class="ovr",
+
                         average="weighted"
                     )
                 )
@@ -102,12 +130,9 @@ def classification_metrics(
 
             results["auc"] = None
 
-    results[
-        "confusion_matrix"
-    ] = confusion_matrix(
-        y_true,
-        y_pred
-    ).tolist()
+    else:
+
+        results["auc"] = None
 
     return results
 
@@ -124,16 +149,20 @@ def coordination_metrics(
 
     valid = [
 
-        r for r in agent_results
+        result
 
-        if r.get(
+        for result in agent_results
+
+        if result.get(
             "prediction"
         ) is not None
     ]
 
     coverage = (
 
-        len(valid) / total
+        len(valid)
+        /
+        total
 
         if total > 0
 
@@ -191,31 +220,51 @@ def coordination_metrics(
     else:
 
         mean_trust = 0.0
+
         mean_confidence = 0.0
+
         mean_quality = 0.0
 
     return {
 
         "agent_coverage":
-            float(coverage),
+            float(
+                coverage
+            ),
 
         "conflict_rate":
-            float(conflict_rate),
+            float(
+                conflict_rate
+            ),
 
         "mean_trust":
-            float(mean_trust),
+            float(
+                mean_trust
+            ),
 
         "mean_confidence":
-            float(mean_confidence),
+            float(
+                mean_confidence
+            ),
 
         "mean_quality":
-            float(mean_quality),
+            float(
+                mean_quality
+            ),
 
         "decision_confidence":
             float(
                 decision.get(
                     "confidence",
                     0.0
+                )
+            ),
+
+        "decision_risk":
+            float(
+                decision.get(
+                    "risk_score",
+                    1.0
                 )
             )
     }
