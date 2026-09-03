@@ -211,4 +211,4 @@ class ConflictResolver:
 
             "reason":
                 reason
-        } 
+        }
