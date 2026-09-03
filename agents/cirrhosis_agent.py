@@ -1,80 +1,191 @@
 # =============================================================================
+# LiverAI-MultiAgent
 # Cirrhosis Agent
 # =============================================================================
+#
+# Responsible for:
+#   - Loading a trained cirrhosis model/package
+#   - Validating model compatibility
+#   - Preparing patient clinical data
+#   - Handling missing values
+#   - Handling categorical features
+#   - Preserving the exact model feature order
+#   - Performing prediction
+#   - Returning probabilities/confidence
+#   - Returning standardized agent output
+#
+# IMPORTANT:
+# This agent NEVER uses the target column as an input feature.
+#
+# =============================================================================
+
+from __future__ import annotations
 
 import time
+from typing import Any, Dict, List, Optional
+
 import numpy as np
 import pandas as pd
 
 
 class CirrhosisAgent:
+    """
+    Agent responsible for cirrhosis classification.
 
-    def __init__(self, model_package):
+    Expected model package:
 
-        self.name = "CirrhosisAgent"
+        {
+            "model": trained_model,
 
-        self.model_name = model_package.get(
-            "model_name",
-            "XGBoost"
-        )
+            # Optional
+            "model_name": "XGBoost",
 
-        self.model = model_package["model"]
+            "feature_names": [...],
 
-        # =========================================================================
-        # MODEL FEATURES
-        # =========================================================================
+            "numerical_columns": [...],
 
-        if hasattr(self.model, "feature_names_in_"):
+            "categorical_columns": [...],
 
-            self.feature_names = [
-                str(x)
-                for x in self.model.feature_names_in_
-            ]
+            "encoders": {...},
+
+            "target_encoder": encoder,
+
+            "numerical_imputer": imputer,
+
+            "categorical_imputer": imputer
+        }
+
+    The agent also supports a direct sklearn/XGBoost model object
+    when it exposes feature_names_in_.
+    """
+
+    # =========================================================================
+    # CONSTANTS
+    # =========================================================================
+
+    AGENT_NAME = "CirrhosisAgent"
+
+    TASK_TYPE = "cirrhosis_classification"
+
+    DISEASE = "cirrhosis"
+
+    # IMPORTANT:
+    # The current cirrhosis dataset/project uses Cirrhosis_Status,
+    # NOT Stage.
+    TARGET_NAME = "Cirrhosis_Status"
+
+    DEFAULT_MODEL_NAME = "XGBoost"
+
+    # Known semantic classes for the current project.
+    #
+    # 0 = Compensated
+    # 1 = Decompensated
+    # 2 = No_Cirrhosis
+    #
+    # We do NOT blindly force these labels if the loaded model contains
+    # its own classes_ metadata.
+    DEFAULT_CLASSES = {
+        0: "Compensated",
+        1: "Decompensated",
+        2: "No_Cirrhosis",
+    }
+
+    # =========================================================================
+    # INITIALIZATION
+    # =========================================================================
+
+    def __init__(self, model_package: Any):
+
+        self.name = self.AGENT_NAME
+
+        # ---------------------------------------------------------------------
+        # Validate package
+        # ---------------------------------------------------------------------
+
+        if model_package is None:
+            raise ValueError(
+                "CirrhosisAgent received an empty model package."
+            )
+
+        # ---------------------------------------------------------------------
+        # Support dictionary/package
+        # ---------------------------------------------------------------------
+
+        if isinstance(model_package, dict):
+
+            if "model" not in model_package:
+                raise ValueError(
+                    "Invalid cirrhosis model package: "
+                    "missing required key 'model'."
+                )
+
+            self.model_package = model_package
+
+            self.model = model_package["model"]
+
+            self.model_name = str(
+                model_package.get(
+                    "model_name",
+                    self.DEFAULT_MODEL_NAME
+                )
+            )
+
+        # ---------------------------------------------------------------------
+        # Support direct model object
+        # ---------------------------------------------------------------------
 
         else:
 
-            self.feature_names = [
-                str(x)
-                for x in model_package.get(
-                    "feature_names",
-                    []
-                )
-            ]
+            self.model_package = {
+                "model": model_package
+            }
+
+            self.model = model_package
+
+            self.model_name = self.DEFAULT_MODEL_NAME
+
+        # ---------------------------------------------------------------------
+        # Validate model
+        # ---------------------------------------------------------------------
+
+        if self.model is None:
+            raise ValueError(
+                "Cirrhosis model is None."
+            )
+
+        if not hasattr(self.model, "predict"):
+            raise TypeError(
+                "Invalid cirrhosis model: "
+                "the object does not provide a predict() method."
+            )
 
         # =========================================================================
-        # PREPROCESSING
+        # FEATURE INFORMATION
         # =========================================================================
 
-        self.numerical_columns = [
-            str(x)
-            for x in model_package.get(
-                "numerical_columns",
-                []
-            )
-        ]
+        self.feature_names = self._discover_feature_names()
 
-        self.categorical_columns = [
-            str(x)
-            for x in model_package.get(
-                "categorical_columns",
-                []
-            )
-        ]
-
-        self.encoders = model_package.get(
-            "encoders",
-            {}
+        self.numerical_columns = self._get_list_from_package(
+            "numerical_columns"
         )
 
-        self.target_encoder = model_package.get(
+        self.categorical_columns = self._get_list_from_package(
+            "categorical_columns"
+        )
+
+        self.encoders = self._get_dict_from_package(
+            "encoders"
+        )
+
+        self.target_encoder = self.model_package.get(
             "target_encoder"
         )
 
-        self.numerical_imputer = model_package.get(
+        self.numerical_imputer = self.model_package.get(
             "numerical_imputer"
         )
 
-        self.categorical_imputer = model_package.get(
+        self.categorical_imputer = self.model_package.get(
             "categorical_imputer"
         )
 
@@ -82,79 +193,437 @@ class CirrhosisAgent:
         # TARGET
         # =========================================================================
 
-        self.target_name = "Stage"
+        self.target_name = self.TARGET_NAME
 
-        self.classes = [
-            "1.0",
-            "2.0",
-            "3.0"
+        self.classes = self._discover_classes()
+
+        # =========================================================================
+        # SAFETY VALIDATION
+        # =========================================================================
+
+        self._validate_model_configuration()
+
+    # =========================================================================
+    # PACKAGE HELPERS
+    # =========================================================================
+
+    def _get_list_from_package(
+        self,
+        key: str
+    ) -> List[str]:
+
+        value = self.model_package.get(key, [])
+
+        if value is None:
+            return []
+
+        if not isinstance(value, (list, tuple, np.ndarray)):
+            return []
+
+        return [
+            str(item)
+            for item in value
         ]
 
-        # =========================================================================
-        # SAFETY CHECK
-        # =========================================================================
+    # -------------------------------------------------------------------------
+
+    def _get_dict_from_package(
+        self,
+        key: str
+    ) -> Dict[str, Any]:
+
+        value = self.model_package.get(
+            key,
+            {}
+        )
+
+        if value is None:
+            return {}
+
+        if isinstance(value, dict):
+            return value
+
+        return {}
+
+    # =========================================================================
+    # FEATURE DISCOVERY
+    # =========================================================================
+
+    def _discover_feature_names(self) -> List[str]:
+
+        # ---------------------------------------------------------------------
+        # Priority 1:
+        # Model feature_names_in_
+        # ---------------------------------------------------------------------
+
+        if hasattr(
+            self.model,
+            "feature_names_in_"
+        ):
+
+            names = getattr(
+                self.model,
+                "feature_names_in_"
+            )
+
+            if names is not None:
+
+                names = [
+                    str(x)
+                    for x in names
+                ]
+
+                if names:
+                    return names
+
+        # ---------------------------------------------------------------------
+        # Priority 2:
+        # Model package feature_names
+        # ---------------------------------------------------------------------
+
+        package_features = self.model_package.get(
+            "feature_names",
+            []
+        )
+
+        if package_features:
+
+            return [
+                str(x)
+                for x in package_features
+            ]
+
+        # ---------------------------------------------------------------------
+        # Priority 3:
+        # Infer from numerical + categorical columns
+        # ---------------------------------------------------------------------
+
+        inferred = []
+
+        for feature in self.numerical_columns:
+
+            if feature not in inferred:
+                inferred.append(feature)
+
+        for feature in self.categorical_columns:
+
+            if feature not in inferred:
+                inferred.append(feature)
+
+        return inferred
+
+    # =========================================================================
+    # CLASS DISCOVERY
+    # =========================================================================
+
+    def _discover_classes(self) -> List[str]:
+
+        # ---------------------------------------------------------------------
+        # Target encoder
+        # ---------------------------------------------------------------------
+
+        if self.target_encoder is not None:
+
+            if hasattr(
+                self.target_encoder,
+                "classes_"
+            ):
+
+                try:
+
+                    return [
+                        str(x)
+                        for x in self.target_encoder.classes_
+                    ]
+
+                except Exception:
+                    pass
+
+        # ---------------------------------------------------------------------
+        # Model classes_
+        # ---------------------------------------------------------------------
+
+        if hasattr(
+            self.model,
+            "classes_"
+        ):
+
+            try:
+
+                raw_classes = list(
+                    self.model.classes_
+                )
+
+                decoded = []
+
+                for value in raw_classes:
+
+                    if isinstance(
+                        value,
+                        (int, np.integer)
+                    ):
+
+                        decoded.append(
+                            self.DEFAULT_CLASSES.get(
+                                int(value),
+                                str(value)
+                            )
+                        )
+
+                    else:
+
+                        decoded.append(
+                            str(value)
+                        )
+
+                return decoded
+
+            except Exception:
+                pass
+
+        # ---------------------------------------------------------------------
+        # Default project classes
+        # ---------------------------------------------------------------------
+
+        return [
+            self.DEFAULT_CLASSES[0],
+            self.DEFAULT_CLASSES[1],
+            self.DEFAULT_CLASSES[2]
+        ]
+
+    # =========================================================================
+    # VALIDATION
+    # =========================================================================
+
+    def _validate_model_configuration(self) -> None:
+
+        # ---------------------------------------------------------------------
+        # Target must NEVER be a model feature
+        # ---------------------------------------------------------------------
 
         if self.target_name in self.feature_names:
 
             raise ValueError(
-                "Invalid model package: "
-                "Stage is present in XGBoost model features."
+                "CRITICAL MODEL CONFIGURATION ERROR: "
+                f"target '{self.target_name}' is present "
+                "inside model features."
             )
 
+        # ---------------------------------------------------------------------
+        # Stage must also never be used as a target/input accidentally
+        # ---------------------------------------------------------------------
+
+        if "Stage" in self.feature_names:
+
+            raise ValueError(
+                "CRITICAL MODEL CONFIGURATION ERROR: "
+                "'Stage' is present in cirrhosis model features. "
+                "Verify that the correct trained model is being loaded."
+            )
+
+        # ---------------------------------------------------------------------
+        # Validate feature count if available
+        # ---------------------------------------------------------------------
+
+        if hasattr(
+            self.model,
+            "n_features_in_"
+        ):
+
+            expected = int(
+                self.model.n_features_in_
+            )
+
+            if self.feature_names:
+
+                actual = len(
+                    self.feature_names
+                )
+
+                if actual != expected:
+
+                    raise ValueError(
+                        "Cirrhosis model feature mismatch: "
+                        f"model expects {expected} features, "
+                        f"but metadata contains {actual}."
+                    )
+
     # =========================================================================
-    # CREATE DATAFRAME
+    # DATAFRAME CREATION
     # =========================================================================
 
-    def _create_dataframe(self, patient_data):
+    def _create_dataframe(
+        self,
+        patient_data: Any
+    ) -> pd.DataFrame:
 
-        if isinstance(patient_data, dict):
+        # ---------------------------------------------------------------------
+        # Dictionary
+        # ---------------------------------------------------------------------
+
+        if isinstance(
+            patient_data,
+            dict
+        ):
 
             return pd.DataFrame(
                 [patient_data]
             )
 
-        if isinstance(patient_data, pd.DataFrame):
+        # ---------------------------------------------------------------------
+        # DataFrame
+        # ---------------------------------------------------------------------
+
+        if isinstance(
+            patient_data,
+            pd.DataFrame
+        ):
 
             return patient_data.copy()
 
-        return pd.DataFrame(
-            [patient_data],
-            columns=self.feature_names
+        # ---------------------------------------------------------------------
+        # Series
+        # ---------------------------------------------------------------------
+
+        if isinstance(
+            patient_data,
+            pd.Series
+        ):
+
+            return pd.DataFrame(
+                [patient_data.to_dict()]
+            )
+
+        # ---------------------------------------------------------------------
+        # Array/list
+        # ---------------------------------------------------------------------
+
+        if isinstance(
+            patient_data,
+            (list, tuple, np.ndarray)
+        ):
+
+            if not self.feature_names:
+
+                raise ValueError(
+                    "Cannot interpret array input because "
+                    "model feature names are unavailable."
+                )
+
+            return pd.DataFrame(
+                [patient_data],
+                columns=self.feature_names
+            )
+
+        # ---------------------------------------------------------------------
+        # Unsupported input
+        # ---------------------------------------------------------------------
+
+        raise TypeError(
+            "Unsupported patient_data type: "
+            f"{type(patient_data).__name__}. "
+            "Expected dict, DataFrame, Series, list, tuple, or ndarray."
         )
 
     # =========================================================================
-    # PREPROCESS
+    # COLUMN NORMALIZATION
     # =========================================================================
 
-    def _preprocess(self, patient_data):
+    def _normalize_columns(
+        self,
+        X: pd.DataFrame
+    ) -> pd.DataFrame:
+
+        X = X.copy()
+
+        X.columns = [
+            str(column)
+            for column in X.columns
+        ]
+
+        return X
+
+    # =========================================================================
+    # PREPROCESSING
+    # =========================================================================
+
+    def _preprocess(
+        self,
+        patient_data: Any
+    ) -> pd.DataFrame:
 
         X = self._create_dataframe(
             patient_data
         )
 
-        # -------------------------------------------------------------------------
-        # Remove target if supplied by mistake
-        # -------------------------------------------------------------------------
+        X = self._normalize_columns(
+            X
+        )
+
+        # ---------------------------------------------------------------------
+        # Remove target if accidentally provided
+        # ---------------------------------------------------------------------
 
         if self.target_name in X.columns:
 
             X = X.drop(
-                columns=[self.target_name]
+                columns=[
+                    self.target_name
+                ]
             )
 
-        # -------------------------------------------------------------------------
-        # Model features
-        # -------------------------------------------------------------------------
+        # ---------------------------------------------------------------------
+        # Remove legacy target
+        # ---------------------------------------------------------------------
+
+        if "Stage" in X.columns:
+
+            X = X.drop(
+                columns=[
+                    "Stage"
+                ]
+            )
+
+        # =========================================================================
+        # MODEL FEATURES
+        # =========================================================================
 
         model_features = [
             feature
             for feature in self.feature_names
             if feature != self.target_name
+            and feature != "Stage"
         ]
 
-        # -------------------------------------------------------------------------
-        # Add missing model features
-        # -------------------------------------------------------------------------
+        if not model_features:
+
+            raise ValueError(
+                "No model features are available for cirrhosis prediction."
+            )
+
+        # =========================================================================
+        # REMOVE EXTRA USER COLUMNS
+        # =========================================================================
+
+        # We intentionally keep only the features expected by the model.
+        #
+        # This protects against:
+        #   - Patient_ID
+        #   - target columns
+        #   - unrelated clinical variables
+        #   - accidental metadata
+
+        X = X[
+            [
+                column
+                for column in X.columns
+                if column in model_features
+            ]
+        ].copy()
+
+        # =========================================================================
+        # ADD MISSING FEATURES
+        # =========================================================================
 
         for feature in model_features:
 
@@ -163,203 +632,102 @@ class CirrhosisAgent:
                 X[feature] = np.nan
 
         # =========================================================================
-        # NUMERICAL IMPUTATION
+        # NUMERICAL FEATURES
         # =========================================================================
 
         numerical_features = [
-            col
-            for col in self.numerical_columns
-            if col in model_features
+            feature
+            for feature in self.numerical_columns
+            if feature in model_features
         ]
+
+        # If numerical metadata is unavailable,
+        # infer numeric columns from the model features.
+        if not numerical_features:
+
+            for feature in model_features:
+
+                if feature in X.columns:
+
+                    if pd.api.types.is_numeric_dtype(
+                        X[feature]
+                    ):
+
+                        numerical_features.append(
+                            feature
+                        )
+
+        # ---------------------------------------------------------------------
+        # Convert numerical fields safely
+        # ---------------------------------------------------------------------
+
+        for feature in numerical_features:
+
+            if feature in X.columns:
+
+                X[feature] = pd.to_numeric(
+                    X[feature],
+                    errors="coerce"
+                )
+
+        # =========================================================================
+        # NUMERICAL IMPUTATION
+        # =========================================================================
 
         if (
             self.numerical_imputer is not None
             and numerical_features
         ):
 
-            # The saved imputer was fitted with Stage.
-            # Therefore we must reproduce its exact input schema.
-
-            if hasattr(
-                self.numerical_imputer,
-                "feature_names_in_"
-            ):
-
-                imputer_features = [
-                    str(x)
-                    for x in self.numerical_imputer.feature_names_in_
-                ]
-
-            else:
-
-                imputer_features = numerical_features
-
-            X_num = pd.DataFrame(
-                index=X.index
+            X = self._apply_numerical_imputer(
+                X,
+                numerical_features
             )
 
-            for feature in imputer_features:
+        # =========================================================================
+        # CATEGORICAL FEATURES
+        # =========================================================================
 
-                if feature == self.target_name:
-
-                    # Stage is the target.
-                    # Never use the patient's target here.
-                    X_num[feature] = np.nan
-
-                elif feature in X.columns:
-
-                    X_num[feature] = X[feature]
-
-                else:
-
-                    X_num[feature] = np.nan
-
-            # Exact order expected by the imputer
-            X_num = X_num[
-                imputer_features
-            ]
-
-            transformed = (
-                self.numerical_imputer
-                .transform(X_num)
-            )
-
-            transformed = pd.DataFrame(
-                transformed,
-                columns=imputer_features,
-                index=X.index
-            )
-
-            # Copy only the numerical model features.
-            for feature in numerical_features:
-
-                if feature in transformed.columns:
-
-                    X[feature] = transformed[feature]
+        categorical_features = [
+            feature
+            for feature in self.categorical_columns
+            if feature in model_features
+        ]
 
         # =========================================================================
         # CATEGORICAL IMPUTATION
         # =========================================================================
-
-        categorical_features = [
-            col
-            for col in self.categorical_columns
-            if col in model_features
-        ]
 
         if (
             self.categorical_imputer is not None
             and categorical_features
         ):
 
-            if hasattr(
-                self.categorical_imputer,
-                "feature_names_in_"
-            ):
-
-                imputer_features = [
-                    str(x)
-                    for x in self.categorical_imputer.feature_names_in_
-                ]
-
-            else:
-
-                imputer_features = categorical_features
-
-            X_cat = pd.DataFrame(
-                index=X.index
+            X = self._apply_categorical_imputer(
+                X,
+                categorical_features
             )
-
-            for feature in imputer_features:
-
-                if feature in X.columns:
-
-                    X_cat[feature] = X[feature]
-
-                else:
-
-                    X_cat[feature] = np.nan
-
-            # Exact order expected by categorical imputer
-            X_cat = X_cat[
-                imputer_features
-            ]
-
-            transformed = (
-                self.categorical_imputer
-                .transform(X_cat)
-            )
-
-            transformed = pd.DataFrame(
-                transformed,
-                columns=imputer_features,
-                index=X.index
-            )
-
-            for feature in categorical_features:
-
-                if feature in transformed.columns:
-
-                    X[feature] = transformed[feature]
 
         # =========================================================================
         # CATEGORICAL ENCODING
         # =========================================================================
 
-        for feature in categorical_features:
-
-            if feature not in self.encoders:
-
-                continue
-
-            encoder = self.encoders[
-                feature
-            ]
-
-            values = X[
-                feature
-            ].astype(str)
-
-            known_values = set(
-                str(value)
-                for value in encoder.classes_
-            )
-
-            # Unknown categories are replaced by
-            # the first category known by the encoder.
-            values = values.apply(
-                lambda value:
-                value
-                if value in known_values
-                else str(encoder.classes_[0])
-            )
-
-            X[feature] = encoder.transform(
-                values
-            )
+        X = self._apply_categorical_encoders(
+            X,
+            categorical_features
+        )
 
         # =========================================================================
-        # FINAL MODEL INPUT
+        # FINAL COLUMN ORDER
         # =========================================================================
 
         X = X[
             model_features
         ].copy()
 
-        # -------------------------------------------------------------------------
-        # Absolute safety check
-        # -------------------------------------------------------------------------
-
-        if self.target_name in X.columns:
-
-            raise ValueError(
-                "CRITICAL ERROR: Stage is still present "
-                "in XGBoost input."
-            )
-
-        # -------------------------------------------------------------------------
-        # Match exact XGBoost feature order
-        # -------------------------------------------------------------------------
+        # =========================================================================
+        # MODEL FEATURE ORDER
+        # =========================================================================
 
         if hasattr(
             self.model,
@@ -371,167 +739,602 @@ class CirrhosisAgent:
                 for x in self.model.feature_names_in_
             ]
 
+            # Safety: remove target if present
+            model_order = [
+                feature
+                for feature in model_order
+                if feature != self.target_name
+                and feature != "Stage"
+            ]
+
+            missing = [
+                feature
+                for feature in model_order
+                if feature not in X.columns
+            ]
+
+            if missing:
+
+                raise ValueError(
+                    "Missing required model features: "
+                    + ", ".join(missing)
+                )
+
             X = X[
                 model_order
             ].copy()
 
-        # -------------------------------------------------------------------------
-        # Final validation
-        # -------------------------------------------------------------------------
+        # =========================================================================
+        # FINAL FEATURE COUNT CHECK
+        # =========================================================================
 
         if hasattr(
             self.model,
             "n_features_in_"
         ):
 
-            if (
+            expected = int(
+                self.model.n_features_in_
+            )
+
+            received = int(
                 X.shape[1]
-                != self.model.n_features_in_
-            ):
+            )
+
+            if received != expected:
 
                 raise ValueError(
-                    "Final feature count mismatch: "
-                    f"XGBoost expects "
-                    f"{self.model.n_features_in_}, "
-                    f"received {X.shape[1]}."
+                    "Cirrhosis model input dimension mismatch: "
+                    f"expected {expected} features, "
+                    f"received {received}."
                 )
+
+        # =========================================================================
+        # TARGET SAFETY CHECK
+        # =========================================================================
+
+        if self.target_name in X.columns:
+
+            raise ValueError(
+                "CRITICAL DATA LEAKAGE ERROR: "
+                f"{self.target_name} is present in model input."
+            )
+
+        if "Stage" in X.columns:
+
+            raise ValueError(
+                "CRITICAL DATA LEAKAGE ERROR: "
+                "Stage is present in model input."
+            )
 
         return X
 
     # =========================================================================
-    # PREDICT
+    # NUMERICAL IMPUTER
     # =========================================================================
 
-    def predict(self, patient_data):
+    def _apply_numerical_imputer(
+        self,
+        X: pd.DataFrame,
+        numerical_features: List[str]
+    ) -> pd.DataFrame:
 
-        start_time = time.perf_counter()
+        imputer = self.numerical_imputer
 
-        try:
+        if hasattr(
+            imputer,
+            "feature_names_in_"
+        ):
 
-            # ---------------------------------------------------------------------
-            # Preprocessing
-            # ---------------------------------------------------------------------
+            imputer_features = [
+                str(x)
+                for x in imputer.feature_names_in_
+            ]
 
-            X = self._preprocess(
-                patient_data
-            )
+        else:
 
-            # ---------------------------------------------------------------------
-            # Missing data ratio
-            # ---------------------------------------------------------------------
+            imputer_features = numerical_features
 
-            missing_values = (
-                X.isna()
-                .sum()
-                .sum()
-            )
+        X_num = pd.DataFrame(
+            index=X.index
+        )
 
-            missing_ratio = float(
-                missing_values
-                /
-                max(
-                    X.shape[1],
-                    1
-                )
-            )
+        for feature in imputer_features:
 
-            # =========================================================================
-            # PREDICTION
-            # =========================================================================
+            if feature in X.columns:
 
-            prediction_encoded = (
-                self.model.predict(X)[0]
-            )
-
-            # =========================================================================
-            # PROBABILITIES
-            # =========================================================================
-
-            probabilities = None
-
-            if hasattr(
-                self.model,
-                "predict_proba"
-            ):
-
-                probabilities = (
-                    self.model
-                    .predict_proba(X)[0]
-                )
-
-            # =========================================================================
-            # CONFIDENCE
-            # =========================================================================
-
-            if probabilities is not None:
-
-                confidence = float(
-                    np.max(
-                        probabilities
-                    )
-                )
-
-                class_probabilities = [
-                    float(value)
-                    for value in probabilities
-                ]
+                X_num[feature] = X[feature]
 
             else:
 
-                confidence = 0.0
+                X_num[feature] = np.nan
 
-                class_probabilities = None
+        X_num = X_num[
+            imputer_features
+        ]
 
-            # =========================================================================
-            # UNCERTAINTY
-            # =========================================================================
+        transformed = imputer.transform(
+            X_num
+        )
 
-            uncertainty = float(
-                1.0 - confidence
-            )
+        transformed = pd.DataFrame(
+            transformed,
+            columns=imputer_features,
+            index=X.index
+        )
 
-            # =========================================================================
-            # DATA QUALITY
-            # =========================================================================
+        for feature in numerical_features:
 
-            quality = float(
-                max(
-                    0.0,
-                    min(
-                        1.0,
-                        1.0 - missing_ratio
-                    )
+            if feature in transformed.columns:
+
+                X[feature] = transformed[
+                    feature
+                ]
+
+        return X
+
+    # =========================================================================
+    # CATEGORICAL IMPUTER
+    # =========================================================================
+
+    def _apply_categorical_imputer(
+        self,
+        X: pd.DataFrame,
+        categorical_features: List[str]
+    ) -> pd.DataFrame:
+
+        imputer = self.categorical_imputer
+
+        if hasattr(
+            imputer,
+            "feature_names_in_"
+        ):
+
+            imputer_features = [
+                str(x)
+                for x in imputer.feature_names_in_
+            ]
+
+        else:
+
+            imputer_features = categorical_features
+
+        X_cat = pd.DataFrame(
+            index=X.index
+        )
+
+        for feature in imputer_features:
+
+            if feature in X.columns:
+
+                X_cat[feature] = X[feature]
+
+            else:
+
+                X_cat[feature] = np.nan
+
+        X_cat = X_cat[
+            imputer_features
+        ]
+
+        transformed = imputer.transform(
+            X_cat
+        )
+
+        transformed = pd.DataFrame(
+            transformed,
+            columns=imputer_features,
+            index=X.index
+        )
+
+        for feature in categorical_features:
+
+            if feature in transformed.columns:
+
+                X[feature] = transformed[
+                    feature
+                ]
+
+        return X
+
+    # =========================================================================
+    # CATEGORICAL ENCODERS
+    # =========================================================================
+
+    def _apply_categorical_encoders(
+        self,
+        X: pd.DataFrame,
+        categorical_features: List[str]
+    ) -> pd.DataFrame:
+
+        for feature in categorical_features:
+
+            if feature not in self.encoders:
+
+                continue
+
+            encoder = self.encoders[
+                feature
+            ]
+
+            if not hasattr(
+                encoder,
+                "transform"
+            ):
+
+                raise TypeError(
+                    f"Encoder for '{feature}' "
+                    "does not provide transform()."
                 )
+
+            # -----------------------------------------------------------------
+            # Convert values to strings only when the encoder uses strings.
+            # -----------------------------------------------------------------
+
+            values = X[
+                feature
+            ]
+
+            # -----------------------------------------------------------------
+            # Handle unknown categories safely
+            # -----------------------------------------------------------------
+
+            if hasattr(
+                encoder,
+                "classes_"
+            ):
+
+                known_values = set(
+                    encoder.classes_
+                )
+
+                # Try exact values first.
+                processed = []
+
+                for value in values:
+
+                    if pd.isna(value):
+
+                        processed.append(
+                            encoder.classes_[0]
+                        )
+
+                    elif value in known_values:
+
+                        processed.append(
+                            value
+                        )
+
+                    elif str(value) in {
+                        str(x)
+                        for x in encoder.classes_
+                    }:
+
+                        matching = next(
+                            x
+                            for x in encoder.classes_
+                            if str(x) == str(value)
+                        )
+
+                        processed.append(
+                            matching
+                        )
+
+                    else:
+
+                        # Conservative fallback:
+                        # use the first known category.
+                        processed.append(
+                            encoder.classes_[0]
+                        )
+
+                values = pd.Series(
+                    processed,
+                    index=X.index
+                )
+
+            transformed = encoder.transform(
+                values
             )
 
-            # =========================================================================
-            # DECODE PREDICTION
-            # =========================================================================
+            X[feature] = transformed
 
-            prediction = prediction_encoded
+        return X
 
-            if self.target_encoder is not None:
+    # =========================================================================
+    # PREDICTION DECODING
+    # =========================================================================
+
+    def _decode_prediction(
+        self,
+        prediction_encoded: Any
+    ) -> str:
+
+        # ---------------------------------------------------------------------
+        # Target encoder
+        # ---------------------------------------------------------------------
+
+        if self.target_encoder is not None:
+
+            if hasattr(
+                self.target_encoder,
+                "inverse_transform"
+            ):
 
                 try:
 
-                    prediction = (
+                    decoded = (
                         self.target_encoder
                         .inverse_transform(
                             [prediction_encoded]
                         )[0]
                     )
 
+                    return str(
+                        decoded
+                    )
+
                 except Exception:
+                    pass
 
-                    prediction = prediction_encoded
+        # ---------------------------------------------------------------------
+        # Numeric class mapping
+        # ---------------------------------------------------------------------
 
-            prediction = str(
-                prediction
+        try:
+
+            numeric_value = int(
+                prediction_encoded
             )
 
-            # =========================================================================
+            if numeric_value in self.DEFAULT_CLASSES:
+
+                return self.DEFAULT_CLASSES[
+                    numeric_value
+                ]
+
+        except Exception:
+            pass
+
+        return str(
+            prediction_encoded
+        )
+
+    # =========================================================================
+    # CLASS PROBABILITIES
+    # =========================================================================
+
+    def _build_class_probabilities(
+        self,
+        probabilities: Optional[np.ndarray]
+    ) -> Optional[Dict[str, float]]:
+
+        if probabilities is None:
+            return None
+
+        probabilities = np.asarray(
+            probabilities
+        ).reshape(-1)
+
+        result = {}
+
+        # ---------------------------------------------------------------------
+        # Prefer model classes_
+        # ---------------------------------------------------------------------
+
+        if hasattr(
+            self.model,
+            "classes_"
+        ):
+
+            raw_classes = list(
+                self.model.classes_
+            )
+
+        else:
+
+            raw_classes = list(
+                range(
+                    len(probabilities)
+                )
+            )
+
+        for index, probability in enumerate(
+            probabilities
+        ):
+
+            if index >= len(raw_classes):
+                break
+
+            raw_class = raw_classes[
+                index
+            ]
+
+            # Decode numeric project labels
+            try:
+
+                numeric_class = int(
+                    raw_class
+                )
+
+                label = self.DEFAULT_CLASSES.get(
+                    numeric_class,
+                    str(raw_class)
+                )
+
+            except Exception:
+
+                label = str(
+                    raw_class
+                )
+
+            result[label] = float(
+                probability
+            )
+
+        return result
+
+    # =========================================================================
+    # PREDICT
+    # =========================================================================
+
+    def predict(
+        self,
+        patient_data: Any
+    ) -> Dict[str, Any]:
+
+        start_time = time.perf_counter()
+
+        try:
+
+            # =================================================================
+            # PREPROCESS
+            # =================================================================
+
+            X = self._preprocess(
+                patient_data
+            )
+
+            # =================================================================
+            # DATA QUALITY
+            # =================================================================
+
+            total_values = int(
+                X.shape[0] * X.shape[1]
+            )
+
+            missing_values = int(
+                X.isna()
+                .sum()
+                .sum()
+            )
+
+            if total_values > 0:
+
+                missing_ratio = (
+                    missing_values
+                    /
+                    total_values
+                )
+
+            else:
+
+                missing_ratio = 1.0
+
+            # =================================================================
+            # PREDICTION
+            # =================================================================
+
+            raw_prediction = self.model.predict(
+                X
+            )
+
+            if len(raw_prediction) == 0:
+
+                raise RuntimeError(
+                    "Cirrhosis model returned "
+                    "an empty prediction."
+                )
+
+            prediction_encoded = (
+                raw_prediction[0]
+            )
+
+            # =================================================================
+            # PROBABILITIES
+            # =================================================================
+
+            probabilities_array = None
+
+            if hasattr(
+                self.model,
+                "predict_proba"
+            ):
+
+                try:
+
+                    probabilities_array = (
+                        self.model
+                        .predict_proba(X)[0]
+                    )
+
+                except Exception:
+                    probabilities_array = None
+
+            # =================================================================
+            # CONFIDENCE
+            # =================================================================
+
+            if probabilities_array is not None:
+
+                probabilities_array = np.asarray(
+                    probabilities_array,
+                    dtype=float
+                )
+
+                confidence = float(
+                    np.max(
+                        probabilities_array
+                    )
+                )
+
+            else:
+
+                confidence = 0.0
+
+            confidence = max(
+                0.0,
+                min(
+                    1.0,
+                    confidence
+                )
+            )
+
+            # =================================================================
+            # UNCERTAINTY
+            # =================================================================
+
+            uncertainty = float(
+                1.0 - confidence
+            )
+
+            # =================================================================
+            # DATA QUALITY
+            # =================================================================
+
+            quality = float(
+                1.0 - missing_ratio
+            )
+
+            quality = max(
+                0.0,
+                min(
+                    1.0,
+                    quality
+                )
+            )
+
+            # =================================================================
+            # DECODE PREDICTION
+            # =================================================================
+
+            prediction = self._decode_prediction(
+                prediction_encoded
+            )
+
+            # =================================================================
+            # CLASS PROBABILITIES
+            # =================================================================
+
+            class_probabilities = (
+                self._build_class_probabilities(
+                    probabilities_array
+                )
+            )
+
+            # =================================================================
             # LATENCY
-            # =========================================================================
+            # =================================================================
 
             latency_ms = (
                 time.perf_counter()
@@ -539,61 +1342,55 @@ class CirrhosisAgent:
                 start_time
             ) * 1000.0
 
-            # =========================================================================
-            # SUCCESS
-            # =========================================================================
+            # =================================================================
+            # RETURN
+            # =================================================================
 
             return {
 
-                "agent_id":
-                    self.name,
+                "agent_id": self.name,
 
-                "agent":
-                    self.name,
+                "agent": self.name,
 
-                "task_type":
-                    "cirrhosis_classification",
+                "task_type": self.TASK_TYPE,
 
-                "model":
-                    self.model_name,
+                "model": self.model_name,
 
-                "status":
-                    "success",
+                "status": "success",
 
-                "prediction":
-                    prediction,
+                "prediction": prediction,
 
-                "probability":
-                    confidence,
+                "probability": confidence,
 
-                "confidence":
-                    confidence,
+                "confidence": confidence,
 
-                "uncertainty":
-                    uncertainty,
+                "uncertainty": uncertainty,
 
-                "quality":
-                    quality,
+                "quality": quality,
 
-                "missing_data_ratio":
-                    missing_ratio,
+                "missing_data_ratio": float(
+                    missing_ratio
+                ),
 
-                "latency_ms":
-                    latency_ms,
+                "latency_ms": float(
+                    latency_ms
+                ),
 
                 "class_probabilities":
                     class_probabilities,
 
-                "explanation":
-                    None,
+                "explanation": None,
 
                 "details": {
 
                     "task_type":
-                        "cirrhosis_classification",
+                        self.TASK_TYPE,
 
                     "disease":
-                        "cirrhosis",
+                        self.DISEASE,
+
+                    "target":
+                        self.target_name,
 
                     "classes":
                         self.classes,
@@ -604,16 +1401,24 @@ class CirrhosisAgent:
                             for feature
                             in self.feature_names
                             if feature != self.target_name
-                        ]
+                            and feature != "Stage"
+                        ],
+
+                    "n_features":
+                        int(
+                            X.shape[1]
+                        ),
+
+                    "missing_values":
+                        missing_values
                 },
 
-                "error":
-                    None
+                "error": None
             }
 
-        # =========================================================================
-        # ERROR
-        # =========================================================================
+        # =====================================================================
+        # ERROR HANDLING
+        # =====================================================================
 
         except Exception as e:
 
@@ -632,7 +1437,7 @@ class CirrhosisAgent:
                     self.name,
 
                 "task_type":
-                    "cirrhosis_classification",
+                    self.TASK_TYPE,
 
                 "model":
                     self.model_name,
@@ -659,15 +1464,23 @@ class CirrhosisAgent:
                     1.0,
 
                 "latency_ms":
-                    latency_ms,
+                    float(
+                        latency_ms
+                    ),
+
+                "class_probabilities":
+                    None,
 
                 "details": {
 
                     "task_type":
-                        "cirrhosis_classification",
+                        self.TASK_TYPE,
 
                     "disease":
-                        "cirrhosis"
+                        self.DISEASE,
+
+                    "target":
+                        self.target_name
                 },
 
                 "explanation":
@@ -676,3 +1489,90 @@ class CirrhosisAgent:
                 "error":
                     str(e)
             }
+
+    # =========================================================================
+    # HEALTH CHECK
+    # =========================================================================
+
+    def health_check(self) -> Dict[str, Any]:
+
+        """
+        Check whether the agent/model is correctly initialized.
+        """
+
+        checks = {
+
+            "agent_initialized":
+                self is not None,
+
+            "model_loaded":
+                self.model is not None,
+
+            "predict_available":
+                hasattr(
+                    self.model,
+                    "predict"
+                ),
+
+            "features_available":
+                len(
+                    self.feature_names
+                ) > 0,
+
+            "target_not_in_features":
+                self.target_name
+                not in self.feature_names,
+
+            "legacy_stage_not_in_features":
+                "Stage"
+                not in self.feature_names
+        }
+
+        healthy = all(
+            checks.values()
+        )
+
+        return {
+
+            "agent":
+                self.name,
+
+            "status":
+                "healthy"
+                if healthy
+                else "unhealthy",
+
+            "healthy":
+                healthy,
+
+            "checks":
+                checks,
+
+            "model":
+                self.model_name,
+
+            "target":
+                self.target_name,
+
+            "n_features":
+                len(
+                    self.feature_names
+                ),
+
+            "features":
+                self.feature_names
+        }
+
+    # =========================================================================
+    # REPRESENTATION
+    # =========================================================================
+
+    def __repr__(self) -> str:
+
+        return (
+            f"{self.__class__.__name__}("
+            f"model={self.model_name!r}, "
+            f"target={self.target_name!r}, "
+            f"n_features={len(self.feature_names)}"
+            ")"
+        )
