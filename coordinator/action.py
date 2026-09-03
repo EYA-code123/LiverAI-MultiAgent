@@ -1,79 +1,164 @@
-"""
-Action Intelligence
-====================
-
-Generates explainable next-step recommendations from
-the confidence-aware decision layer.
-
-This is decision support, not autonomous medical treatment.
-"""
-
-
-class ActionIntelligence:
+class ActionEngine:
 
     def generate(
         self,
-        decisions,
-        reasoning
+        decision
     ):
 
-        recommendations = []
-
-        task_decisions = decisions.get(
-            "task_decisions",
-            {}
+        level = decision.get(
+            "decision_level",
+            "UNCERTAIN"
         )
 
-        for task, decision in task_decisions.items():
+        prediction = decision.get(
+            "prediction"
+        )
 
-            confidence = decision.get(
+        confidence = float(
+            decision.get(
                 "confidence",
                 0.0
             )
+        )
 
-            request_tests = decision.get(
-                "request_additional_tests",
-                False
+        risk = float(
+            decision.get(
+                "risk_score",
+                1.0
             )
+        )
 
-            if request_tests:
+        request_tests = decision.get(
+            "request_additional_tests",
+            False
+        )
 
-                recommendations.append({
-                    "task": task,
-                    "action":
-                        "Request additional clinical "
-                        "or imaging evidence before "
-                        "making a high-confidence decision.",
-                    "priority": "high"
-                })
+        # =====================================================
+        # UNCERTAIN
+        # =====================================================
 
-            elif confidence >= 0.80:
+        if request_tests:
 
-                recommendations.append({
-                    "task": task,
-                    "action":
-                        "Prediction is supported by "
-                        "high-confidence model evidence.",
-                    "priority": "normal"
-                })
+            return {
 
-            else:
+                "status":
+                    "cautious",
 
-                recommendations.append({
-                    "task": task,
-                    "action":
-                        "Review the prediction together "
-                        "with the available clinical evidence.",
-                    "priority": "moderate"
-                })
+                "actions": [
+
+                    "Additional clinical assessment recommended.",
+
+                    "Consider additional imaging or laboratory data.",
+
+                    "Specialist review recommended.",
+
+                    "Do not use this automated output as a standalone diagnosis."
+                ],
+
+                "referral":
+                    True,
+
+                "follow_up":
+                    True,
+
+                "additional_tests":
+                    True
+            }
+
+        # =====================================================
+        # HIGH
+        # =====================================================
+
+        if level == "HIGH":
+
+            return {
+
+                "status":
+                    "high_confidence",
+
+                "actions": [
+
+                    f"Finding requiring clinical validation: {prediction}.",
+
+                    "Review the supporting evidence.",
+
+                    "Consider specialist confirmation before intervention."
+                ],
+
+                "referral":
+                    True,
+
+                "follow_up":
+                    True,
+
+                "additional_tests":
+                    False,
+
+                "risk_score":
+                    risk,
+
+                "confidence":
+                    confidence
+            }
+
+        # =====================================================
+        # MODERATE
+        # =====================================================
+
+        if level == "MODERATE":
+
+            return {
+
+                "status":
+                    "moderate_confidence",
+
+                "actions": [
+
+                    f"Preliminary finding: {prediction}.",
+
+                    "Perform clinical review.",
+
+                    "Consider additional evidence if clinically indicated."
+                ],
+
+                "referral":
+                    True,
+
+                "follow_up":
+                    True,
+
+                "additional_tests":
+                    True,
+
+                "risk_score":
+                    risk,
+
+                "confidence":
+                    confidence
+            }
+
+        # =====================================================
+        # FALLBACK
+        # =====================================================
 
         return {
-            "recommendations":
-                recommendations,
 
-            "explainable_summary":
-                reasoning.get(
-                    "reasoning",
-                    ""
-                )
+            "status":
+                "uncertain",
+
+            "actions": [
+
+                "Insufficient evidence.",
+
+                "Additional assessment required."
+            ],
+
+            "referral":
+                True,
+
+            "follow_up":
+                True,
+
+            "additional_tests":
+                True
         }
