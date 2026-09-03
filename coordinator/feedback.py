@@ -1,16 +1,4 @@
-"""
-Feedback Intelligence
-======================
-
-Updates agent historical performance when a verified
-ground-truth outcome becomes available.
-
-IMPORTANT:
-Never call this with a guessed clinical outcome.
-"""
-
-
-class FeedbackIntelligence:
+class FeedbackEngine:
 
     def __init__(
         self,
@@ -21,59 +9,71 @@ class FeedbackIntelligence:
             trust_manager
         )
 
-        self.history = []
+        self.feedback_history = []
+
+    # =========================================================
+    # UPDATE
+    # =========================================================
 
     def update(
         self,
-        messages,
-        ground_truths
+        agent_results,
+        ground_truth
     ):
 
         updates = []
 
-        for message in messages:
+        for result in agent_results:
 
-            if message.agent_id not in ground_truths:
-                continue
+            prediction = result.get(
+                "prediction"
+            )
 
-            truth = ground_truths[
-                message.agent_id
-            ]
-
-            prediction = message.prediction
+            agent_id = result.get(
+                "agent_id",
+                result.get(
+                    "agent"
+                )
+            )
 
             if prediction is None:
+
                 continue
 
-            try:
+            correct = (
 
-                correct = (
-                    str(prediction)
-                    ==
-                    str(truth)
-                )
+                str(
+                    prediction
+                ).strip().lower()
 
-            except Exception:
+                ==
 
-                correct = False
+                str(
+                    ground_truth
+                ).strip().lower()
+            )
 
             new_performance = (
+
                 self.trust_manager
-                .update_historical_performance(
-                    message.agent_id,
-                    int(correct)
+                .update_from_outcome(
+
+                    agent_id=agent_id,
+
+                    correct=correct
                 )
             )
 
             updates.append({
+
                 "agent_id":
-                    message.agent_id,
+                    agent_id,
 
                 "prediction":
                     prediction,
 
                 "ground_truth":
-                    truth,
+                    ground_truth,
 
                 "correct":
                     correct,
@@ -82,11 +82,30 @@ class FeedbackIntelligence:
                     new_performance
             })
 
-        self.history.extend(
-            updates
+        result = {
+
+            "status":
+                "updated",
+
+            "ground_truth":
+                ground_truth,
+
+            "updates":
+                updates
+        }
+
+        self.feedback_history.append(
+            result
         )
 
-        return {
-            "updates": updates,
-            "num_updates": len(updates)
-        }
+        return result
+
+    # =========================================================
+    # HISTORY
+    # =========================================================
+
+    def get_history(self):
+
+        return list(
+            self.feedback_history
+        )
