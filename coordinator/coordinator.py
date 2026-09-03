@@ -1,777 +1,555 @@
-# =============================================================================
-# Liver AI Coordinator
-# =============================================================================
-#
-# Main coordinator for the LiverAI-MultiAgent project.
-#
-# Available agents are loaded when their model is provided.
-# Missing models do NOT prevent the coordinator from starting.
-#
-# =============================================================================
-
-import os
-import time
+from coordinator.agent_adapter import AgentAdapter
+from coordinator.trust_manager import TrustManager
+from coordinator.adaptive_fusion import AdaptiveFusion
+from coordinator.conflict_detector import ConflictDetector
+from coordinator.conflict_resolver import ConflictResolver
+from coordinator.reasoning import EvidenceReasoner
+from coordinator.decision import DecisionEngine
+from coordinator.action import ActionEngine
+from coordinator.feedback import FeedbackEngine
 
 
 class LiverAICoordinator:
 
-    # =========================================================================
-    # INITIALIZATION
-    # =========================================================================
-
     def __init__(
         self,
-        cirrhosis_model_path=None,
-        fatty_liver_model_path=None,
-        fibrosis_model_path=None,
-        tumor_model_path=None,
-        segmentation_model_path=None,
-        clinical_reasoning_model_path=None
+        agents=None
     ):
 
-        print("\n" + "=" * 70)
-        print("INITIALIZING LIVER AI COORDINATOR")
-        print("=" * 70)
+        self.agents = {}
 
-        # =====================================================================
-        # AGENT CLASSES
-        # =====================================================================
-
-        self.CirrhosisAgent = None
-        self.FattyLiverAgent = None
-        self.FibrosisAgent = None
-        self.TumorClassificationAgent = None
-        self.LiverSegmentationAgent = None
-        self.ClinicalReasoningAgent = None
-
-        # =====================================================================
-        # AGENT INSTANCES
-        # =====================================================================
-
-        self.cirrhosis_agent = None
-        self.fatty_liver_agent = None
-        self.fibrosis_agent = None
-        self.tumor_agent = None
-        self.segmentation_agent = None
-        self.clinical_agent = None
-
-        # =====================================================================
-        # SAVE PATHS
-        # =====================================================================
-
-        self.cirrhosis_model_path = cirrhosis_model_path
-        self.fatty_liver_model_path = fatty_liver_model_path
-        self.fibrosis_model_path = fibrosis_model_path
-        self.tumor_model_path = tumor_model_path
-        self.segmentation_model_path = segmentation_model_path
-        self.clinical_reasoning_model_path = (
-            clinical_reasoning_model_path
+        self.trust_manager = (
+            TrustManager()
         )
 
-        # =====================================================================
-        # IMPORT AGENTS
-        # =====================================================================
+        self.fusion = (
+            AdaptiveFusion()
+        )
 
-        self._import_agents()
+        self.conflict_detector = (
+            ConflictDetector()
+        )
 
-        # =====================================================================
-        # LOAD AGENTS
-        # =====================================================================
+        self.conflict_resolver = (
+            ConflictResolver()
+        )
 
-        self._load_cirrhosis()
-        self._load_fatty_liver()
-        self._load_fibrosis()
-        self._load_tumor()
-        self._load_segmentation()
-        self._load_clinical_reasoning()
+        self.reasoner = (
+            EvidenceReasoner()
+        )
 
-        print("\n" + "=" * 70)
-        print("LIVER AI COORDINATOR READY")
-        print("=" * 70)
+        self.decision_engine = (
+            DecisionEngine()
+        )
 
-    # =========================================================================
-    # IMPORT AGENTS
-    # =========================================================================
+        self.action_engine = (
+            ActionEngine()
+        )
 
-    def _import_agents(self):
+        self.feedback_engine = (
+            FeedbackEngine(
+                self.trust_manager
+            )
+        )
 
-        # ---------------------------------------------------------------------
-        # Cirrhosis
-        # ---------------------------------------------------------------------
+        if agents:
 
-        try:
-
-            from agents.cirrhosis_agent import (
-                CirrhosisAgent
+            self.register_agents(
+                agents
             )
 
-            self.CirrhosisAgent = CirrhosisAgent
+    # =========================================================
+    # REGISTER
+    # =========================================================
 
-        except Exception as e:
+    def register_agent(
+        self,
+        agent_id,
+        agent,
+        task_type,
+        modality="unknown"
+    ):
 
-            print(
-                "❌ Impossible d'importer CirrhosisAgent :",
-                e
-            )
+        adapter = AgentAdapter(
 
-        # ---------------------------------------------------------------------
-        # Fatty Liver
-        # ---------------------------------------------------------------------
+            agent_id=
+                agent_id,
 
-        try:
+            agent=
+                agent,
 
-            from agents.fatty_liver_agent import (
-                FattyLiverAgent
-            )
+            task_type=
+                task_type,
 
-            self.FattyLiverAgent = FattyLiverAgent
+            modality=
+                modality
+        )
 
-        except Exception as e:
+        self.agents[
+            agent_id
+        ] = adapter
 
-            print(
-                "⚠️ Impossible d'importer FattyLiverAgent :",
-                e
-            )
+        self.trust_manager.register_agent(
+            agent_id
+        )
 
-        # ---------------------------------------------------------------------
-        # Fibrosis
-        # ---------------------------------------------------------------------
+    def register_agents(
+        self,
+        agents
+    ):
 
-        try:
-
-            from agents.fibrosis_agent import (
-                FibrosisAgent
-            )
-
-            self.FibrosisAgent = FibrosisAgent
-
-        except Exception as e:
-
-            print(
-                "⚠️ Impossible d'importer FibrosisAgent :",
-                e
-            )
-
-        # ---------------------------------------------------------------------
-        # Tumor
-        # ---------------------------------------------------------------------
-
-        try:
-
-            from agents.tumor_classification_agent import (
-                TumorClassificationAgent
-            )
-
-            self.TumorClassificationAgent = (
-                TumorClassificationAgent
-            )
-
-        except Exception as e:
-
-            print(
-                "⚠️ Impossible d'importer TumorClassificationAgent :",
-                e
-            )
-
-        # ---------------------------------------------------------------------
-        # Segmentation
-        # ---------------------------------------------------------------------
-
-        try:
-
-            from agents.liver_segmentation_agent import (
-                LiverSegmentationAgent
-            )
-
-            self.LiverSegmentationAgent = (
-                LiverSegmentationAgent
-            )
-
-        except Exception as e:
-
-            print(
-                "⚠️ Impossible d'importer LiverSegmentationAgent :",
-                e
-            )
-
-        # ---------------------------------------------------------------------
-        # Clinical Reasoning
-        # ---------------------------------------------------------------------
-
-        try:
-
-            from agents.clinical_reasoning_agent import (
-                ClinicalReasoningAgent
-            )
-
-            self.ClinicalReasoningAgent = (
-                ClinicalReasoningAgent
-            )
-
-        except Exception as e:
-
-            print(
-                "⚠️ Impossible d'importer ClinicalReasoningAgent :",
-                e
-            )
-
-    # =========================================================================
-    # CIRRHOSIS
-    # =========================================================================
-
-    def _load_cirrhosis(self):
-
-        if not self.cirrhosis_model_path:
-
-            print(
-                "⚠️ CirrhosisAgent : modèle non fourni"
-            )
-
-            return
-
-        if not os.path.exists(
-            self.cirrhosis_model_path
+        for agent_id, config in (
+            agents.items()
         ):
 
-            print(
-                "⚠️ Cirrhosis model absent :",
-                self.cirrhosis_model_path
+            # -------------------------------------------------
+            # Already configured
+            # -------------------------------------------------
+
+            if isinstance(
+                config,
+                AgentAdapter
+            ):
+
+                self.agents[
+                    agent_id
+                ] = config
+
+                continue
+
+            # -------------------------------------------------
+            # Dict configuration
+            # -------------------------------------------------
+
+            if isinstance(
+                config,
+                dict
+            ):
+
+                self.register_agent(
+
+                    agent_id=
+                        agent_id,
+
+                    agent=
+                        config.get(
+                            "agent"
+                        ),
+
+                    task_type=
+                        config.get(
+                            "task_type",
+                            "unknown"
+                        ),
+
+                    modality=
+                        config.get(
+                            "modality",
+                            "unknown"
+                        )
+                )
+
+                continue
+
+            # -------------------------------------------------
+            # Raw agent
+            # -------------------------------------------------
+
+            self.register_agent(
+
+                agent_id=
+                    agent_id,
+
+                agent=
+                    config,
+
+                task_type=
+                    getattr(
+                        config,
+                        "task_type",
+                        "unknown"
+                    ),
+
+                modality=
+                    getattr(
+                        config,
+                        "modality",
+                        "unknown"
+                    )
             )
 
-            return
+    # =========================================================
+    # RUN
+    # =========================================================
 
-        if self.CirrhosisAgent is None:
+    def run(
+        self,
+        patient_id,
+        inputs=None,
+        ground_truth=None
+    ):
 
-            print(
-                "⚠️ CirrhosisAgent indisponible"
-            )
+        inputs = inputs or {}
 
-            return
+        # =====================================================
+        # PHASE 1
+        # =====================================================
 
-        try:
+        agent_results = []
 
-            import joblib
+        for agent_id, adapter in (
+            self.agents.items()
+        ):
 
-            model_package = joblib.load(
-                self.cirrhosis_model_path
-            )
-
-            self.cirrhosis_agent = (
-                self.CirrhosisAgent(
-                    model_package
+            data = (
+                inputs.get(
+                    agent_id
                 )
             )
 
-            print(
-                "✅ CirrhosisAgent chargé"
-            )
+            # -------------------------------------------------
+            # Missing modality/data
+            # -------------------------------------------------
 
-        except Exception as e:
+            if data is None:
 
-            print(
-                "❌ Erreur CirrhosisAgent :",
-                e
-            )
+                result = {
 
-            self.cirrhosis_agent = None
+                    "patient_id":
+                        patient_id,
 
-    # =========================================================================
-    # FATTY LIVER
-    # =========================================================================
+                    "agent_id":
+                        agent_id,
 
-    def _load_fatty_liver(self):
+                    "agent":
+                        agent_id,
 
-        if not self.fatty_liver_model_path:
+                    "task_type":
+                        adapter.task_type,
 
-            print(
-                "⚠️ Fatty Liver Agent : modèle non fourni"
-            )
+                    "modality":
+                        adapter.modality,
 
-            return
+                    "prediction":
+                        None,
 
-        if not os.path.exists(
-            self.fatty_liver_model_path
-        ):
+                    "probability":
+                        None,
 
-            print(
-                "⚠️ Fatty Liver model absent :",
-                self.fatty_liver_model_path
-            )
+                    "class_probabilities":
+                        {},
 
-            return
+                    "confidence":
+                        0.0,
 
-        if self.FattyLiverAgent is None:
+                    "uncertainty":
+                        1.0,
 
-            print(
-                "⚠️ FattyLiverAgent indisponible"
-            )
+                    "quality":
+                        0.0,
 
-            return
+                    "missing_data_ratio":
+                        1.0,
 
-        try:
+                    "agreement":
+                        0.5,
 
-            import joblib
+                    "stability":
+                        0.5,
 
-            model_package = joblib.load(
-                self.fatty_liver_model_path
-            )
+                    "utility":
+                        0.0,
 
-            self.fatty_liver_agent = (
-                self.FattyLiverAgent(
-                    model_package
+                    "status":
+                        "unavailable",
+
+                    "error":
+                        "Required input not provided."
+                }
+
+            else:
+
+                result = adapter.predict(
+
+                    patient_id=
+                        patient_id,
+
+                    data=
+                        data
                 )
-            )
 
-            print(
-                "✅ FattyLiverAgent chargé"
-            )
-
-        except Exception as e:
-
-            print(
-                "❌ Erreur FattyLiverAgent :",
-                e
-            )
-
-            self.fatty_liver_agent = None
-
-    # =========================================================================
-    # FIBROSIS
-    # =========================================================================
-
-    def _load_fibrosis(self):
-
-        if not self.fibrosis_model_path:
-
-            print(
-                "⚠️ FibrosisAgent : modèle non fourni"
-            )
-
-            return
-
-        if not os.path.exists(
-            self.fibrosis_model_path
-        ):
-
-            print(
-                "⚠️ Fibrosis model absent :",
-                self.fibrosis_model_path
-            )
-
-            return
-
-        if self.FibrosisAgent is None:
-
-            print(
-                "⚠️ FibrosisAgent indisponible"
-            )
-
-            return
-
-        try:
-
-            self.fibrosis_agent = (
-                self.FibrosisAgent(
-                    self.fibrosis_model_path
-                )
-            )
-
-            print(
-                "✅ FibrosisAgent chargé"
-            )
-
-        except Exception as e:
-
-            print(
-                "❌ Erreur FibrosisAgent :",
-                e
-            )
-
-            self.fibrosis_agent = None
-
-    # =========================================================================
-    # TUMOR
-    # =========================================================================
-
-    def _load_tumor(self):
-
-        if not self.tumor_model_path:
-
-            print(
-                "⚠️ TumorAgent : modèle non fourni"
-            )
-
-            return
-
-        if not os.path.exists(
-            self.tumor_model_path
-        ):
-
-            print(
-                "⚠️ Tumor model absent :",
-                self.tumor_model_path
-            )
-
-            return
-
-        if self.TumorClassificationAgent is None:
-
-            print(
-                "⚠️ TumorClassificationAgent indisponible"
-            )
-
-            return
-
-        try:
-
-            self.tumor_agent = (
-                self.TumorClassificationAgent(
-                    self.tumor_model_path
-                )
-            )
-
-            print(
-                "✅ TumorClassificationAgent chargé"
-            )
-
-        except Exception as e:
-
-            print(
-                "❌ Erreur TumorClassificationAgent :",
-                e
-            )
-
-            self.tumor_agent = None
-
-    # =========================================================================
-    # SEGMENTATION
-    # =========================================================================
-
-    def _load_segmentation(self):
-
-        if not self.segmentation_model_path:
-
-            print(
-                "⚠️ SegmentationAgent : modèle non fourni"
-            )
-
-            return
-
-        if not os.path.exists(
-            self.segmentation_model_path
-        ):
-
-            print(
-                "⚠️ Segmentation model absent :",
-                self.segmentation_model_path
-            )
-
-            return
-
-        if self.LiverSegmentationAgent is None:
-
-            print(
-                "⚠️ LiverSegmentationAgent indisponible"
-            )
-
-            return
-
-        try:
-
-            # LiverSegmentationAgent expects
-            # the model path directly.
-
-            self.segmentation_agent = (
-                self.LiverSegmentationAgent(
-                    self.segmentation_model_path
-                )
-            )
-
-            print(
-                "✅ LiverSegmentationAgent chargé"
-            )
-
-        except Exception as e:
-
-            print(
-                "❌ Erreur LiverSegmentationAgent :",
-                e
-            )
-
-            self.segmentation_agent = None
-
-    # =========================================================================
-    # CLINICAL REASONING
-    # =========================================================================
-
-    def _load_clinical_reasoning(self):
-
-        # ---------------------------------------------------------------------
-        # No model supplied
-        # ---------------------------------------------------------------------
-
-        if not self.clinical_reasoning_model_path:
-
-            print(
-                "⚠️ ClinicalReasoningAgent : modèle non fourni"
-            )
-
-            return
-
-        # ---------------------------------------------------------------------
-        # Model path does not exist
-        # ---------------------------------------------------------------------
-
-        if not os.path.exists(
-            self.clinical_reasoning_model_path
-        ):
-
-            print(
-                "⚠️ Clinical reasoning model absent :",
-                self.clinical_reasoning_model_path
-            )
-
-            return
-
-        # ---------------------------------------------------------------------
-        # Agent import failed
-        # ---------------------------------------------------------------------
-
-        if self.ClinicalReasoningAgent is None:
-
-            print(
-                "⚠️ ClinicalReasoningAgent indisponible"
-            )
-
-            return
-
-        # ---------------------------------------------------------------------
-        # Load model
-        # ---------------------------------------------------------------------
-
-        try:
-
-            import joblib
-
-            model_package = joblib.load(
-                self.clinical_reasoning_model_path
-            )
-
-            self.clinical_agent = (
-                self.ClinicalReasoningAgent(
-                    model_package
-                )
-            )
-
-            print(
-                "✅ ClinicalReasoningAgent chargé"
-            )
-
-        except Exception as e:
-
-            print(
-                "❌ Erreur ClinicalReasoningAgent :",
-                e
-            )
-
-            self.clinical_agent = None
-
-    # =========================================================================
-    # SINGLE PATIENT PREDICTION
-    # =========================================================================
-
-    def predict(self, patient_data):
-
-        results = {}
-
-        # ---------------------------------------------------------------------
-        # Cirrhosis
-        # ---------------------------------------------------------------------
-
-        if self.cirrhosis_agent is not None:
-
-            try:
-
-                results["cirrhosis"] = (
-                    self.cirrhosis_agent.predict(
-                        patient_data
+            # -------------------------------------------------
+            # Trust
+            # -------------------------------------------------
+
+            if result.get(
+                "status"
+            ) in (
+                "success",
+                "completed"
+            ):
+
+                result["trust"] = (
+
+                    self.trust_manager
+                    .compute_trust(
+
+                        agent_id=
+                            agent_id,
+
+                        confidence=
+                            result.get(
+                                "confidence",
+                                0.0
+                            ),
+
+                        uncertainty=
+                            result.get(
+                                "uncertainty",
+                                1.0
+                            ),
+
+                        quality=
+                            result.get(
+                                "quality",
+                                0.0
+                            ),
+
+                        missing_data_ratio=
+                            result.get(
+                                "missing_data_ratio",
+                                1.0
+                            ),
+
+                        agreement=
+                            result.get(
+                                "agreement",
+                                0.5
+                            ),
+
+                        stability=
+                            result.get(
+                                "stability",
+                                0.5
+                            ),
+
+                        utility=
+                            result.get(
+                                "utility",
+                                0.5
+                            ),
+
+                        modality_available=
+                            True
                     )
                 )
 
-            except Exception as e:
+            else:
 
-                results["cirrhosis"] = {
-                    "agent": "CirrhosisAgent",
-                    "status": "error",
-                    "error": str(e)
-                }
+                result["trust"] = 0.0
 
-        # ---------------------------------------------------------------------
-        # Fatty liver
-        # ---------------------------------------------------------------------
+            agent_results.append(
+                result
+            )
 
-        if self.fatty_liver_agent is not None:
+        # =====================================================
+        # PHASE 5
+        # =====================================================
 
-            try:
+        fusion = (
+            self.fusion.fuse(
+                agent_results
+            )
+        )
 
-                results["fatty_liver"] = (
-                    self.fatty_liver_agent.predict(
-                        patient_data
+        # =====================================================
+        # PHASE 7
+        # =====================================================
+
+        conflicts_list = (
+            self.conflict_detector.detect(
+                agent_results
+            )
+        )
+
+        # -----------------------------------------------------
+        # Group conflicts by task
+        # -----------------------------------------------------
+
+        tasks = set(
+
+            r.get(
+                "task_type"
+            )
+
+            for r in agent_results
+
+            if r.get(
+                "prediction"
+            ) is not None
+        )
+
+        conflict_resolution = {}
+
+        for task in tasks:
+
+            task_results = [
+
+                r
+
+                for r in agent_results
+
+                if r.get(
+                    "task_type"
+                ) == task
+            ]
+
+            task_conflicts = [
+
+                c
+
+                for c in conflicts_list
+
+                if c.get(
+                    "task_type"
+                ) == task
+            ]
+
+            conflict_resolution[
+                task
+            ] = (
+
+                self.conflict_resolver.resolve(
+
+                    task_type=
+                        task,
+
+                    results=
+                        task_results,
+
+                    conflicts=
+                        task_conflicts
+                )
+            )
+
+        # =====================================================
+        # PHASE 6
+        # =====================================================
+
+        reasoning = (
+            self.reasoner.synthesize(
+
+                agent_results,
+
+                conflict_resolution=(
+                    self._best_resolution(
+                        conflict_resolution
                     )
                 )
+            )
+        )
 
-            except Exception as e:
+        # =====================================================
+        # PHASE 8
+        # =====================================================
 
-                results["fatty_liver"] = {
-                    "agent": "FattyLiverAgent",
-                    "status": "error",
-                    "error": str(e)
-                }
+        decision = (
+            self.decision_engine.decide(
 
-        # ---------------------------------------------------------------------
-        # Fibrosis
-        # ---------------------------------------------------------------------
+                results=
+                    agent_results,
 
-        if self.fibrosis_agent is not None:
+                conflicts=
+                    conflicts_list,
 
-            try:
+                reasoning=
+                    reasoning
+            )
+        )
 
-                results["fibrosis"] = (
-                    self.fibrosis_agent.predict(
-                        patient_data
-                    )
+        # =====================================================
+        # PHASE 9
+        # =====================================================
+
+        action = (
+            self.action_engine.generate(
+                decision
+            )
+        )
+
+        # =====================================================
+        # PHASE 10
+        # =====================================================
+
+        feedback = None
+
+        if ground_truth is not None:
+
+            feedback = (
+                self.feedback_engine.update(
+
+                    agent_results=
+                        agent_results,
+
+                    ground_truth=
+                        ground_truth
                 )
+            )
 
-            except Exception as e:
-
-                results["fibrosis"] = {
-                    "agent": "FibrosisAgent",
-                    "status": "error",
-                    "error": str(e)
-                }
-
-        # ---------------------------------------------------------------------
-        # Tumor
-        # ---------------------------------------------------------------------
-
-        if self.tumor_agent is not None:
-
-            try:
-
-                results["tumor"] = (
-                    self.tumor_agent.predict(
-                        patient_data
-                    )
-                )
-
-            except Exception as e:
-
-                results["tumor"] = {
-                    "agent": "TumorClassificationAgent",
-                    "status": "error",
-                    "error": str(e)
-                }
-
-        # ---------------------------------------------------------------------
-        # Segmentation
-        # ---------------------------------------------------------------------
-
-        if self.segmentation_agent is not None:
-
-            try:
-
-                results["segmentation"] = (
-                    self.segmentation_agent.predict(
-                        patient_data
-                    )
-                )
-
-            except Exception as e:
-
-                results["segmentation"] = {
-                    "agent": "LiverSegmentationAgent",
-                    "status": "error",
-                    "error": str(e)
-                }
-
-        # ---------------------------------------------------------------------
-        # Clinical reasoning
-        # ---------------------------------------------------------------------
-
-        if self.clinical_agent is not None:
-
-            try:
-
-                results["clinical_reasoning"] = (
-                    self.clinical_agent.predict(
-                        patient_data
-                    )
-                )
-
-            except Exception as e:
-
-                results["clinical_reasoning"] = {
-                    "agent": "ClinicalReasoningAgent",
-                    "status": "error",
-                    "error": str(e)
-                }
-
-        return results
-
-    # =========================================================================
-    # STATUS
-    # =========================================================================
-
-    def get_status(self):
+        # =====================================================
+        # FINAL
+        # =====================================================
 
         return {
 
-            "cirrhosis": (
-                self.cirrhosis_agent is not None
-            ),
+            "patient_id":
+                patient_id,
 
-            "fatty_liver": (
-                self.fatty_liver_agent is not None
-            ),
+            "status":
+                "completed",
 
-            "fibrosis": (
-                self.fibrosis_agent is not None
-            ),
+            "agents":
+                agent_results,
 
-            "tumor": (
-                self.tumor_agent is not None
-            ),
+            "fusion":
+                fusion,
 
-            "segmentation": (
-                self.segmentation_agent is not None
-            ),
+            "conflicts":
+                conflicts_list,
 
-            "clinical_reasoning": (
-                self.clinical_agent is not None
-            )
+            "conflict_resolution":
+                conflict_resolution,
+
+            "reasoning":
+                reasoning,
+
+            "decision":
+                decision,
+
+            "action":
+                action,
+
+            "feedback":
+                feedback
         }
 
-    # =========================================================================
-    # SUMMARY
-    # =========================================================================
+    # =========================================================
+    # BEST RESOLUTION
+    # =========================================================
 
-    def summary(self):
+    @staticmethod
+    def _best_resolution(
+        resolutions
+    ):
 
-        status = self.get_status()
+        for resolution in (
+            resolutions.values()
+        ):
 
-        print("\n" + "=" * 70)
-        print("LIVER AI COORDINATOR STATUS")
-        print("=" * 70)
+            if resolution.get(
+                "prediction"
+            ) is not None:
 
-        for agent_name, available in status.items():
+                return resolution
 
-            symbol = "✅" if available else "⚠️"
-
-            print(
-                f"{symbol} {agent_name}: "
-                f"{'AVAILABLE' if available else 'NOT AVAILABLE'}"
-            )
-
-        print("=" * 70)
-
-        return status
+        return None
