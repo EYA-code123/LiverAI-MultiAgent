@@ -1,219 +1,325 @@
-"""
-Reasoning Intelligence
-=======================
-
-Cross-task evidence synthesis.
-
-This module does not pretend that different medical tasks
-share the same label space.
-
-Instead it creates a structured evidence summary.
-"""
-
-
 class EvidenceReasoner:
 
-    def __init__(self):
-
-        self.rules = {
-            "cirrhosis": self._cirrhosis_rule,
-            "fibrosis": self._fibrosis_rule,
-            "fatty_liver": self._fatty_liver_rule,
-            "tumor": self._tumor_rule,
-            "tumor_classification":
-                self._tumor_rule,
-            "segmentation":
-                self._segmentation_rule,
-        }
-
-    def _cirrhosis_rule(
+    def __init__(
         self,
-        result
+        minimum_confidence=0.55
     ):
 
-        prediction = result.get(
-            "prediction"
+        self.minimum_confidence = float(
+            minimum_confidence
         )
 
-        confidence = result.get(
-            "confidence",
-            0.0
-        )
+    # =========================================================
+    # BUILD EVIDENCE GRAPH
+    # =========================================================
 
-        return {
-            "finding":
-                f"Cirrhosis prediction: {prediction}",
-            "confidence":
-                confidence
-        }
-
-    def _fibrosis_rule(
+    def build_evidence_graph(
         self,
-        result
+        results
     ):
 
-        return {
-            "finding":
-                f"Fibrosis prediction: "
-                f"{result.get('prediction')}",
-            "confidence":
-                result.get("confidence", 0.0)
-        }
+        nodes = []
+        edges = []
 
-    def _fatty_liver_rule(
-        self,
-        result
-    ):
+        for result in results:
 
-        return {
-            "finding":
-                f"Fatty liver prediction: "
-                f"{result.get('prediction')}",
-            "confidence":
-                result.get("confidence", 0.0)
-        }
+            if result.get(
+                "prediction"
+            ) is None:
 
-    def _tumor_rule(
-        self,
-        result
-    ):
+                continue
 
-        return {
-            "finding":
-                f"Tumor classification: "
-                f"{result.get('prediction')}",
-            "confidence":
-                result.get("confidence", 0.0)
-        }
-
-    def _segmentation_rule(
-        self,
-        result
-    ):
-
-        return {
-            "finding":
-                "Liver segmentation available.",
-            "confidence":
+            agent_id = result.get(
+                "agent_id",
                 result.get(
-                    "segmentation_quality",
+                    "agent",
+                    "unknown"
+                )
+            )
+
+            prediction = result.get(
+                "prediction"
+            )
+
+            node_id = (
+                f"{agent_id}:{prediction}"
+            )
+
+            nodes.append({
+
+                "id":
+                    node_id,
+
+                "agent":
+                    agent_id,
+
+                "task":
+                    result.get(
+                        "task_type",
+                        "unknown"
+                    ),
+
+                "prediction":
+                    prediction,
+
+                "confidence":
+                    float(
+                        result.get(
+                            "confidence",
+                            0.0
+                        )
+                    ),
+
+                "trust":
+                    float(
+                        result.get(
+                            "trust",
+                            0.0
+                        )
+                    ),
+
+                "quality":
+                    float(
+                        result.get(
+                            "quality",
+                            0.0
+                        )
+                    )
+            })
+
+        # -----------------------------------------------------
+        # AGREEMENT / SUPPORT EDGES
+        # -----------------------------------------------------
+
+        for i in range(
+            len(nodes)
+        ):
+
+            for j in range(
+                i + 1,
+                len(nodes)
+            ):
+
+                a = nodes[i]
+                b = nodes[j]
+
+                if (
+                    a["prediction"]
+                    ==
+                    b["prediction"]
+                ):
+
+                    relation = "supports"
+
+                elif (
+                    a["task"]
+                    ==
+                    b["task"]
+                ):
+
+                    relation = "conflicts"
+
+                else:
+
+                    relation = "complements"
+
+                edges.append({
+
+                    "source":
+                        a["id"],
+
+                    "target":
+                        b["id"],
+
+                    "relation":
+                        relation
+                })
+
+        return {
+
+            "nodes":
+                nodes,
+
+            "edges":
+                edges
+        }
+
+    # =========================================================
+    # SYNTHESIS
+    # =========================================================
+
+    def synthesize(
+        self,
+        results,
+        conflict_resolution=None
+    ):
+
+        graph = (
+            self.build_evidence_graph(
+                results
+            )
+        )
+
+        valid = [
+
+            r
+
+            for r in results
+
+            if r.get(
+                "prediction"
+            ) is not None
+        ]
+
+        if not valid:
+
+            return {
+
+                "status":
+                    "insufficient_evidence",
+
+                "prediction":
+                    None,
+
+                "confidence":
+                    0.0,
+
+                "explanation":
+                    "No valid agent evidence.",
+
+                "evidence_graph":
+                    graph
+            }
+
+        # -----------------------------------------------------
+        # BEST EVIDENCE
+        # -----------------------------------------------------
+
+        def evidence_score(
+            result
+        ):
+
+            return (
+
+                float(
+                    result.get(
+                        "trust",
+                        0.0
+                    )
+                )
+
+                *
+
+                float(
                     result.get(
                         "confidence",
                         0.0
                     )
                 )
-        }
 
-    def synthesize(
-        self,
-        fused_results,
-        conflicts=None
-    ):
+                *
 
-        conflicts = conflicts or []
-
-        evidence = []
-
-        for task_type, result in fused_results.items():
-
-            if result is None:
-                continue
-
-            rule = self.rules.get(
-                task_type
+                float(
+                    result.get(
+                        "quality",
+                        0.0
+                    )
+                )
             )
 
-            if rule:
-
-                item = rule(result)
-
-            else:
-
-                item = {
-                    "finding":
-                        f"{task_type}: "
-                        f"{result.get('prediction')}",
-                    "confidence":
-                        result.get(
-                            "confidence",
-                            0.0
-                        )
-                }
-
-            item["task_type"] = task_type
-
-            evidence.append(item)
-
-        conflict_count = len(
-            conflicts
+        best = max(
+            valid,
+            key=evidence_score
         )
 
-        if conflict_count > 0:
+        prediction = best.get(
+            "prediction"
+        )
 
-            conflict_statement = (
-                f"{conflict_count} intra-task "
-                "prediction conflict(s) detected."
+        confidence = float(
+            best.get(
+                "confidence",
+                0.0
+            )
+        )
+
+        # -----------------------------------------------------
+        # CONFLICT RESOLUTION CAN OVERRIDE
+        # -----------------------------------------------------
+
+        if conflict_resolution:
+
+            resolved_prediction = (
+                conflict_resolution.get(
+                    "prediction"
+                )
+            )
+
+            if resolved_prediction is not None:
+
+                prediction = (
+                    resolved_prediction
+                )
+
+        # -----------------------------------------------------
+        # EXPLANATION
+        # -----------------------------------------------------
+
+        supporting_agents = [
+
+            r.get(
+                "agent_id",
+                r.get(
+                    "agent"
+                )
+            )
+
+            for r in valid
+
+            if r.get(
+                "prediction"
+            ) == prediction
+        ]
+
+        if supporting_agents:
+
+            explanation = (
+
+                f"The synthesized finding "
+                f"'{prediction}' is supported "
+                f"by: "
+                f"{', '.join(supporting_agents)}."
             )
 
         else:
 
-            conflict_statement = (
-                "No direct intra-task conflicts detected."
-            )
+            explanation = (
 
-        overall_confidence = (
-            sum(
-                item["confidence"]
-                for item in evidence
+                f"The finding '{prediction}' "
+                f"is based on the strongest "
+                f"available evidence."
             )
-            / len(evidence)
-            if evidence
-            else 0.0
-        )
 
         return {
-            "evidence": evidence,
-            "conflict_summary":
-                conflict_statement,
-            "overall_confidence":
-                overall_confidence,
-            "reasoning": self._build_reasoning(
-                evidence,
-                conflicts
-            )
+
+            "status":
+                "completed",
+
+            "prediction":
+                prediction,
+
+            "confidence":
+                confidence,
+
+            "uncertainty":
+                1.0 - confidence,
+
+            "supporting_agents":
+                supporting_agents,
+
+            "explanation":
+                explanation,
+
+            "evidence_graph":
+                graph
         }
-
-    def _build_reasoning(
-        self,
-        evidence,
-        conflicts
-    ):
-
-        if not evidence:
-
-            return (
-                "Insufficient evidence for "
-                "clinical synthesis."
-            )
-
-        statements = [
-            item["finding"]
-            for item in evidence
-        ]
-
-        reasoning = (
-            "Evidence synthesis: "
-            + "; ".join(statements)
-            + "."
-        )
-
-        if conflicts:
-
-            reasoning += (
-                " Some specialist predictions "
-                "are discordant; additional "
-                "clinical verification may be "
-                "appropriate."
-            )
-
-        return reasoning
