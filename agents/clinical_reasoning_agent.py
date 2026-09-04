@@ -1,524 +1,243 @@
-import numpy as np
+import os
 import pandas as pd
+import numpy as np
 
 
 class ClinicalReasoningAgent:
 
-    def __init__(self, model_package):
+    def __init__(self, model_package=None):
 
         self.name = "ClinicalReasoningAgent"
 
-        # ============================================================
-        # VALIDATION DU MODEL PACKAGE
-        # ============================================================
+        self.model_package = model_package
+        self.model = None
 
-        if model_package is None:
-            raise ValueError(
-                "ClinicalReasoningAgent: model_package cannot be None."
+        self.model_path = None
+
+        if isinstance(model_package, dict):
+
+            self.model = model_package.get("model")
+
+            self.model_path = model_package.get(
+                "model_path"
             )
 
-        if not isinstance(model_package, dict):
-            raise TypeError(
-                "ClinicalReasoningAgent: model_package must be a dictionary."
-            )
+        elif model_package is not None:
 
-        if "model" not in model_package:
-            raise KeyError(
-                "ClinicalReasoningAgent: 'model' is missing "
-                "from model_package."
-            )
+            self.model = model_package
 
-        # ============================================================
-        # MODEL
-        # ============================================================
-
-        self.model_name = model_package.get(
-            "model_name",
-            "TabNet"
+        print(
+            f"[{self.name}] initialized"
         )
 
-        self.model = model_package["model"]
+    # ==========================================================
+    # LOAD MODEL
+    # ==========================================================
 
-        # ============================================================
-        # FEATURES
-        # ============================================================
+    @classmethod
+    def from_pytorch_tabular(cls, model_path):
 
-        self.feature_names = list(
-            model_package.get(
-                "feature_names",
-                []
+        if not os.path.exists(model_path):
+
+            raise FileNotFoundError(
+                f"Clinical Reasoning model not found: "
+                f"{model_path}"
             )
+
+        from pytorch_tabular import TabularModel
+
+        print(
+            "[ClinicalReasoningAgent] "
+            "Loading TabTransformer..."
         )
 
-        self.numerical_columns = list(
-            model_package.get(
-                "numerical_columns",
-                self.feature_names
-            )
+        model = TabularModel.load_model(
+            model_path
         )
 
-        self.categorical_columns = list(
-            model_package.get(
-                "categorical_columns",
-                []
-            )
+        print(
+            "[ClinicalReasoningAgent] "
+            "TabTransformer loaded successfully."
         )
 
-        # ============================================================
-        # TARGET
-        # ============================================================
-
-        self.target_name = model_package.get(
-            "target_name",
-            "selector"
+        return cls(
+            model_package={
+                "model": model,
+                "model_path": model_path
+            }
         )
 
-        self.target_classes = list(
-            model_package.get(
-                "target_classes",
-                ["0", "1"]
-            )
-        )
+    # ==========================================================
+    # PREPARE INPUT
+    # ==========================================================
 
-    # ================================================================
-    # CREATE DATAFRAME
-    # ================================================================
+    def prepare_input(self, patient_data):
 
-    def _create_dataframe(self, patient_data):
-
-        if isinstance(patient_data, pd.DataFrame):
-
-            return patient_data.copy()
+        required_features = [
+            "mcv",
+            "alkphos",
+            "sgpt",
+            "sgot",
+            "gammagt",
+            "drinks"
+        ]
 
         if isinstance(patient_data, dict):
 
-            return pd.DataFrame(
-                [patient_data]
-            )
+            data = patient_data.copy()
 
-        if patient_data is None:
+        elif isinstance(patient_data, pd.DataFrame):
 
-            return pd.DataFrame(
-                columns=self.feature_names
-            )
+            if len(patient_data) == 0:
 
-        return pd.DataFrame(
-            [patient_data],
-            columns=self.feature_names
-        )
-
-    # ================================================================
-    # PREPARE INPUT
-    # ================================================================
-
-    def _prepare_input(self, patient_data):
-
-        X = self._create_dataframe(
-            patient_data
-        )
-
-        # ============================================================
-        # REMOVE TARGET
-        # ============================================================
-
-        if self.target_name in X.columns:
-
-            X = X.drop(
-                columns=[self.target_name]
-            )
-
-        # ============================================================
-        # REMOVE UNKNOWN COLUMNS
-        # ============================================================
-
-        unknown_columns = [
-            col
-            for col in X.columns
-            if col not in self.feature_names
-        ]
-
-        if unknown_columns:
-
-            X = X.drop(
-                columns=unknown_columns
-            )
-
-        # ============================================================
-        # ADD MISSING FEATURES
-        # ============================================================
-
-        for col in self.feature_names:
-
-            if col not in X.columns:
-
-                X[col] = np.nan
-
-        # ============================================================
-        # FINAL FEATURE ORDER
-        # ============================================================
-
-        if self.feature_names:
-
-            X = X[
-                self.feature_names
-            ].copy()
-
-        # ============================================================
-        # NUMERICAL CONVERSION
-        # ============================================================
-
-        for col in X.columns:
-
-            X[col] = pd.to_numeric(
-                X[col],
-                errors="coerce"
-            )
-
-        # ============================================================
-        # MISSING VALUES
-        # ============================================================
-
-        missing_before = int(
-            X.isna().sum().sum()
-        )
-
-        # ============================================================
-        # MEDIAN IMPUTATION
-        # ============================================================
-
-        for col in X.columns:
-
-            if X[col].isna().any():
-
-                median_value = X[col].median()
-
-                if pd.isna(median_value):
-
-                    median_value = 0.0
-
-                X[col] = X[col].fillna(
-                    median_value
+                raise ValueError(
+                    "patient_data DataFrame is empty."
                 )
 
-        # ============================================================
-        # FINAL SAFETY CHECK
-        # ============================================================
+            data = patient_data.iloc[
+                0
+            ].to_dict()
 
-        X = X.replace(
-            [np.inf, -np.inf],
-            np.nan
-        )
+        else:
 
-        X = X.fillna(0.0)
-
-        # ============================================================
-        # QUALITY
-        # ============================================================
-
-        total_features = max(
-            len(X.columns),
-            1
-        )
-
-        quality = max(
-            0.0,
-            1.0
-            - (
-                missing_before
-                /
-                total_features
+            raise TypeError(
+                "patient_data must be a "
+                "dict or pandas DataFrame."
             )
+
+        missing = [
+            feature
+            for feature in required_features
+            if feature not in data
+        ]
+
+        if missing:
+
+            raise ValueError(
+                "Missing Clinical Reasoning "
+                f"features: {missing}"
+            )
+
+        row = {
+            feature: float(data[feature])
+            for feature in required_features
+        }
+
+        return pd.DataFrame(
+            [row],
+            columns=required_features
         )
 
-        return X, missing_before, quality
-
-    # ================================================================
+    # ==========================================================
     # PREDICT
-    # ================================================================
+    # ==========================================================
 
     def predict(self, patient_data):
 
-        try:
+        if self.model is None:
 
-            # ========================================================
-            # PREPARE DATA
-            # ========================================================
-
-            X, missing_count, quality = (
-                self._prepare_input(
-                    patient_data
-                )
+            raise RuntimeError(
+                "Clinical Reasoning model is not loaded."
             )
 
-            # ========================================================
-            # NUMPY
-            # ========================================================
+        df = self.prepare_input(
+            patient_data
+        )
 
-            X_np = X.values.astype(
-                np.float32
+        prediction = self.model.predict(
+            df
+        )
+
+        prediction_columns = [
+            c
+            for c in prediction.columns
+            if "prediction" in c.lower()
+        ]
+
+        if not prediction_columns:
+
+            raise RuntimeError(
+                "No prediction column returned "
+                "by TabTransformer."
             )
 
-            # ========================================================
-            # MODEL PREDICTION
-            # ========================================================
+        prediction_column = (
+            prediction_columns[0]
+        )
 
-            raw_prediction = self.model.predict(
-                X_np
-            )
+        predicted_class = int(
+            prediction[
+                prediction_column
+            ].iloc[0]
+        )
 
-            # ========================================================
-            # HANDLE PREDICTION SHAPE
-            # ========================================================
+        probability_columns = [
+            c
+            for c in prediction.columns
+            if "probability" in c.lower()
+        ]
 
-            raw_prediction = np.asarray(
-                raw_prediction
-            )
+        probabilities = {}
 
-            if raw_prediction.ndim > 1:
-
-                raw_prediction = (
-                    raw_prediction.reshape(-1)
-                )
-
-            prediction_raw = raw_prediction[0]
-
-            # ========================================================
-            # CONVERT PREDICTION
-            # ========================================================
+        for column in probability_columns:
 
             try:
 
-                prediction_encoded = int(
-                    prediction_raw
+                probabilities[column] = float(
+                    prediction[
+                        column
+                    ].iloc[0]
                 )
 
             except Exception:
 
-                prediction_encoded = prediction_raw
+                pass
 
-            # ========================================================
-            # PROBABILITIES
-            # ========================================================
+        if predicted_class == 1:
 
-            probabilities = None
+            interpretation = (
+                "Clinical profile classified "
+                "in class 1."
+            )
 
-            if hasattr(
-                self.model,
-                "predict_proba"
-            ):
+        else:
 
-                try:
+            interpretation = (
+                "Clinical profile classified "
+                "in class 0."
+            )
 
-                    probabilities = (
-                        self.model
-                        .predict_proba(X_np)
-                    )
+        return {
 
-                    probabilities = np.asarray(
-                        probabilities
-                    )
+            "agent": self.name,
 
-                    if probabilities.ndim > 1:
+            "prediction": predicted_class,
 
-                        probabilities = (
-                            probabilities[0]
-                        )
+            "class": predicted_class,
 
-                    else:
+            "probabilities": probabilities,
 
-                        probabilities = (
-                            probabilities.reshape(-1)
-                        )
+            "interpretation": interpretation,
 
-                except Exception:
+            "features": df.iloc[0].to_dict()
 
-                    probabilities = None
+        }
 
-            # ========================================================
-            # DECODE CLASS
-            # ========================================================
+    # ==========================================================
+    # HEALTH CHECK
+    # ==========================================================
 
-            if isinstance(
-                prediction_encoded,
-                (int, np.integer)
-            ):
+    def is_ready(self):
 
-                prediction_index = int(
-                    prediction_encoded
-                )
+        return self.model is not None
 
-                if (
-                    0 <= prediction_index
-                    < len(self.target_classes)
-                ):
+    # ==========================================================
+    # STRING REPRESENTATION
+    # ==========================================================
 
-                    prediction = str(
-                        self.target_classes[
-                            prediction_index
-                        ]
-                    )
+    def __repr__(self):
 
-                else:
-
-                    prediction = str(
-                        prediction_encoded
-                    )
-
-            else:
-
-                prediction = str(
-                    prediction_encoded
-                )
-
-            # ========================================================
-            # CONFIDENCE
-            # ========================================================
-
-            confidence = None
-            probability_list = None
-
-            if probabilities is not None:
-
-                probability_list = [
-                    float(x)
-                    for x in probabilities
-                ]
-
-                if len(probability_list) > 0:
-
-                    confidence = float(
-                        np.max(
-                            probabilities
-                        )
-                    )
-
-            # ========================================================
-            # UNCERTAINTY
-            # ========================================================
-
-            uncertainty = None
-
-            if confidence is not None:
-
-                uncertainty = float(
-                    1.0 - confidence
-                )
-
-            # ========================================================
-            # CLINICAL INTERPRETATION
-            # ========================================================
-
-            if prediction == "1":
-
-                interpretation = (
-                    "Clinical profile classified "
-                    "in class 1."
-                )
-
-            elif prediction == "0":
-
-                interpretation = (
-                    "Clinical profile classified "
-                    "in class 0."
-                )
-
-            else:
-
-                interpretation = (
-                    f"Clinical profile classified "
-                    f"in class {prediction}."
-                )
-
-            # ========================================================
-            # RESULT
-            # ========================================================
-
-            result = {
-
-                "agent": self.name,
-
-                "model_name": self.model_name,
-
-                "prediction": prediction,
-
-                "prediction_encoded": (
-                    int(prediction_encoded)
-                    if isinstance(
-                        prediction_encoded,
-                        (int, np.integer)
-                    )
-                    else str(
-                        prediction_encoded
-                    )
-                ),
-
-                "confidence": confidence,
-
-                "uncertainty": uncertainty,
-
-                "probabilities": probability_list,
-
-                "target_name": self.target_name,
-
-                "target_classes": [
-                    str(x)
-                    for x in self.target_classes
-                ],
-
-                "quality": float(
-                    quality
-                ),
-
-                "missing_features": int(
-                    missing_count
-                ),
-
-                "interpretation": interpretation,
-
-                "status": "success"
-            }
-
-            return result
-
-        # ============================================================
-        # ERROR HANDLING
-        # ============================================================
-
-        except Exception as e:
-
-            return {
-
-                "agent": self.name,
-
-                "model_name": self.model_name,
-
-                "prediction": None,
-
-                "prediction_encoded": None,
-
-                "confidence": None,
-
-                "uncertainty": None,
-
-                "probabilities": None,
-
-                "target_name": self.target_name,
-
-                "target_classes": [
-                    str(x)
-                    for x in self.target_classes
-                ],
-
-                "quality": 0.0,
-
-                "missing_features": None,
-
-                "interpretation": (
-                    "Clinical reasoning prediction "
-                    "could not be completed."
-                ),
-
-                "status": "error",
-
-                "error": str(e)
-            }
+        return (
+            f"{self.__class__.__name__}("
+            f"model_loaded={self.model is not None})"
+        )
