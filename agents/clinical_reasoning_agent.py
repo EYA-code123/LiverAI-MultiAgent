@@ -1,9 +1,5 @@
-from pathlib import Path
+%%writefile /content/LiverAI-MultiAgent/agents/clinical_reasoning_agent.py
 
-ROOT = Path("/content/LiverAI-MultiAgent")
-agent_file = ROOT / "agents" / "clinical_reasoning_agent.py"
-
-code = r'''
 import os
 import numpy as np
 import pandas as pd
@@ -12,10 +8,6 @@ from pytorch_tabular import TabularModel
 
 
 class ClinicalReasoningAgent:
-    """
-    Clinical Reasoning Agent basé sur le TabTransformer
-    entraîné avec PyTorch Tabular sur le dataset BUPA.
-    """
 
     FEATURE_COLUMNS = [
         "mcv",
@@ -23,191 +15,272 @@ class ClinicalReasoningAgent:
         "sgpt",
         "sgot",
         "gammagt",
-        "drinks",
+        "drinks"
     ]
 
     def __init__(self, model_package):
-        """
-        Parameters
-        ----------
-        model_package : str
-            Chemin vers le dossier contenant le modèle
-            PyTorch Tabular sauvegardé.
-        """
+
+        self.name = "ClinicalReasoningAgent"
+
+        # ============================================================
+        # VALIDATION DU CHEMIN DU MODÈLE
+        # ============================================================
+
+        if model_package is None:
+            raise ValueError(
+                "ClinicalReasoningAgent: model_package cannot be None."
+            )
 
         if not isinstance(model_package, (str, os.PathLike)):
             raise TypeError(
-                "ClinicalReasoningAgent: model_package doit être "
-                "le chemin du dossier du modèle PyTorch Tabular."
+                "ClinicalReasoningAgent: model_package must be "
+                "a path to the TabTransformer model directory."
             )
 
         self.model_path = os.fspath(model_package)
 
         if not os.path.isdir(self.model_path):
             raise FileNotFoundError(
-                f"❌ Dossier du modèle introuvable : {self.model_path}"
+                f"ClinicalReasoningAgent: model directory not found:\n"
+                f"{self.model_path}"
             )
 
-        required_files = [
-            "config.yml",
-            "datamodule.sav",
-            "callbacks.sav",
-            "model.ckpt",
-            "custom_params.sav",
-        ]
+        # ============================================================
+        # CHARGEMENT DU TABTRANSFORMER
+        # ============================================================
 
-        missing = [
-            filename
-            for filename in required_files
-            if not os.path.exists(
-                os.path.join(self.model_path, filename)
-            )
-        ]
-
-        if missing:
-            raise FileNotFoundError(
-                "❌ Fichiers du modèle manquants : "
-                + ", ".join(missing)
-            )
-
-        print("Loading Clinical Reasoning TabTransformer...")
+        print(
+            f"Loading Clinical Reasoning model from:\n"
+            f"{self.model_path}"
+        )
 
         self.model = TabularModel.load_model(self.model_path)
 
-        print(f"✓ Clinical Reasoning model loaded")
-        print(f"✓ Model path: {self.model_path}")
+        self.model_name = "TabTransformer"
 
-    def _prepare_input(self, patient_data):
-        """
-        Prépare les données d'entrée dans exactement le même
-        format que pendant l'entraînement.
-        """
+        # ============================================================
+        # FEATURES
+        # ============================================================
+
+        self.feature_names = self.FEATURE_COLUMNS.copy()
+
+        self.numerical_columns = self.FEATURE_COLUMNS.copy()
+
+        self.categorical_columns = []
+
+        # ============================================================
+        # TARGET
+        # ============================================================
+
+        self.target_name = "selector"
+
+        self.target_classes = [0, 1]
+
+        print("✓ ClinicalReasoningAgent initialized")
+        print(f"✓ Model: {self.model_name}")
+        print(f"✓ Features: {self.feature_names}")
+
+    # ================================================================
+    # CREATE DATAFRAME
+    # ================================================================
+
+    def _create_dataframe(self, patient_data):
+
+        # ------------------------------------------------------------
+        # Déjà un DataFrame
+        # ------------------------------------------------------------
 
         if isinstance(patient_data, pd.DataFrame):
+
             df = patient_data.copy()
 
+        # ------------------------------------------------------------
+        # Dictionnaire
+        # ------------------------------------------------------------
+
         elif isinstance(patient_data, dict):
+
             df = pd.DataFrame([patient_data])
 
-        elif isinstance(patient_data, (list, tuple, np.ndarray)):
-            values = np.asarray(patient_data).reshape(-1)
+        # ------------------------------------------------------------
+        # Liste / tuple / numpy array
+        # ------------------------------------------------------------
 
-            if len(values) != len(self.FEATURE_COLUMNS):
-                raise ValueError(
-                    f"❌ Nombre de variables incorrect : "
-                    f"{len(values)} reçues, "
-                    f"{len(self.FEATURE_COLUMNS)} attendues."
+        elif isinstance(patient_data, (list, tuple, np.ndarray)):
+
+            values = np.asarray(patient_data)
+
+            if values.ndim == 1:
+
+                if len(values) != len(self.FEATURE_COLUMNS):
+                    raise ValueError(
+                        f"Expected {len(self.FEATURE_COLUMNS)} clinical "
+                        f"features, got {len(values)}."
+                    )
+
+                df = pd.DataFrame(
+                    [values],
+                    columns=self.FEATURE_COLUMNS
                 )
 
-            df = pd.DataFrame(
-                [values],
-                columns=self.FEATURE_COLUMNS
-            )
+            elif values.ndim == 2:
+
+                if values.shape[1] != len(self.FEATURE_COLUMNS):
+                    raise ValueError(
+                        f"Expected {len(self.FEATURE_COLUMNS)} columns, "
+                        f"got {values.shape[1]}."
+                    )
+
+                df = pd.DataFrame(
+                    values,
+                    columns=self.FEATURE_COLUMNS
+                )
+
+            else:
+
+                raise ValueError(
+                    "patient_data must be 1D or 2D."
+                )
 
         else:
+
             raise TypeError(
-                "patient_data doit être un dictionnaire, "
-                "DataFrame, liste, tuple ou numpy array."
+                "patient_data must be a pandas DataFrame, dict, "
+                "list, tuple, or numpy array."
             )
 
+        # ============================================================
+        # VÉRIFICATION DES FEATURES
+        # ============================================================
+
         missing = [
-            col
-            for col in self.FEATURE_COLUMNS
+            col for col in self.FEATURE_COLUMNS
             if col not in df.columns
         ]
 
         if missing:
             raise ValueError(
-                "❌ Variables cliniques manquantes : "
+                "Missing clinical features: "
                 + ", ".join(missing)
             )
 
+        # ============================================================
+        # GARDER UNIQUEMENT LES FEATURES DU MODÈLE
+        # ============================================================
+
         df = df[self.FEATURE_COLUMNS].copy()
 
+        # ============================================================
+        # CONVERSION NUMÉRIQUE
+        # ============================================================
+
         for col in self.FEATURE_COLUMNS:
+
             df[col] = pd.to_numeric(
                 df[col],
-                errors="raise"
+                errors="coerce"
+            )
+
+        # ============================================================
+        # VÉRIFICATION DES VALEURS MANQUANTES
+        # ============================================================
+
+        if df.isnull().any().any():
+
+            missing_values = df.columns[
+                df.isnull().any()
+            ].tolist()
+
+            raise ValueError(
+                "Missing or invalid values detected in: "
+                + ", ".join(missing_values)
             )
 
         return df
 
+    # ================================================================
+    # PREDICT
+    # ================================================================
+
     def predict(self, patient_data):
-        """
-        Effectue une prédiction clinique.
 
-        Returns
-        -------
-        dict
-            Résultat contenant la classe prédite et les probabilités.
-        """
+        # ------------------------------------------------------------
+        # Préparation
+        # ------------------------------------------------------------
 
-        df = self._prepare_input(patient_data)
+        df = self._create_dataframe(patient_data)
 
-        prediction_df = self.model.predict(df)
+        # ------------------------------------------------------------
+        # Prédiction TabTransformer
+        # ------------------------------------------------------------
 
-        # Trouver automatiquement la colonne de prédiction
+        prediction = self.model.predict(df)
+
+        # ------------------------------------------------------------
+        # Identifier les colonnes générées
+        # ------------------------------------------------------------
+
         prediction_columns = [
             col
-            for col in prediction_df.columns
+            for col in prediction.columns
             if "prediction" in col.lower()
         ]
 
-        if not prediction_columns:
-            raise RuntimeError(
-                "❌ Colonne de prédiction introuvable dans "
-                "la sortie PyTorch Tabular."
-            )
-
-        prediction_column = prediction_columns[0]
-
-        prediction = int(
-            prediction_df[prediction_column].iloc[0]
-        )
-
-        result = {
-            "prediction": prediction
-        }
-
-        # Récupération des probabilités
         probability_columns = [
             col
-            for col in prediction_df.columns
+            for col in prediction.columns
             if "probability" in col.lower()
         ]
 
+        # ------------------------------------------------------------
+        # Prediction
+        # ------------------------------------------------------------
+
+        if prediction_columns:
+
+            predicted_class = int(
+                prediction[prediction_columns[0]].iloc[0]
+            )
+
+        else:
+
+            raise RuntimeError(
+                "TabTransformer prediction column not found."
+            )
+
+        # ------------------------------------------------------------
+        # Probabilités
+        # ------------------------------------------------------------
+
+        probabilities = {}
+
         for col in probability_columns:
-            value = prediction_df[col].iloc[0]
 
             try:
-                result[col] = float(value)
-            except (TypeError, ValueError):
-                pass
+                value = float(prediction[col].iloc[0])
+            except Exception:
+                continue
 
-        # Informations lisibles
-        if "selector_0_probability" in result:
-            result["probability_class_0"] = result[
-                "selector_0_probability"
-            ]
+            probabilities[col] = value
 
-        if "selector_1_probability" in result:
-            result["probability_class_1"] = result[
-                "selector_1_probability"
-            ]
+        # ------------------------------------------------------------
+        # Résultat
+        # ------------------------------------------------------------
 
-        result["model"] = "TabTransformer-BUPA"
+        result = {
+            "agent": self.name,
+            "model": self.model_name,
+            "prediction": predicted_class,
+            "probabilities": probabilities,
+            "status": "success"
+        }
 
         return result
 
+    # ================================================================
+    # ANALYZE
+    # ================================================================
+
     def analyze(self, patient_data):
-        """
-        Alias utilisé par l'orchestrateur.
-        """
+
         return self.predict(patient_data)
-'''
-
-agent_file.parent.mkdir(parents=True, exist_ok=True)
-agent_file.write_text(code.strip() + "\n", encoding="utf-8")
-
-print("✓ clinical_reasoning_agent.py remplacé")
-print(agent_file)
