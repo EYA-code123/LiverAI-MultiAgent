@@ -1,13 +1,9 @@
 # =============================================================================
-# 🔧 CORRECTION COMPLÈTE — CIRRHOSIS AGENT
+# CIRRHOSIS AGENT - VERSION ROBUSTE
 # =============================================================================
 
-from pathlib import Path
-
-agent_file = Path("/content/agents/cirrhosis_agent.py")
-
-code = r'''
 import os
+import time
 import numpy as np
 import pandas as pd
 import joblib
@@ -17,130 +13,231 @@ class CirrhosisAgent:
     """
     Agent de classification de la cirrhose.
 
-    Le modèle est sauvegardé sous forme de package contenant :
-      - model
-      - feature_names
-      - categorical_columns
-      - numerical_columns
-      - encoders
-      - target_encoder
+    Compatible avec :
+        1. un package dict contenant :
+           {
+               "model": model,
+               "feature_names": [...],
+               "categorical_columns": [...],
+               "numerical_columns": [...],
+               "encoders": {...},
+               "target_encoder": ...
+           }
+
+        2. un modèle directement sauvegardé.
     """
 
     def __init__(self, model_path):
+        if not isinstance(model_path, (str, os.PathLike)):
+            raise TypeError(
+                "model_path doit être un chemin vers le modèle."
+            )
+
         if not os.path.exists(model_path):
             raise FileNotFoundError(
-                f"Cirrhosis model not found: {model_path}"
+                f"Cirrhosis model not found:\n{model_path}"
             )
 
-        self.model_path = model_path
+        self.model_path = str(model_path)
 
         # ---------------------------------------------------------------------
-        # Chargement du package
+        # Chargement
         # ---------------------------------------------------------------------
-        package = joblib.load(model_path)
+        self._load_model()
 
-        if not isinstance(package, dict):
-            raise TypeError(
-                "Invalid cirrhosis model: expected a dictionary package."
-            )
-
-        # ---------------------------------------------------------------------
-        # Récupération du vrai modèle
-        # ---------------------------------------------------------------------
-        self.model = package.get("model")
-
-        if self.model is None:
-            raise ValueError(
-                "Invalid cirrhosis model: key 'model' is missing."
-            )
-
-        if not hasattr(self.model, "predict"):
-            raise TypeError(
-                "Invalid cirrhosis model: package['model'] "
-                "does not provide a predict() method."
-            )
-
-        # ---------------------------------------------------------------------
-        # Métadonnées du modèle
-        # ---------------------------------------------------------------------
-        self.feature_names = package.get("feature_names", [])
-
-        self.categorical_columns = package.get(
-            "categorical_columns", []
-        )
-
-        self.numerical_columns = package.get(
-            "numerical_columns", []
-        )
-
-        self.encoders = package.get(
-            "encoders", {}
-        )
-
-        self.target_encoder = package.get(
-            "target_encoder", None
-        )
-
-        print("✅ CirrhosisAgent initialized")
-        print(f"   Model       : {type(self.model).__name__}")
-        print(f"   Features    : {len(self.feature_names)}")
-        print(f"   Categorical : {len(self.categorical_columns)}")
-        print(f"   Numerical   : {len(self.numerical_columns)}")
+        print("=" * 70)
+        print("CIRRHOSIS AGENT INITIALIZED")
+        print("=" * 70)
+        print(f"Model path : {self.model_path}")
+        print(f"Model type : {type(self.model).__name__}")
+        print(f"Features   : {len(self.feature_names)}")
+        print("=" * 70)
 
     # =========================================================================
-    # PREPROCESSING
+    # LOAD MODEL
+    # =========================================================================
+
+    def _load_model(self):
+
+        try:
+            package = joblib.load(self.model_path)
+
+        except Exception as e:
+            raise RuntimeError(
+                "\nImpossible de charger le modèle Cirrhosis.\n"
+                f"Fichier : {self.model_path}\n"
+                f"Erreur  : {type(e).__name__}: {e}\n\n"
+                "Le problème vient probablement du fichier .pkl "
+                "lui-même et non de CirrhosisAgent."
+            ) from e
+
+        # ---------------------------------------------------------------------
+        # CAS 1 : package
+        # ---------------------------------------------------------------------
+        if isinstance(package, dict):
+
+            self.model = package.get("model")
+
+            if self.model is None:
+                raise ValueError(
+                    "Le package Cirrhosis ne contient pas la clé 'model'."
+                )
+
+            self.feature_names = package.get(
+                "feature_names",
+                []
+            )
+
+            self.categorical_columns = package.get(
+                "categorical_columns",
+                []
+            )
+
+            self.numerical_columns = package.get(
+                "numerical_columns",
+                []
+            )
+
+            self.encoders = package.get(
+                "encoders",
+                {}
+            )
+
+            self.target_encoder = package.get(
+                "target_encoder",
+                None
+            )
+
+        # ---------------------------------------------------------------------
+        # CAS 2 : modèle directement sauvegardé
+        # ---------------------------------------------------------------------
+        else:
+
+            self.model = package
+
+            self.feature_names = []
+            self.categorical_columns = []
+            self.numerical_columns = []
+            self.encoders = {}
+            self.target_encoder = None
+
+            # Essayer de récupérer les features depuis XGBoost
+            try:
+
+                if hasattr(self.model, "feature_names_in_"):
+
+                    self.feature_names = list(
+                        self.model.feature_names_in_
+                    )
+
+                elif hasattr(self.model, "get_booster"):
+
+                    booster = self.model.get_booster()
+
+                    if booster.feature_names is not None:
+                        self.feature_names = list(
+                            booster.feature_names
+                        )
+
+            except Exception:
+                pass
+
+        # ---------------------------------------------------------------------
+        # Vérification
+        # ---------------------------------------------------------------------
+        if not hasattr(self.model, "predict"):
+            raise TypeError(
+                "L'objet chargé n'est pas un modèle compatible "
+                "avec predict()."
+            )
+
+    # =========================================================================
+    # DATA PREPARATION
     # =========================================================================
 
     def _prepare_dataframe(self, data):
-        """
-        Prépare les données exactement selon les métadonnées
-        enregistrées avec le modèle.
-        """
 
+        # ---------------------------------------------------------------------
         # DataFrame
+        # ---------------------------------------------------------------------
         if isinstance(data, pd.DataFrame):
+
             df = data.copy()
 
-        # Dictionnaire
+        # ---------------------------------------------------------------------
+        # Dict
+        # ---------------------------------------------------------------------
         elif isinstance(data, dict):
+
             df = pd.DataFrame([data])
 
-        # Liste / array
+        # ---------------------------------------------------------------------
+        # Array / list
+        # ---------------------------------------------------------------------
         else:
+
             arr = np.asarray(data)
 
             if arr.ndim == 1:
                 arr = arr.reshape(1, -1)
 
-            if self.feature_names and arr.shape[1] == len(self.feature_names):
+            if self.feature_names:
+
+                if arr.shape[1] != len(self.feature_names):
+
+                    raise ValueError(
+                        f"Nombre de features incorrect.\n"
+                        f"Reçu       : {arr.shape[1]}\n"
+                        f"Attendu    : {len(self.feature_names)}\n"
+                        f"Features   : {self.feature_names}"
+                    )
+
                 df = pd.DataFrame(
                     arr,
                     columns=self.feature_names
                 )
+
             else:
+
                 df = pd.DataFrame(arr)
 
         # ---------------------------------------------------------------------
-        # Supprimer éventuellement la target si elle est fournie
+        # Supprimer target
         # ---------------------------------------------------------------------
-        if "Stage" in df.columns:
-            df = df.drop(columns=["Stage"])
+        target_columns = [
+            "Stage",
+            "stage",
+            "target",
+            "Target"
+        ]
+
+        for col in target_columns:
+
+            if col in df.columns:
+                df = df.drop(columns=[col])
 
         # ---------------------------------------------------------------------
-        # Ajouter les colonnes manquantes
-        # ---------------------------------------------------------------------
-        for col in self.feature_names:
-            if col not in df.columns:
-                df[col] = np.nan
-
-        # ---------------------------------------------------------------------
-        # Garder exactement les features du modèle
+        # Vérification / ajout des features
         # ---------------------------------------------------------------------
         if self.feature_names:
+
+            missing = [
+                col
+                for col in self.feature_names
+                if col not in df.columns
+            ]
+
+            if missing:
+
+                raise ValueError(
+                    "Features Cirrhosis manquantes : "
+                    + ", ".join(missing)
+                )
+
             df = df[self.feature_names]
 
         # ---------------------------------------------------------------------
-        # Encodage des variables catégorielles
+        # Encodage catégoriel
         # ---------------------------------------------------------------------
         for col in self.categorical_columns:
 
@@ -152,23 +249,33 @@ class CirrhosisAgent:
             if encoder is None:
                 continue
 
-            # Convertir en chaîne pour correspondre au training
             values = df[col].astype(str)
 
             try:
+
                 df[col] = encoder.transform(values)
 
-            except ValueError:
-                # Gestion des catégories inconnues
-                classes = list(encoder.classes_)
+            except Exception:
+
+                classes = list(
+                    getattr(
+                        encoder,
+                        "classes_",
+                        []
+                    )
+                )
 
                 mapping = {
-                    str(v): i
-                    for i, v in enumerate(classes)
+                    str(value): index
+                    for index, value in enumerate(classes)
                 }
 
-                # Catégorie inconnue -> -1
-                df[col] = values.map(mapping).fillna(-1).astype(float)
+                df[col] = (
+                    values
+                    .map(mapping)
+                    .fillna(-1)
+                    .astype(float)
+                )
 
         # ---------------------------------------------------------------------
         # Conversion numérique
@@ -176,103 +283,206 @@ class CirrhosisAgent:
         for col in self.numerical_columns:
 
             if col in df.columns:
+
                 df[col] = pd.to_numeric(
                     df[col],
                     errors="coerce"
                 )
 
-        # ---------------------------------------------------------------------
-        # Remplacement des NaN
-        #
-        # Le modèle XGBoost peut généralement gérer les NaN directement.
-        # On conserve donc les valeurs manquantes.
-        # ---------------------------------------------------------------------
-
         return df
 
     # =========================================================================
-    # PREDICTION
+    # PREDICT
     # =========================================================================
 
     def predict(self, data):
-        """
-        Effectue une prédiction.
 
-        Retourne un dictionnaire standardisé utilisable
-        par le coordinator.
-        """
+        start_time = time.perf_counter()
 
-        df = self._prepare_dataframe(data)
+        try:
 
-        # ---------------------------------------------------------------------
-        # Prediction
-        # ---------------------------------------------------------------------
-        prediction_encoded = self.model.predict(df)
+            df = self._prepare_dataframe(data)
 
-        prediction_encoded = np.asarray(
-            prediction_encoded
-        ).reshape(-1)
+            # ---------------------------------------------------------------
+            # Prediction
+            # ---------------------------------------------------------------
+            raw_prediction = self.model.predict(df)
 
-        prediction = prediction_encoded[0]
+            raw_prediction = np.asarray(
+                raw_prediction
+            ).reshape(-1)
 
-        # ---------------------------------------------------------------------
-        # Probabilités
-        # ---------------------------------------------------------------------
-        probability = None
+            prediction = raw_prediction[0]
 
-        if hasattr(self.model, "predict_proba"):
+            # ---------------------------------------------------------------
+            # Probability
+            # ---------------------------------------------------------------
+            probability = None
+            class_probabilities = None
 
-            probabilities = self.model.predict_proba(df)
+            if hasattr(self.model, "predict_proba"):
 
-            probabilities = np.asarray(
-                probabilities
+                try:
+
+                    probabilities = self.model.predict_proba(df)
+
+                    probabilities = np.asarray(
+                        probabilities
+                    )
+
+                    if probabilities.ndim == 2:
+
+                        class_probabilities = (
+                            probabilities[0]
+                            .astype(float)
+                            .tolist()
+                        )
+
+                        probability = float(
+                            np.max(probabilities[0])
+                        )
+
+                except Exception:
+                    probability = None
+
+            # ---------------------------------------------------------------
+            # Target decoding
+            # ---------------------------------------------------------------
+            predicted_label = prediction
+
+            if self.target_encoder is not None:
+
+                try:
+
+                    predicted_label = (
+                        self.target_encoder
+                        .inverse_transform(
+                            [int(prediction)]
+                        )[0]
+                    )
+
+                except Exception:
+                    predicted_label = prediction
+
+            # ---------------------------------------------------------------
+            # Convert numpy values
+            # ---------------------------------------------------------------
+            if isinstance(
+                predicted_label,
+                np.generic
+            ):
+                predicted_label = predicted_label.item()
+
+            # ---------------------------------------------------------------
+            # Confidence
+            # ---------------------------------------------------------------
+            confidence = (
+                probability
+                if probability is not None
+                else 0.0
             )
 
-            if probabilities.ndim == 2:
-                probability = float(
-                    np.max(probabilities[0])
-                )
+            # ---------------------------------------------------------------
+            # Latency
+            # ---------------------------------------------------------------
+            latency_ms = (
+                time.perf_counter() - start_time
+            ) * 1000
 
-        # ---------------------------------------------------------------------
-        # Décodage de la classe
-        # ---------------------------------------------------------------------
-        predicted_label = prediction
+            return {
 
-        if self.target_encoder is not None:
+                "agent": "CirrhosisAgent",
 
-            try:
-                predicted_label = self.target_encoder.inverse_transform(
-                    [int(prediction)]
-                )[0]
+                "task_type":
+                    "cirrhosis_classification",
 
-            except Exception:
-                predicted_label = prediction
+                "model":
+                    type(self.model).__name__,
 
-        # ---------------------------------------------------------------------
-        # Confiance
-        # ---------------------------------------------------------------------
-        confidence = probability if probability is not None else 0.0
+                "prediction":
+                    predicted_label,
 
-        return {
-            "prediction": predicted_label,
-            "predicted_label": predicted_label,
-            "probability": probability,
-            "confidence": confidence,
-            "agent": "cirrhosis",
-            "status": "success"
-        }
+                "predicted_label":
+                    predicted_label,
+
+                "probability":
+                    probability,
+
+                "confidence":
+                    confidence,
+
+                "class_probabilities":
+                    class_probabilities,
+
+                "features_used":
+                    list(df.columns),
+
+                "missing_data_ratio":
+                    float(
+                        df.isna()
+                        .mean()
+                        .mean()
+                    ),
+
+                "latency_ms":
+                    float(latency_ms),
+
+                "status":
+                    "success",
+
+                "error":
+                    None
+            }
+
+        except Exception as e:
+
+            latency_ms = (
+                time.perf_counter() - start_time
+            ) * 1000
+
+            return {
+
+                "agent":
+                    "CirrhosisAgent",
+
+                "task_type":
+                    "cirrhosis_classification",
+
+                "prediction":
+                    None,
+
+                "predicted_label":
+                    None,
+
+                "probability":
+                    None,
+
+                "confidence":
+                    0.0,
+
+                "class_probabilities":
+                    None,
+
+                "features_used":
+                    [],
+
+                "missing_data_ratio":
+                    None,
+
+                "latency_ms":
+                    float(latency_ms),
+
+                "status":
+                    "error",
+
+                "error":
+                    f"{type(e).__name__}: {e}"
+            }
 
     # =========================================================================
-    # ALIAS
+    # RUN
     # =========================================================================
 
     def run(self, data):
-        """Alias compatible avec l'orchestrateur."""
+
         return self.predict(data)
-'''
-
-agent_file.write_text(code, encoding="utf-8")
-
-print("=" * 80)
-print("✅ agents/cirrhosis_agent.py REMPLACÉ")
-print("=" * 80)
