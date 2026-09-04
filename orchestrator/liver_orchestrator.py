@@ -1,12 +1,4 @@
-def __init__(
-    self,
-    cirrhosis_agent=None,
-    fatty_liver_agent=None,
-    clinical_agent=None,
-    fibrosis_agent=None,
-    tumor_agent=None,
-    segmentation_agent=None,
-):
+def __init__(self):
 
     self.name = "LiverAI Multi-Agent Orchestrator"
 
@@ -14,208 +6,167 @@ def __init__(
     # MODEL PATHS
     # =========================================================================
 
-    DEFAULT_MODEL_PATHS = {
+    FATTY_MODEL_PATH = (
+        "/content/drive/MyDrive/"
+        "Fatty_Liver_Dataset/models/FattyLiver_LightGBM.pkl"
+    )
 
-        "fatty_liver":
-            "/content/drive/MyDrive/Fatty_Liver_Dataset/models/FattyLiver_LightGBM.pkl",
+    FIBROSIS_MODEL_PATH = (
+        "/content/drive/MyDrive/"
+        "Fibrosis Agent/XGBoost_model/xgboost_nafld.pkl"
+    )
 
-        "fibrosis":
-            "/content/drive/MyDrive/Fibrosis Agent/XGBoost_model/xgboost_nafld.pkl",
+    CIRRHOSIS_MODEL_PATH = (
+        "/content/drive/MyDrive/"
+        ".Cirrhosis Agent/XGBoost_model/"
+        "XGBoost_Cirrhosis_fixed.joblib"
+    )
 
-        "cirrhosis":
-            "/content/drive/MyDrive/.Cirrhosis Agent/XGBoost_model/XGBoost_Cirrhosis_fixed.joblib",
+    TUMOR_MODEL_PATH = (
+        "/content/drive/MyDrive/"
+        "models/tumor/efficientnet_b0_best.pth"
+    )
 
-        "tumor":
-            "/content/drive/MyDrive/models/tumor/efficientnet_b0_best.pth",
+    SEGMENTATION_MODEL_PATH = (
+        "/content/drive/MyDrive/"
+        "Liver Segmentation Agent/models/"
+        "SegResNet3D_Liver_best.pth"
+    )
 
-        "segmentation":
-            "/content/drive/MyDrive/Liver Segmentation Agent/models/SegResNet3D_Liver_best.pth",
-
-        "clinical":
-            "/content/drive/MyDrive/Clinical Reasoning Agent/tabtransformer_bupa",
-    }
-
-    # =========================================================================
-    # IMPORTS
-    # =========================================================================
-
-    import os
-    import joblib
-
-    from agents.fatty_liver_agent import FattyLiverAgent
-    from agents.fibrosis_agent import FibrosisAgent
-    from agents.cirrhosis_agent import CirrhosisAgent
-    from agents.tumor_classification_agent import TumorClassificationAgent
-    from agents.liver_segmentation_agent import LiverSegmentationAgent
-    from agents.clinical_reasoning_agent import ClinicalReasoningAgent
+    CLINICAL_MODEL_PATH = (
+        "/content/drive/MyDrive/"
+        "Clinical Reasoning Agent/tabtransformer_bupa"
+    )
 
     # =========================================================================
-    # FATY LIVER
+    # INITIALIZE AGENTS
     # =========================================================================
 
-    if fatty_liver_agent is None:
+    self.cirrhosis_agent = None
+    self.fatty_liver_agent = None
+    self.fibrosis_agent = None
+    self.tumor_agent = None
+    self.segmentation_agent = None
+    self.clinical_agent = None
 
-        path = DEFAULT_MODEL_PATHS["fatty_liver"]
+    # -------------------------------------------------------------------------
+    # FATIGUE / FATTY LIVER
+    # -------------------------------------------------------------------------
 
-        try:
+    try:
+        import joblib
+        from agents.fatty_liver_agent import FattyLiverAgent
 
-            print("\nLoading Fatty Liver Agent...")
+        fatty_model = joblib.load(FATTY_MODEL_PATH)
 
-            if not os.path.exists(path):
-                raise FileNotFoundError(path)
+        self.fatty_liver_agent = FattyLiverAgent(
+            fatty_model
+        )
 
-            model_package = joblib.load(path)
+        print("✓ Fatty Liver Agent loaded")
 
-            fatty_liver_agent = FattyLiverAgent(
-                model_package
-            )
+    except Exception as e:
+        print("✗ Fatty Liver Agent failed:")
+        print(f"  {type(e).__name__}: {e}")
 
-            print("✓ Fatty Liver Agent loaded")
-
-        except Exception as e:
-
-            print(f"✗ Fatty Liver Agent failed: {e}")
-
-    # =========================================================================
+    # -------------------------------------------------------------------------
     # FIBROSIS
-    # =========================================================================
+    # -------------------------------------------------------------------------
 
-    if fibrosis_agent is None:
+    try:
+        import joblib
+        from agents.fibrosis_agent import FibrosisAgent
 
-        path = DEFAULT_MODEL_PATHS["fibrosis"]
+        fibrosis_model = joblib.load(
+            FIBROSIS_MODEL_PATH
+        )
 
-        try:
+        self.fibrosis_agent = FibrosisAgent(
+            fibrosis_model
+        )
 
-            print("\nLoading Fibrosis Agent...")
+        print("✓ Fibrosis Agent loaded")
 
-            if not os.path.exists(path):
-                raise FileNotFoundError(path)
+    except Exception as e:
+        print("✗ Fibrosis Agent failed:")
+        print(f"  {type(e).__name__}: {e}")
 
-            model = joblib.load(path)
-
-            fibrosis_agent = FibrosisAgent(
-                model
-            )
-
-            print("✓ Fibrosis Agent loaded")
-
-        except Exception as e:
-
-            print(f"✗ Fibrosis Agent failed: {e}")
-
-    # =========================================================================
+    # -------------------------------------------------------------------------
     # CIRRHOSIS
-    # =========================================================================
+    # -------------------------------------------------------------------------
 
-    if cirrhosis_agent is None:
+    try:
+        from agents.cirrhosis_agent import CirrhosisAgent
 
-        path = DEFAULT_MODEL_PATHS["cirrhosis"]
+        self.cirrhosis_agent = CirrhosisAgent(
+            CIRRHOSIS_MODEL_PATH
+        )
 
-        try:
+        print("✓ Cirrhosis Agent loaded")
 
-            print("\nLoading Cirrhosis Agent...")
+    except Exception as e:
+        print("✗ Cirrhosis Agent failed:")
+        print(f"  {type(e).__name__}: {e}")
 
-            if not os.path.exists(path):
-                raise FileNotFoundError(path)
+    # -------------------------------------------------------------------------
+    # TUMOR CLASSIFICATION
+    # -------------------------------------------------------------------------
 
-            cirrhosis_agent = CirrhosisAgent(
-                path
-            )
+    try:
+        from agents.tumor_classification_agent import (
+            TumorClassificationAgent
+        )
 
-            print("✓ Cirrhosis Agent loaded")
+        self.tumor_agent = TumorClassificationAgent(
+            TUMOR_MODEL_PATH
+        )
 
-        except Exception as e:
+        print("✓ Tumor Classification Agent loaded")
 
-            print(f"✗ Cirrhosis Agent failed: {e}")
+    except Exception as e:
+        print("✗ Tumor Classification Agent failed:")
+        print(f"  {type(e).__name__}: {e}")
 
-    # =========================================================================
-    # TUMOR
-    # =========================================================================
+    # -------------------------------------------------------------------------
+    # LIVER SEGMENTATION
+    # -------------------------------------------------------------------------
 
-    if tumor_agent is None:
+    try:
+        from agents.liver_segmentation_agent import (
+            LiverSegmentationAgent
+        )
 
-        path = DEFAULT_MODEL_PATHS["tumor"]
+        self.segmentation_agent = LiverSegmentationAgent(
+            model_path=SEGMENTATION_MODEL_PATH
+        )
 
-        try:
+        print("✓ Liver Segmentation Agent loaded")
 
-            print("\nLoading Tumor Classification Agent...")
+    except Exception as e:
+        print("✗ Liver Segmentation Agent failed:")
+        print(f"  {type(e).__name__}: {e}")
 
-            if not os.path.exists(path):
-                raise FileNotFoundError(path)
-
-            tumor_agent = TumorClassificationAgent(
-                path
-            )
-
-            print("✓ Tumor Classification Agent loaded")
-
-        except Exception as e:
-
-            print(f"✗ Tumor Classification Agent failed: {e}")
-
-    # =========================================================================
-    # SEGMENTATION
-    # =========================================================================
-
-    if segmentation_agent is None:
-
-        path = DEFAULT_MODEL_PATHS["segmentation"]
-
-        try:
-
-            print("\nLoading Liver Segmentation Agent...")
-
-            if not os.path.exists(path):
-                raise FileNotFoundError(path)
-
-            segmentation_agent = LiverSegmentationAgent(
-                model_path=path
-            )
-
-            print("✓ Liver Segmentation Agent loaded")
-
-        except Exception as e:
-
-            print(f"✗ Liver Segmentation Agent failed: {e}")
-
-    # =========================================================================
+    # -------------------------------------------------------------------------
     # CLINICAL REASONING
-    # =========================================================================
+    # -------------------------------------------------------------------------
 
-    if clinical_agent is None:
+    try:
+        from agents.clinical_reasoning_agent import (
+            ClinicalReasoningAgent
+        )
 
-        path = DEFAULT_MODEL_PATHS["clinical"]
+        self.clinical_agent = ClinicalReasoningAgent(
+            CLINICAL_MODEL_PATH
+        )
 
-        try:
+        print("✓ Clinical Reasoning Agent loaded")
 
-            print("\nLoading Clinical Reasoning Agent...")
-
-            if not os.path.exists(path):
-                raise FileNotFoundError(path)
-
-            clinical_agent = ClinicalReasoningAgent(
-                path
-            )
-
-            print("✓ Clinical Reasoning Agent loaded")
-
-        except Exception as e:
-
-            print(f"✗ Clinical Reasoning Agent failed: {e}")
+    except Exception as e:
+        print("✗ Clinical Reasoning Agent failed:")
+        print(f"  {type(e).__name__}: {e}")
 
     # =========================================================================
-    # SAVE AGENTS
-    # =========================================================================
-
-    self.cirrhosis_agent = cirrhosis_agent
-    self.fatty_liver_agent = fatty_liver_agent
-    self.fibrosis_agent = fibrosis_agent
-    self.tumor_agent = tumor_agent
-    self.segmentation_agent = segmentation_agent
-    self.clinical_agent = clinical_agent
-
-    # =========================================================================
-    # REGISTRY
+    # AGENT REGISTRY
     # =========================================================================
 
     self.agents = {
@@ -240,7 +191,7 @@ def __init__(
     }
 
     # =========================================================================
-    # COORDINATION
+    # COORDINATION COMPONENTS
     # =========================================================================
 
     self.trust_manager = (
@@ -279,7 +230,7 @@ def __init__(
     # STATUS
     # =========================================================================
 
-    print("\n" + "=" * 80)
+    print("=" * 80)
     print("LIVERAI MULTI-AGENT ORCHESTRATOR")
     print("=" * 80)
 
