@@ -1,3 +1,4 @@
+```python
 from typing import Dict, Any
 from datetime import datetime
 
@@ -10,7 +11,9 @@ class LiverCoordinator:
             "fatty_liver": 1.0,
             "fibrosis": 1.0,
             "tumor": 1.0,
+            "tumor_classification": 1.0,
             "segmentation": 1.0,
+            "liver_segmentation": 1.0,
             "clinical_reasoning": 1.0,
         }
 
@@ -40,16 +43,19 @@ class LiverCoordinator:
 
             "coordination": {
                 "agents_received": list(normalized.keys()),
+
                 "successful_agents": [
                     name
                     for name, result in normalized.items()
                     if result["status"] == "success"
                 ],
+
                 "failed_agents": [
                     name
                     for name, result in normalized.items()
                     if result["status"] == "error"
                 ],
+
                 "unavailable_agents": [
                     name
                     for name, result in normalized.items()
@@ -132,6 +138,7 @@ class LiverCoordinator:
                     0.0,
                     min(1.0, float(confidence))
                 )
+
             except (ValueError, TypeError):
                 pass
 
@@ -142,6 +149,7 @@ class LiverCoordinator:
             try:
 
                 if isinstance(probability, (list, tuple)):
+
                     if len(probability) > 0:
                         return float(max(probability))
 
@@ -172,6 +180,7 @@ class LiverCoordinator:
             return {
                 "global_confidence": 0.0,
                 "level": "none",
+                "agents_used": 0,
             }
 
         values = [
@@ -221,12 +230,13 @@ class LiverCoordinator:
             and fibrosis["status"] == "success"
         ):
 
-            conflicts.append(
-                self._check_cirrhosis_fibrosis(
-                    cirrhosis,
-                    fibrosis
-                )
+            conflict = self._check_cirrhosis_fibrosis(
+                cirrhosis,
+                fibrosis
             )
+
+            if conflict is not None:
+                conflicts.append(conflict)
 
         # ------------------------------------------------------------
         # Fatty Liver vs other liver findings
@@ -234,26 +244,16 @@ class LiverCoordinator:
 
         fatty = results.get("fatty_liver")
 
-        if (
-            fatty
-            and fatty["status"] == "success"
-        ):
+        if fatty and fatty["status"] == "success":
 
-            conflicts.append(
-                self._check_fatty_liver(
-                    fatty,
-                    cirrhosis,
-                    fibrosis
-                )
+            conflict = self._check_fatty_liver(
+                fatty,
+                cirrhosis,
+                fibrosis
             )
 
-        # Remove empty conflicts
-
-        conflicts = [
-            conflict
-            for conflict in conflicts
-            if conflict is not None
-        ]
+            if conflict is not None:
+                conflicts.append(conflict)
 
         return conflicts
 
@@ -275,12 +275,16 @@ class LiverCoordinator:
 
         return {
             "type": "cross_agent_comparison",
+
             "agents": [
                 "cirrhosis",
                 "fibrosis"
             ],
+
             "cirrhosis_prediction": c,
+
             "fibrosis_prediction": f,
+
             "interpretation":
                 "Predictions originate from different models "
                 "and should be interpreted jointly rather than "
@@ -300,9 +304,11 @@ class LiverCoordinator:
 
         return {
             "type": "multimodal_context",
+
             "agents": [
                 "fatty_liver"
             ],
+
             "interpretation":
                 "Fatty liver prediction is treated as an "
                 "independent clinical finding."
@@ -328,3 +334,19 @@ class LiverCoordinator:
             }
 
         return context
+
+
+# ================================================================
+# BACKWARD COMPATIBILITY
+# ================================================================
+#
+# coordinator/__init__.py attend :
+#
+#     from coordinator.coordinator import LiverAICoordinator
+#
+# Notre classe principale s'appelle LiverCoordinator.
+# Cet alias permet donc aux deux noms de fonctionner.
+#
+
+LiverAICoordinator = LiverCoordinator
+```
