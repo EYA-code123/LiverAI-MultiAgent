@@ -1,4 +1,5 @@
 from coordinator.coordinator import (
+    LiverCoordinator,
     LiverAICoordinator
 )
 
@@ -39,24 +40,15 @@ from coordinator.feedback import (
 )
 
 __all__ = [
-
+    "LiverCoordinator",
     "LiverAICoordinator",
-
     "AdaptiveCoordinationPipeline",
-
     "TrustManager",
-
     "AdaptiveFusion",
-
     "ConflictDetector",
-
     "ConflictResolver",
-
     "EvidenceReasoner",
-
     "DecisionEngine",
-
     "ActionEngine",
-
     "FeedbackEngine"
 ]
