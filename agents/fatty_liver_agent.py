@@ -9,99 +9,78 @@ import pandas as pd
 
 class FattyLiverAgent:
 
-    def __init__(
-        self,
-        model_package
-    ):
-
-        self.name = (
-            "FattyLiverAgent"
-        )
-
-        self.model_name = (
-            model_package.get(
-                "model_name",
-                "LightGBM"
-            )
-        )
-
-        self.model = (
-            model_package["model"]
-        )
-
-        self.feature_names = list(
-            model_package.get(
-                "feature_names",
-                []
-            )
-        )
-
-        self.numerical_columns = list(
-            model_package.get(
-                "numerical_columns",
-                []
-            )
-        )
-
-        self.categorical_columns = list(
-            model_package.get(
-                "categorical_columns",
-                []
-            )
-        )
-
-        self.encoders = (
-            model_package.get(
-                "encoders",
-                {}
-            )
-        )
-
-        self.numerical_imputer = (
-            model_package.get(
-                "numerical_imputer"
-            )
-        )
-
-        self.target_name = (
-            model_package.get(
-                "target_name",
-                "status"
-            )
-        )
-
-        self.target_classes = list(
-            model_package.get(
-                "target_classes",
-                ["0", "1"]
-            )
-        )
-
     # =========================================================================
-    # DATAFRAME
+    # INITIALIZATION
     # =========================================================================
 
-    def _create_dataframe(
-        self,
-        patient_data
-    ):
+    def __init__(self, model_package):
 
-        if isinstance(
-            patient_data,
-            dict
-        ):
+        self.name = "FattyLiverAgent"
+
+        # ---------------------------------------------------------------------
+        # The current model is a complete sklearn Pipeline
+        # ---------------------------------------------------------------------
+
+        self.model = model_package
+
+        self.model_name = "LightGBM Pipeline"
+
+        # ---------------------------------------------------------------------
+        # Features used during training
+        # ---------------------------------------------------------------------
+
+        self.feature_names = [
+            "mcv",
+            "alkphos",
+            "sgpt",
+            "sgot",
+            "gammagt",
+            "drinks"
+        ]
+
+        self.numerical_columns = self.feature_names.copy()
+
+        self.categorical_columns = []
+
+        self.target_name = "selector"
+
+        # ---------------------------------------------------------------------
+        # Classes learned by LightGBM
+        # ---------------------------------------------------------------------
+
+        if hasattr(self.model, "classes_"):
+
+            self.target_classes = [
+                str(x)
+                for x in self.model.classes_
+            ]
+
+        else:
+
+            self.target_classes = [
+                "1",
+                "2"
+            ]
+
+    # =========================================================================
+    # DATAFRAME CREATION
+    # =========================================================================
+
+    def _create_dataframe(self, patient_data):
+
+        # Dictionary
+        if isinstance(patient_data, dict):
 
             return pd.DataFrame(
                 [patient_data]
             )
 
-        if isinstance(
-            patient_data,
-            pd.DataFrame
-        ):
+        # DataFrame
+        if isinstance(patient_data, pd.DataFrame):
 
             return patient_data.copy()
 
+        # Array / list
         return pd.DataFrame(
             [patient_data],
             columns=self.feature_names
@@ -111,185 +90,79 @@ class FattyLiverAgent:
     # PREDICT
     # =========================================================================
 
-    def predict(
-        self,
-        patient_data
-    ):
+    def predict(self, patient_data):
 
-        start_time = (
-            time.perf_counter()
-        )
+        start_time = time.perf_counter()
 
         try:
+
+            # -----------------------------------------------------------------
+            # CREATE DATAFRAME
+            # -----------------------------------------------------------------
 
             X = self._create_dataframe(
                 patient_data
             )
 
             # -----------------------------------------------------------------
-            # REMOVE TARGET
+            # REMOVE TARGET IF PRESENT
             # -----------------------------------------------------------------
 
             if self.target_name in X.columns:
 
                 X = X.drop(
-                    columns=[
-                        self.target_name
-                    ]
+                    columns=[self.target_name]
                 )
 
             # -----------------------------------------------------------------
-            # REMOVE UNKNOWN COLUMNS
+            # KEEP ONLY EXPECTED FEATURES
             # -----------------------------------------------------------------
 
-            if self.feature_names:
+            for feature in self.feature_names:
 
-                X = X[
-                    [
-                        col
+                if feature not in X.columns:
 
-                        for col
-                        in X.columns
+                    X[feature] = np.nan
 
-                        if col
-                        in self.feature_names
-                    ]
-                ]
-
-                # -------------------------------------------------------------
-                # ADD MISSING FEATURES
-                # -------------------------------------------------------------
-
-                missing_features = []
-
-                for col in self.feature_names:
-
-                    if col not in X.columns:
-
-                        X[col] = np.nan
-
-                        missing_features.append(
-                            col
-                        )
-
-            else:
-
-                missing_features = []
+            X = X[
+                self.feature_names
+            ].copy()
 
             # -----------------------------------------------------------------
-            # ORDER
+            # MISSING INFORMATION
             # -----------------------------------------------------------------
 
-            if self.feature_names:
+            total_values = X.shape[0] * len(
+                self.feature_names
+            )
 
-                X = X[
-                    self.feature_names
-                ].copy()
-
-            # -----------------------------------------------------------------
-            # MISSING RATIO
-            # -----------------------------------------------------------------
+            missing_values = X.isna().sum().sum()
 
             missing_ratio = float(
-                X.isna()
-                .sum()
-                .sum()
-                /
-                max(
-                    X.shape[1],
-                    1
-                )
+                missing_values /
+                max(total_values, 1)
             )
 
             # -----------------------------------------------------------------
-            # NUMERICAL IMPUTATION
+            # NUMERIC CONVERSION
             # -----------------------------------------------------------------
 
-            numerical_features = [
+            for feature in self.feature_names:
 
-                col
-
-                for col in
-                self.numerical_columns
-
-                if col in X.columns
-            ]
-
-            if (
-                self.numerical_imputer
-                is not None
-                and numerical_features
-            ):
-
-                X[
-                    numerical_features
-                ] = (
-                    self.numerical_imputer
-                    .transform(
-                        X[
-                            numerical_features
-                        ]
-                    )
+                X[feature] = pd.to_numeric(
+                    X[feature],
+                    errors="coerce"
                 )
 
             # -----------------------------------------------------------------
-            # CATEGORICAL ENCODING
+            # PREDICTION
+            #
+            # IMPORTANT:
+            # The sklearn Pipeline already contains the imputer.
+            # Therefore we DO NOT manually impute here.
             # -----------------------------------------------------------------
 
-            categorical_features = [
-
-                col
-
-                for col in
-                self.categorical_columns
-
-                if col in X.columns
-            ]
-
-            for col in categorical_features:
-
-                if col not in self.encoders:
-
-                    continue
-
-                encoder = (
-                    self.encoders[col]
-                )
-
-                values = (
-                    X[col].astype(str)
-                )
-
-                known_values = set(
-                    encoder.classes_
-                )
-
-                values = values.apply(
-
-                    lambda value:
-
-                    value
-
-                    if value
-                    in known_values
-
-                    else
-                    encoder.classes_[0]
-                )
-
-                X[col] = (
-                    encoder.transform(
-                        values
-                    )
-                )
-
-            # -----------------------------------------------------------------
-            # PREDICT
-            # -----------------------------------------------------------------
-
-            prediction_encoded = (
-                self.model.predict(X)[0]
-            )
+            prediction = self.model.predict(X)[0]
 
             # -----------------------------------------------------------------
             # PROBABILITIES
@@ -303,24 +176,28 @@ class FattyLiverAgent:
             ):
 
                 probabilities = (
-                    self.model
-                    .predict_proba(X)[0]
+                    self.model.predict_proba(X)[0]
                 )
+
+            # -----------------------------------------------------------------
+            # CONFIDENCE
+            # -----------------------------------------------------------------
 
             if probabilities is not None:
 
                 confidence = float(
-                    np.max(
-                        probabilities
-                    )
+                    np.max(probabilities)
                 )
 
-                class_probabilities = [
+                class_probabilities = {
+                    str(class_name): float(probability)
 
-                    float(x)
-
-                    for x in probabilities
-                ]
+                    for class_name, probability
+                    in zip(
+                        self.target_classes,
+                        probabilities
+                    )
+                }
 
             else:
 
@@ -328,178 +205,186 @@ class FattyLiverAgent:
 
                 class_probabilities = None
 
-            uncertainty = (
+            # -----------------------------------------------------------------
+            # UNCERTAINTY
+            # -----------------------------------------------------------------
+
+            uncertainty = float(
                 1.0 - confidence
+            )
+
+            # -----------------------------------------------------------------
+            # DATA QUALITY
+            # -----------------------------------------------------------------
+
+            quality = float(
+                1.0 - missing_ratio
             )
 
             quality = max(
                 0.0,
-                1.0 - missing_ratio
+                min(1.0, quality)
             )
 
             # -----------------------------------------------------------------
-            # DECODE
+            # EXECUTION TIME
             # -----------------------------------------------------------------
 
-            try:
-
-                encoded_int = int(
-                    prediction_encoded
-                )
-
-                if (
-                    0
-                    <= encoded_int
-                    <
-                    len(
-                        self.target_classes
-                    )
-                ):
-
-                    prediction = str(
-                        self.target_classes[
-                            encoded_int
-                        ]
-                    )
-
-                else:
-
-                    prediction = str(
-                        prediction_encoded
-                    )
-
-            except Exception:
-
-                prediction = str(
-                    prediction_encoded
-                )
-
-            latency_ms = (
+            inference_time = float(
                 time.perf_counter()
-                -
-                start_time
-            ) * 1000.0
+                - start_time
+            )
 
-            return {
+            # -----------------------------------------------------------------
+            # RESULT
+            # -----------------------------------------------------------------
 
-                "agent":
-                    self.name,
+            result = {
 
-                "task_type":
-                    "fatty_liver_classification",
+                "status": "success",
 
-                "model":
-                    self.model_name,
+                "agent": self.name,
 
-                "status":
-                    "success",
+                "model": self.model_name,
 
-                "prediction":
-                    prediction,
+                "prediction": str(
+                    prediction
+                ),
 
-                "probability":
-                    confidence,
+                "confidence": confidence,
 
-                "confidence":
-                    confidence,
+                "uncertainty": uncertainty,
 
-                "uncertainty":
-                    uncertainty,
+                "quality": quality,
 
-                "quality":
-                    quality,
-
-                "missing_data_ratio":
-                    missing_ratio,
-
-                "latency_ms":
-                    latency_ms,
+                "missing_ratio": missing_ratio,
 
                 "class_probabilities":
                     class_probabilities,
 
-                "details": {
+                "features_used":
+                    self.feature_names.copy(),
 
-                    "task_type":
-                        "fatty_liver_classification",
-
-                    "disease":
-                        "fatty_liver",
-
-                    "target":
-                        self.target_name,
-
-                    "classes":
-                        [
-                            str(x)
-
-                            for x
-                            in self.target_classes
-                        ],
-
-                    "features":
-                        self.feature_names,
-
-                    "missing_features":
-                        missing_features
-                },
-
-                "error":
-                    None
+                "inference_time":
+                    inference_time
             }
+
+            return result
+
+        # =====================================================================
+        # ERROR HANDLING
+        # =====================================================================
 
         except Exception as e:
 
-            latency_ms = (
+            inference_time = float(
                 time.perf_counter()
-                -
-                start_time
-            ) * 1000.0
+                - start_time
+            )
 
             return {
 
-                "agent":
-                    self.name,
+                "status": "error",
 
-                "task_type":
-                    "fatty_liver_classification",
+                "agent": self.name,
 
-                "model":
-                    self.model_name,
+                "model": self.model_name,
 
-                "status":
-                    "error",
+                "prediction": None,
 
-                "prediction":
-                    None,
+                "confidence": 0.0,
 
-                "probability":
-                    None,
+                "uncertainty": 1.0,
 
-                "confidence":
-                    0.0,
+                "quality": 0.0,
 
-                "uncertainty":
-                    1.0,
+                "missing_ratio": 1.0,
 
-                "quality":
-                    0.0,
+                "class_probabilities": None,
 
-                "missing_data_ratio":
-                    1.0,
+                "features_used":
+                    self.feature_names.copy(),
 
-                "latency_ms":
-                    latency_ms,
+                "inference_time":
+                    inference_time,
 
-                "details": {
-
-                    "task_type":
-                        "fatty_liver_classification",
-
-                    "disease":
-                        "fatty_liver"
-                },
-
-                "error":
-                    str(e)
+                "error": str(e)
             }
+
+    # =========================================================================
+    # RUN ALIAS
+    # =========================================================================
+
+    def run(self, patient_data):
+
+        return self.predict(
+            patient_data
+        )
+
+    # =========================================================================
+    # TEST
+    # =========================================================================
+
+    def test(self):
+
+        test_patient = {
+
+            "mcv": 85.0,
+
+            "alkphos": 85.0,
+
+            "sgpt": 45.0,
+
+            "sgot": 35.0,
+
+            "gammagt": 50.0,
+
+            "drinks": 5.0
+        }
+
+        result = self.predict(
+            test_patient
+        )
+
+        print("=" * 70)
+        print("FATTY LIVER AGENT TEST")
+        print("=" * 70)
+
+        print("\nStatus       :", result["status"])
+
+        print(
+            "Prediction   :",
+            result["prediction"]
+        )
+
+        print(
+            "Confidence   :",
+            result["confidence"]
+        )
+
+        print(
+            "Uncertainty  :",
+            result["uncertainty"]
+        )
+
+        print(
+            "Quality      :",
+            result["quality"]
+        )
+
+        print(
+            "Missing ratio:",
+            result["missing_ratio"]
+        )
+
+        print(
+            "Probabilities:",
+            result["class_probabilities"]
+        )
+
+        print(
+            "Time         :",
+            result["inference_time"]
+        )
+
+        return result
