@@ -9,6 +9,26 @@ class ClinicalReasoningAgent:
         self.name = "ClinicalReasoningAgent"
 
         # ============================================================
+        # VALIDATION DU MODEL PACKAGE
+        # ============================================================
+
+        if model_package is None:
+            raise ValueError(
+                "ClinicalReasoningAgent: model_package cannot be None."
+            )
+
+        if not isinstance(model_package, dict):
+            raise TypeError(
+                "ClinicalReasoningAgent: model_package must be a dictionary."
+            )
+
+        if "model" not in model_package:
+            raise KeyError(
+                "ClinicalReasoningAgent: 'model' is missing "
+                "from model_package."
+            )
+
+        # ============================================================
         # MODEL
         # ============================================================
 
@@ -53,9 +73,11 @@ class ClinicalReasoningAgent:
             "selector"
         )
 
-        self.target_classes = model_package.get(
-            "target_classes",
-            ["0", "1"]
+        self.target_classes = list(
+            model_package.get(
+                "target_classes",
+                ["0", "1"]
+            )
         )
 
     # ================================================================
@@ -64,26 +86,151 @@ class ClinicalReasoningAgent:
 
     def _create_dataframe(self, patient_data):
 
-        if isinstance(
-            patient_data,
-            dict
-        ):
+        if isinstance(patient_data, pd.DataFrame):
+
+            return patient_data.copy()
+
+        if isinstance(patient_data, dict):
 
             return pd.DataFrame(
                 [patient_data]
             )
 
-        if isinstance(
-            patient_data,
-            pd.DataFrame
-        ):
+        if patient_data is None:
 
-            return patient_data.copy()
+            return pd.DataFrame(
+                columns=self.feature_names
+            )
 
         return pd.DataFrame(
             [patient_data],
             columns=self.feature_names
         )
+
+    # ================================================================
+    # PREPARE INPUT
+    # ================================================================
+
+    def _prepare_input(self, patient_data):
+
+        X = self._create_dataframe(
+            patient_data
+        )
+
+        # ============================================================
+        # REMOVE TARGET
+        # ============================================================
+
+        if self.target_name in X.columns:
+
+            X = X.drop(
+                columns=[self.target_name]
+            )
+
+        # ============================================================
+        # REMOVE UNKNOWN COLUMNS
+        # ============================================================
+
+        unknown_columns = [
+            col
+            for col in X.columns
+            if col not in self.feature_names
+        ]
+
+        if unknown_columns:
+
+            X = X.drop(
+                columns=unknown_columns
+            )
+
+        # ============================================================
+        # ADD MISSING FEATURES
+        # ============================================================
+
+        for col in self.feature_names:
+
+            if col not in X.columns:
+
+                X[col] = np.nan
+
+        # ============================================================
+        # FINAL FEATURE ORDER
+        # ============================================================
+
+        if self.feature_names:
+
+            X = X[
+                self.feature_names
+            ].copy()
+
+        # ============================================================
+        # NUMERICAL CONVERSION
+        # ============================================================
+
+        for col in X.columns:
+
+            X[col] = pd.to_numeric(
+                X[col],
+                errors="coerce"
+            )
+
+        # ============================================================
+        # MISSING VALUES
+        # ============================================================
+
+        missing_before = int(
+            X.isna().sum().sum()
+        )
+
+        # ============================================================
+        # MEDIAN IMPUTATION
+        # ============================================================
+
+        for col in X.columns:
+
+            if X[col].isna().any():
+
+                median_value = X[col].median()
+
+                if pd.isna(median_value):
+
+                    median_value = 0.0
+
+                X[col] = X[col].fillna(
+                    median_value
+                )
+
+        # ============================================================
+        # FINAL SAFETY CHECK
+        # ============================================================
+
+        X = X.replace(
+            [np.inf, -np.inf],
+            np.nan
+        )
+
+        X = X.fillna(0.0)
+
+        # ============================================================
+        # QUALITY
+        # ============================================================
+
+        total_features = max(
+            len(X.columns),
+            1
+        )
+
+        quality = max(
+            0.0,
+            1.0
+            - (
+                missing_before
+                /
+                total_features
+            )
+        )
+
+        return X, missing_before, quality
 
     # ================================================================
     # PREDICT
@@ -93,83 +240,15 @@ class ClinicalReasoningAgent:
 
         try:
 
-            X = self._create_dataframe(
-                patient_data
+            # ========================================================
+            # PREPARE DATA
+            # ========================================================
+
+            X, missing_count, quality = (
+                self._prepare_input(
+                    patient_data
+                )
             )
-
-            # ========================================================
-            # REMOVE TARGET
-            # ========================================================
-
-            if self.target_name in X.columns:
-
-                X = X.drop(
-                    columns=[
-                        self.target_name
-                    ]
-                )
-
-            # ========================================================
-            # REMOVE UNKNOWN COLUMNS
-            # ========================================================
-
-            for col in list(X.columns):
-
-                if col not in self.feature_names:
-
-                    X = X.drop(
-                        columns=[col]
-                    )
-
-            # ========================================================
-            # ADD MISSING FEATURES
-            # ========================================================
-
-            for col in self.feature_names:
-
-                if col not in X.columns:
-
-                    X[col] = np.nan
-
-            # ========================================================
-            # FINAL ORDER
-            # ========================================================
-
-            X = X[
-                self.feature_names
-            ].copy()
-
-            # ========================================================
-            # NUMERICAL CONVERSION
-            # ========================================================
-
-            for col in self.feature_names:
-
-                X[col] = pd.to_numeric(
-                    X[col],
-                    errors="coerce"
-                )
-
-            # ========================================================
-            # MEDIAN IMPUTATION
-            # ========================================================
-
-            for col in self.feature_names:
-
-                if X[col].isna().any():
-
-                    # TabNet requires valid numeric values.
-                    # Use a neutral fallback if missing.
-
-                    X[col] = X[col].fillna(
-                        X[col].median()
-                    )
-
-                    if X[col].isna().all():
-
-                        X[col] = X[col].fillna(
-                            0.0
-                        )
 
             # ========================================================
             # NUMPY
@@ -180,14 +259,42 @@ class ClinicalReasoningAgent:
             )
 
             # ========================================================
-            # PREDICTION
+            # MODEL PREDICTION
             # ========================================================
 
-            prediction_encoded = int(
-                self.model.predict(
-                    X_np
-                )[0]
+            raw_prediction = self.model.predict(
+                X_np
             )
+
+            # ========================================================
+            # HANDLE PREDICTION SHAPE
+            # ========================================================
+
+            raw_prediction = np.asarray(
+                raw_prediction
+            )
+
+            if raw_prediction.ndim > 1:
+
+                raw_prediction = (
+                    raw_prediction.reshape(-1)
+                )
+
+            prediction_raw = raw_prediction[0]
+
+            # ========================================================
+            # CONVERT PREDICTION
+            # ========================================================
+
+            try:
+
+                prediction_encoded = int(
+                    prediction_raw
+                )
+
+            except Exception:
+
+                prediction_encoded = prediction_raw
 
             # ========================================================
             # PROBABILITIES
@@ -200,25 +307,62 @@ class ClinicalReasoningAgent:
                 "predict_proba"
             ):
 
-                probabilities = (
-                    self.model
-                    .predict_proba(X_np)[0]
-                )
+                try:
+
+                    probabilities = (
+                        self.model
+                        .predict_proba(X_np)
+                    )
+
+                    probabilities = np.asarray(
+                        probabilities
+                    )
+
+                    if probabilities.ndim > 1:
+
+                        probabilities = (
+                            probabilities[0]
+                        )
+
+                    else:
+
+                        probabilities = (
+                            probabilities.reshape(-1)
+                        )
+
+                except Exception:
+
+                    probabilities = None
 
             # ========================================================
-            # DECODE
+            # DECODE CLASS
             # ========================================================
 
-            if (
-                prediction_encoded
-                < len(self.target_classes)
+            if isinstance(
+                prediction_encoded,
+                (int, np.integer)
             ):
 
-                prediction = str(
-                    self.target_classes[
-                        prediction_encoded
-                    ]
+                prediction_index = int(
+                    prediction_encoded
                 )
+
+                if (
+                    0 <= prediction_index
+                    < len(self.target_classes)
+                ):
+
+                    prediction = str(
+                        self.target_classes[
+                            prediction_index
+                        ]
+                    )
+
+                else:
+
+                    prediction = str(
+                        prediction_encoded
+                    )
 
             else:
 
@@ -230,61 +374,34 @@ class ClinicalReasoningAgent:
             # CONFIDENCE
             # ========================================================
 
-            if probabilities is not None:
+            confidence = None
+            probability_list = None
 
-                confidence = float(
-                    np.max(
-                        probabilities
-                    )
-                )
+            if probabilities is not None:
 
                 probability_list = [
                     float(x)
                     for x in probabilities
                 ]
 
-            else:
+                if len(probability_list) > 0:
 
-                confidence = None
-
-                probability_list = None
+                    confidence = float(
+                        np.max(
+                            probabilities
+                        )
+                    )
 
             # ========================================================
             # UNCERTAINTY
             # ========================================================
 
+            uncertainty = None
+
             if confidence is not None:
 
                 uncertainty = float(
                     1.0 - confidence
-                )
-
-            else:
-
-                uncertainty = None
-
-            # ========================================================
-            # QUALITY
-            # ========================================================
-
-            missing_count = int(
-                X.isna().sum().sum()
-            )
-
-            if missing_count == 0:
-
-                quality = 1.0
-
-            else:
-
-                quality = max(
-                    0.0,
-                    1.0
-                    - (
-                        missing_count
-                        /
-                        len(self.feature_names)
-                    )
                 )
 
             # ========================================================
@@ -298,129 +415,110 @@ class ClinicalReasoningAgent:
                     "in class 1."
                 )
 
-                recommendation = (
-                    "Consider additional clinical "
-                    "assessment according to the "
-                    "available patient information."
+            elif prediction == "0":
+
+                interpretation = (
+                    "Clinical profile classified "
+                    "in class 0."
                 )
 
             else:
 
                 interpretation = (
-                    "Clinical profile classified "
-                    "in class 2."
-                )
-
-                recommendation = (
-                    "Consider additional clinical "
-                    "assessment and correlation "
-                    "with other liver findings."
+                    f"Clinical profile classified "
+                    f"in class {prediction}."
                 )
 
             # ========================================================
             # RESULT
             # ========================================================
 
-            return {
+            result = {
 
-                "agent":
-                    self.name,
+                "agent": self.name,
 
-                "model":
-                    self.model_name,
+                "model_name": self.model_name,
 
-                "prediction":
-                    prediction,
+                "prediction": prediction,
 
-                "probability":
-                    confidence,
+                "prediction_encoded": (
+                    int(prediction_encoded)
+                    if isinstance(
+                        prediction_encoded,
+                        (int, np.integer)
+                    )
+                    else str(
+                        prediction_encoded
+                    )
+                ),
 
-                "confidence":
-                    confidence,
+                "confidence": confidence,
 
-                "uncertainty":
-                    uncertainty,
+                "uncertainty": uncertainty,
 
-                "quality":
-                    float(quality),
+                "probabilities": probability_list,
 
-                "class_probabilities":
-                    probability_list,
+                "target_name": self.target_name,
 
-                "details": {
+                "target_classes": [
+                    str(x)
+                    for x in self.target_classes
+                ],
 
-                    "task_type":
-                        "clinical_classification",
+                "quality": float(
+                    quality
+                ),
 
-                    "disease":
-                        "liver_disorder",
+                "missing_features": int(
+                    missing_count
+                ),
 
-                    "target":
-                        self.target_name,
+                "interpretation": interpretation,
 
-                    "classes":
-                        [
-                            str(x)
-                            for x in self.target_classes
-                        ],
-
-                    "features":
-                        self.feature_names,
-
-                    "interpretation":
-                        interpretation,
-
-                    "recommendation":
-                        recommendation
-                },
-
-                "status":
-                    "completed",
-
-                "error":
-                    None
+                "status": "success"
             }
+
+            return result
+
+        # ============================================================
+        # ERROR HANDLING
+        # ============================================================
 
         except Exception as e:
 
             return {
 
-                "agent":
-                    self.name,
+                "agent": self.name,
 
-                "model":
-                    self.model_name,
+                "model_name": self.model_name,
 
-                "prediction":
-                    None,
+                "prediction": None,
 
-                "probability":
-                    None,
+                "prediction_encoded": None,
 
-                "confidence":
-                    None,
+                "confidence": None,
 
-                "uncertainty":
-                    None,
+                "uncertainty": None,
 
-                "quality":
-                    0.0,
+                "probabilities": None,
 
-                "class_probabilities":
-                    None,
+                "target_name": self.target_name,
 
-                "details": {
+                "target_classes": [
+                    str(x)
+                    for x in self.target_classes
+                ],
 
-                    "task_type":
-                        "clinical_classification",
+                "quality": 0.0,
 
-                    "disease":
-                        "liver_disorder"
-                },
+                "missing_features": None,
 
-                "status":
-                    "error",
+                "interpretation": (
+                    "Clinical reasoning prediction "
+                    "could not be completed."
+                ),
 
-                "error":
-                    str(e)
+                "status": "error",
+
+                "error": str(e)
             }
