@@ -1,11 +1,10 @@
-from pathlib import Path
+# ============================================================
+# CLINICAL REASONING AGENT
+# CPU-SAFE VERSION
+# ============================================================
 
-clinical_file = Path(
-    "/content/LiverAI-MultiAgent/agents/clinical_reasoning_agent.py"
-)
-
-clinical_code = r'''
 import os
+import warnings
 import numpy as np
 import pandas as pd
 import torch
@@ -14,314 +13,334 @@ from pytorch_tabular import TabularModel
 
 
 class ClinicalReasoningAgent:
+    """
+    Clinical Reasoning Agent
+    ------------------------
+    Model:
+        PyTorch Tabular / TabTransformer
 
-    FEATURE_COLUMNS = [
+    Features:
+        mcv
+        alkphos
+        sgpt
+        sgot
+        gammagt
+        drinks
+
+    This implementation is CPU-safe and can load a checkpoint
+    originally saved on CUDA.
+    """
+
+    AGENT_NAME = "ClinicalReasoningAgent"
+    MODEL_NAME = "TabTransformer"
+
+    FEATURES = [
         "mcv",
         "alkphos",
         "sgpt",
         "sgot",
         "gammagt",
-        "drinks"
+        "drinks",
     ]
 
+    TARGET = "selector"
+
     def __init__(self, model_package):
-
-        self.name = "ClinicalReasoningAgent"
-
-        # ============================================================
-        # DEVICE
-        # ============================================================
-
-        # Force CPU because the current Colab runtime has no CUDA.
-        self.device = torch.device("cpu")
-
-        # ============================================================
-        # VALIDATION DU CHEMIN
-        # ============================================================
-
-        if model_package is None:
-            raise ValueError(
-                "ClinicalReasoningAgent: model_package cannot be None."
-            )
-
-        if not isinstance(model_package, (str, os.PathLike)):
-            raise TypeError(
-                "ClinicalReasoningAgent: model_package must be "
-                "a path to the TabTransformer model directory."
-            )
-
-        self.model_path = os.fspath(model_package)
-
-        if not os.path.isdir(self.model_path):
-            raise FileNotFoundError(
-                "ClinicalReasoningAgent: model directory not found:\n"
-                f"{self.model_path}"
-            )
-
-        # ============================================================
-        # CHARGEMENT TABTRANSFORMER
-        # ============================================================
-
-        print(
-            "Loading Clinical Reasoning model from:"
-        )
-        print(self.model_path)
-        print("Device: CPU")
-
-        try:
-            # Pytorch Tabular uses PyTorch internally.
-            # The model package was saved with CUDA tensors.
-            #
-            # First try the standard loader.
-            self.model = TabularModel.load_model(
-                self.model_path
-            )
-
-        except RuntimeError as e:
-
-            error_message = str(e)
-
-            if (
-                "deserialize object on a CUDA device" in error_message
-                or "torch.cuda.is_available() is False" in error_message
-                or "CUDA" in error_message
-            ):
-                raise RuntimeError(
-                    "\nClinical Reasoning model was saved with CUDA "
-                    "and cannot currently be loaded in this CPU-only "
-                    "runtime using the installed PyTorch Tabular loader.\n\n"
-                    "The model checkpoint must be converted to CPU "
-                    "or loaded with map_location='cpu'.\n\n"
-                    f"Original error:\n{error_message}"
-                ) from e
-
-            raise
-
-        self.model_name = "TabTransformer"
-
-        # ============================================================
-        # FEATURES
-        # ============================================================
-
-        self.feature_names = self.FEATURE_COLUMNS.copy()
-
-        self.numerical_columns = self.FEATURE_COLUMNS.copy()
-
-        self.categorical_columns = []
-
-        # ============================================================
-        # TARGET
-        # ============================================================
-
-        self.target_name = "selector"
-
-        self.target_classes = [0, 1]
 
         print("=" * 70)
         print("CLINICAL REASONING AGENT")
         print("=" * 70)
-        print("✓ Model loaded successfully")
-        print(f"✓ Model       : {self.model_name}")
-        print(f"✓ Device      : {self.device}")
-        print(f"✓ Features    : {self.feature_names}")
-        print("=" * 70)
 
-    # ================================================================
-    # CREATE DATAFRAME
-    # ================================================================
+        # --------------------------------------------------------
+        # MODEL PATH
+        # --------------------------------------------------------
+
+        if not isinstance(model_package, str):
+            raise TypeError(
+                "ClinicalReasoningAgent expects the path to "
+                "the PyTorch Tabular model directory."
+            )
+
+        self.model_path = model_package
+
+        if not os.path.exists(self.model_path):
+            raise FileNotFoundError(
+                f"Clinical Reasoning model not found:\n"
+                f"{self.model_path}"
+            )
+
+        # --------------------------------------------------------
+        # DEVICE
+        # --------------------------------------------------------
+
+        self.device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
+
+        print("Loading Clinical Reasoning model from:")
+        print(self.model_path)
+        print("Device:", self.device)
+
+        # --------------------------------------------------------
+        # CPU-SAFE MODEL LOADING
+        # --------------------------------------------------------
+
+        original_torch_load = torch.load
+
+        def cpu_safe_torch_load(*args, **kwargs):
+
+            # Force every serialized tensor to CPU.
+            kwargs["map_location"] = torch.device("cpu")
+
+            # PyTorch versions >= 2.6 may default to weights_only=True.
+            # PyTorch Tabular checkpoints may require the complete
+            # serialized object, so preserve the loader behavior when
+            # possible.
+            try:
+                return original_torch_load(*args, **kwargs)
+            except TypeError:
+                kwargs.pop("weights_only", None)
+                return original_torch_load(*args, **kwargs)
+
+        try:
+
+            # Patch torch.load only while PyTorch Tabular loads
+            # the serialized model.
+            torch.load = cpu_safe_torch_load
+
+            self.model = TabularModel.load_model(
+                self.model_path
+            )
+
+        except Exception as e:
+
+            raise RuntimeError(
+                "\nClinical Reasoning model could not be loaded.\n"
+                "\n"
+                "The model was probably serialized with CUDA.\n"
+                "The loader attempted to force the checkpoint to CPU "
+                "but the model could not be reconstructed.\n"
+                "\n"
+                f"Original error:\n{e}"
+            ) from e
+
+        finally:
+
+            # ALWAYS restore the original torch.load.
+            torch.load = original_torch_load
+
+        # --------------------------------------------------------
+        # MODEL READY
+        # --------------------------------------------------------
+
+        print("✓ Clinical Reasoning model loaded successfully")
+
+        self.features = self.FEATURES.copy()
+        self.target = self.TARGET
+
+        print("Features:", len(self.features))
+        print("Target  :", self.target)
+
+    # ============================================================
+    # DATAFRAME CREATION
+    # ============================================================
 
     def _create_dataframe(self, patient_data):
-
-        # ------------------------------------------------------------
-        # DataFrame
-        # ------------------------------------------------------------
 
         if isinstance(patient_data, pd.DataFrame):
 
             df = patient_data.copy()
 
-        # ------------------------------------------------------------
-        # Dictionary
-        # ------------------------------------------------------------
-
         elif isinstance(patient_data, dict):
 
             df = pd.DataFrame([patient_data])
 
-        # ------------------------------------------------------------
-        # List / tuple / numpy array
-        # ------------------------------------------------------------
+        elif isinstance(patient_data, (list, tuple, np.ndarray)):
 
-        elif isinstance(
-            patient_data,
-            (list, tuple, np.ndarray)
-        ):
+            array = np.asarray(patient_data)
 
-            values = np.asarray(patient_data)
+            if array.ndim == 1:
+                array = array.reshape(1, -1)
 
-            if values.ndim == 1:
-
-                if len(values) != len(self.FEATURE_COLUMNS):
-                    raise ValueError(
-                        f"Expected {len(self.FEATURE_COLUMNS)} clinical "
-                        f"features, got {len(values)}."
-                    )
-
-                df = pd.DataFrame(
-                    [values],
-                    columns=self.FEATURE_COLUMNS
-                )
-
-            elif values.ndim == 2:
-
-                if values.shape[1] != len(self.FEATURE_COLUMNS):
-                    raise ValueError(
-                        f"Expected {len(self.FEATURE_COLUMNS)} columns, "
-                        f"got {values.shape[1]}."
-                    )
-
-                df = pd.DataFrame(
-                    values,
-                    columns=self.FEATURE_COLUMNS
-                )
-
-            else:
-
-                raise ValueError(
-                    "patient_data must be 1D or 2D."
-                )
+            df = pd.DataFrame(
+                array,
+                columns=self.features
+            )
 
         else:
 
             raise TypeError(
-                "patient_data must be a pandas DataFrame, dict, "
-                "list, tuple, or numpy array."
+                "Clinical input must be a dict, DataFrame, "
+                "list, tuple or numpy array."
             )
 
-        # ============================================================
-        # VERIFY FEATURES
-        # ============================================================
+        # --------------------------------------------------------
+        # CHECK FEATURES
+        # --------------------------------------------------------
 
-        missing = [
-            col
-            for col in self.FEATURE_COLUMNS
-            if col not in df.columns
+        missing_features = [
+            feature
+            for feature in self.features
+            if feature not in df.columns
         ]
 
-        if missing:
+        if missing_features:
 
             raise ValueError(
-                "Missing clinical features: "
-                + ", ".join(missing)
+                "Missing Clinical Reasoning features: "
+                + ", ".join(missing_features)
             )
 
-        # ============================================================
-        # KEEP ONLY MODEL FEATURES
-        # ============================================================
+        # Keep only expected features.
+        df = df[self.features].copy()
 
-        df = df[self.FEATURE_COLUMNS].copy()
+        # Convert everything to numeric.
+        for feature in self.features:
 
-        # ============================================================
-        # NUMERIC CONVERSION
-        # ============================================================
-
-        for col in self.FEATURE_COLUMNS:
-
-            df[col] = pd.to_numeric(
-                df[col],
+            df[feature] = pd.to_numeric(
+                df[feature],
                 errors="coerce"
             )
 
-        # ============================================================
-        # MISSING VALUES
-        # ============================================================
-
+        # Check NaN.
         if df.isnull().any().any():
 
-            missing_values = df.columns[
+            missing = df.columns[
                 df.isnull().any()
             ].tolist()
 
             raise ValueError(
-                "Missing or invalid values detected in: "
-                + ", ".join(missing_values)
+                "Invalid or missing values in Clinical Reasoning "
+                f"input: {missing}"
             )
 
         return df
 
-    # ================================================================
-    # PREDICT
-    # ================================================================
+    # ============================================================
+    # PREDICTION
+    # ============================================================
 
     def predict(self, patient_data):
 
-        # ------------------------------------------------------------
-        # Prepare data
-        # ------------------------------------------------------------
-
         df = self._create_dataframe(patient_data)
 
-        # ------------------------------------------------------------
-        # Prediction
-        # ------------------------------------------------------------
+        try:
 
-        prediction = self.model.predict(df)
+            result = self.model.predict(df)
 
-        # ============================================================
-        # FIND PREDICTION COLUMNS
-        # ============================================================
+        except Exception as e:
 
-        prediction_columns = [
-            col
-            for col in prediction.columns
-            if "prediction" in col.lower()
-        ]
+            raise RuntimeError(
+                "Clinical Reasoning prediction failed:\n"
+                f"{e}"
+            ) from e
 
-        probability_columns = [
-            col
-            for col in prediction.columns
-            if "probability" in col.lower()
-        ]
+        # --------------------------------------------------------
+        # CONVERT RESULT
+        # --------------------------------------------------------
 
-        # ============================================================
-        # PREDICTED CLASS
-        # ============================================================
+        if isinstance(result, pd.DataFrame):
 
-        if prediction_columns:
-
-            predicted_class = int(
-                prediction[prediction_columns[0]].iloc[0]
-            )
+            prediction_df = result
 
         else:
 
+            prediction_df = pd.DataFrame(result)
+
+        if prediction_df.empty:
+
             raise RuntimeError(
-                "TabTransformer prediction column not found."
+                "Clinical Reasoning model returned an empty result."
             )
 
-        # ============================================================
+        # --------------------------------------------------------
+        # FIND PREDICTION COLUMN
+        # --------------------------------------------------------
+
+        prediction_column = None
+
+        possible_prediction_columns = [
+            "prediction",
+            "Prediction",
+            self.target,
+            "selector_prediction",
+        ]
+
+        for column in possible_prediction_columns:
+
+            if column in prediction_df.columns:
+                prediction_column = column
+                break
+
+        # Fallback: search for columns containing prediction.
+        if prediction_column is None:
+
+            for column in prediction_df.columns:
+
+                name = str(column).lower()
+
+                if (
+                    "prediction" in name
+                    or name == self.target.lower()
+                ):
+                    prediction_column = column
+                    break
+
+        if prediction_column is None:
+
+            raise RuntimeError(
+                "Could not identify the prediction column.\n"
+                f"Returned columns: "
+                f"{list(prediction_df.columns)}"
+            )
+
+        prediction = prediction_df[
+            prediction_column
+        ].iloc[0]
+
+        # Convert numpy scalar.
+        if isinstance(prediction, np.generic):
+            prediction = prediction.item()
+
+        # Try integer conversion when appropriate.
+        try:
+            if float(prediction).is_integer():
+                prediction = int(prediction)
+        except Exception:
+            pass
+
+        # --------------------------------------------------------
         # PROBABILITIES
-        # ============================================================
+        # --------------------------------------------------------
 
         probabilities = {}
 
-        for col in probability_columns:
+        for column in prediction_df.columns:
 
-            try:
+            name = str(column)
 
-                value = float(
-                    prediction[col].iloc[0]
-                )
+            lower_name = name.lower()
 
-            except Exception:
+            if (
+                "probability" in lower_name
+                or "prob_" in lower_name
+                or "prob" in lower_name
+            ):
 
-                continue
+                value = prediction_df[
+                    column
+                ].iloc[0]
 
-            probabilities[col] = value
+                try:
+                    value = float(value)
+                except Exception:
+                    continue
 
-        # ============================================================
+                probabilities[name] = value
+
+        # --------------------------------------------------------
         # CONFIDENCE
-        # ============================================================
+        # --------------------------------------------------------
 
         confidence = None
 
@@ -331,48 +350,44 @@ class ClinicalReasoningAgent:
                 probabilities.values()
             )
 
-        # ============================================================
-        # RESULT
-        # ============================================================
+        # --------------------------------------------------------
+        # OUTPUT
+        # --------------------------------------------------------
 
-        result = {
-            "agent": self.name,
-            "model": self.model_name,
-            "prediction": predicted_class,
+        output = {
+            "agent": self.AGENT_NAME,
+            "model": self.MODEL_NAME,
+            "prediction": prediction,
             "probabilities": probabilities,
-            "confidence": confidence,
             "status": "success",
-            "device": str(self.device),
-            "quality": 1.0,
-            "missing_data_ratio": 0.0,
-            "modality": "clinical"
         }
 
-        return result
+        if confidence is not None:
 
-    # ================================================================
+            output["confidence"] = confidence
+            output["uncertainty"] = 1.0 - confidence
+
+        return output
+
+    # ============================================================
     # ANALYZE
-    # ================================================================
+    # ============================================================
 
     def analyze(self, patient_data):
 
         return self.predict(patient_data)
 
-    # ================================================================
-    # CALL
-    # ================================================================
+    # ============================================================
+    # HEALTH CHECK
+    # ============================================================
 
-    def __call__(self, patient_data):
+    def health_check(self):
 
-        return self.predict(patient_data)
-'''
-
-clinical_file.write_text(
-    clinical_code,
-    encoding="utf-8"
-)
-
-print("=" * 70)
-print("CLINICAL REASONING AGENT UPDATED")
-print("=" * 70)
-print(f"✓ File written: {clinical_file}")
+        return {
+            "agent": self.AGENT_NAME,
+            "model": self.MODEL_NAME,
+            "model_path": self.model_path,
+            "device": str(self.device),
+            "loaded": self.model is not None,
+            "status": "healthy",
+        }
