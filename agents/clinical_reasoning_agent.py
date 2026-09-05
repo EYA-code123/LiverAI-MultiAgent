@@ -1,8 +1,14 @@
-%%writefile /content/LiverAI-MultiAgent/agents/clinical_reasoning_agent.py
+from pathlib import Path
 
+clinical_file = Path(
+    "/content/LiverAI-MultiAgent/agents/clinical_reasoning_agent.py"
+)
+
+clinical_code = r'''
 import os
 import numpy as np
 import pandas as pd
+import torch
 
 from pytorch_tabular import TabularModel
 
@@ -23,7 +29,14 @@ class ClinicalReasoningAgent:
         self.name = "ClinicalReasoningAgent"
 
         # ============================================================
-        # VALIDATION DU CHEMIN DU MODÈLE
+        # DEVICE
+        # ============================================================
+
+        # Force CPU because the current Colab runtime has no CUDA.
+        self.device = torch.device("cpu")
+
+        # ============================================================
+        # VALIDATION DU CHEMIN
         # ============================================================
 
         if model_package is None:
@@ -41,20 +54,48 @@ class ClinicalReasoningAgent:
 
         if not os.path.isdir(self.model_path):
             raise FileNotFoundError(
-                f"ClinicalReasoningAgent: model directory not found:\n"
+                "ClinicalReasoningAgent: model directory not found:\n"
                 f"{self.model_path}"
             )
 
         # ============================================================
-        # CHARGEMENT DU TABTRANSFORMER
+        # CHARGEMENT TABTRANSFORMER
         # ============================================================
 
         print(
-            f"Loading Clinical Reasoning model from:\n"
-            f"{self.model_path}"
+            "Loading Clinical Reasoning model from:"
         )
+        print(self.model_path)
+        print("Device: CPU")
 
-        self.model = TabularModel.load_model(self.model_path)
+        try:
+            # Pytorch Tabular uses PyTorch internally.
+            # The model package was saved with CUDA tensors.
+            #
+            # First try the standard loader.
+            self.model = TabularModel.load_model(
+                self.model_path
+            )
+
+        except RuntimeError as e:
+
+            error_message = str(e)
+
+            if (
+                "deserialize object on a CUDA device" in error_message
+                or "torch.cuda.is_available() is False" in error_message
+                or "CUDA" in error_message
+            ):
+                raise RuntimeError(
+                    "\nClinical Reasoning model was saved with CUDA "
+                    "and cannot currently be loaded in this CPU-only "
+                    "runtime using the installed PyTorch Tabular loader.\n\n"
+                    "The model checkpoint must be converted to CPU "
+                    "or loaded with map_location='cpu'.\n\n"
+                    f"Original error:\n{error_message}"
+                ) from e
+
+            raise
 
         self.model_name = "TabTransformer"
 
@@ -76,9 +117,14 @@ class ClinicalReasoningAgent:
 
         self.target_classes = [0, 1]
 
-        print("✓ ClinicalReasoningAgent initialized")
-        print(f"✓ Model: {self.model_name}")
-        print(f"✓ Features: {self.feature_names}")
+        print("=" * 70)
+        print("CLINICAL REASONING AGENT")
+        print("=" * 70)
+        print("✓ Model loaded successfully")
+        print(f"✓ Model       : {self.model_name}")
+        print(f"✓ Device      : {self.device}")
+        print(f"✓ Features    : {self.feature_names}")
+        print("=" * 70)
 
     # ================================================================
     # CREATE DATAFRAME
@@ -87,7 +133,7 @@ class ClinicalReasoningAgent:
     def _create_dataframe(self, patient_data):
 
         # ------------------------------------------------------------
-        # Déjà un DataFrame
+        # DataFrame
         # ------------------------------------------------------------
 
         if isinstance(patient_data, pd.DataFrame):
@@ -95,7 +141,7 @@ class ClinicalReasoningAgent:
             df = patient_data.copy()
 
         # ------------------------------------------------------------
-        # Dictionnaire
+        # Dictionary
         # ------------------------------------------------------------
 
         elif isinstance(patient_data, dict):
@@ -103,10 +149,13 @@ class ClinicalReasoningAgent:
             df = pd.DataFrame([patient_data])
 
         # ------------------------------------------------------------
-        # Liste / tuple / numpy array
+        # List / tuple / numpy array
         # ------------------------------------------------------------
 
-        elif isinstance(patient_data, (list, tuple, np.ndarray)):
+        elif isinstance(
+            patient_data,
+            (list, tuple, np.ndarray)
+        ):
 
             values = np.asarray(patient_data)
 
@@ -150,28 +199,30 @@ class ClinicalReasoningAgent:
             )
 
         # ============================================================
-        # VÉRIFICATION DES FEATURES
+        # VERIFY FEATURES
         # ============================================================
 
         missing = [
-            col for col in self.FEATURE_COLUMNS
+            col
+            for col in self.FEATURE_COLUMNS
             if col not in df.columns
         ]
 
         if missing:
+
             raise ValueError(
                 "Missing clinical features: "
                 + ", ".join(missing)
             )
 
         # ============================================================
-        # GARDER UNIQUEMENT LES FEATURES DU MODÈLE
+        # KEEP ONLY MODEL FEATURES
         # ============================================================
 
         df = df[self.FEATURE_COLUMNS].copy()
 
         # ============================================================
-        # CONVERSION NUMÉRIQUE
+        # NUMERIC CONVERSION
         # ============================================================
 
         for col in self.FEATURE_COLUMNS:
@@ -182,7 +233,7 @@ class ClinicalReasoningAgent:
             )
 
         # ============================================================
-        # VÉRIFICATION DES VALEURS MANQUANTES
+        # MISSING VALUES
         # ============================================================
 
         if df.isnull().any().any():
@@ -205,20 +256,20 @@ class ClinicalReasoningAgent:
     def predict(self, patient_data):
 
         # ------------------------------------------------------------
-        # Préparation
+        # Prepare data
         # ------------------------------------------------------------
 
         df = self._create_dataframe(patient_data)
 
         # ------------------------------------------------------------
-        # Prédiction TabTransformer
+        # Prediction
         # ------------------------------------------------------------
 
         prediction = self.model.predict(df)
 
-        # ------------------------------------------------------------
-        # Identifier les colonnes générées
-        # ------------------------------------------------------------
+        # ============================================================
+        # FIND PREDICTION COLUMNS
+        # ============================================================
 
         prediction_columns = [
             col
@@ -232,9 +283,9 @@ class ClinicalReasoningAgent:
             if "probability" in col.lower()
         ]
 
-        # ------------------------------------------------------------
-        # Prediction
-        # ------------------------------------------------------------
+        # ============================================================
+        # PREDICTED CLASS
+        # ============================================================
 
         if prediction_columns:
 
@@ -248,31 +299,53 @@ class ClinicalReasoningAgent:
                 "TabTransformer prediction column not found."
             )
 
-        # ------------------------------------------------------------
-        # Probabilités
-        # ------------------------------------------------------------
+        # ============================================================
+        # PROBABILITIES
+        # ============================================================
 
         probabilities = {}
 
         for col in probability_columns:
 
             try:
-                value = float(prediction[col].iloc[0])
+
+                value = float(
+                    prediction[col].iloc[0]
+                )
+
             except Exception:
+
                 continue
 
             probabilities[col] = value
 
-        # ------------------------------------------------------------
-        # Résultat
-        # ------------------------------------------------------------
+        # ============================================================
+        # CONFIDENCE
+        # ============================================================
+
+        confidence = None
+
+        if probabilities:
+
+            confidence = max(
+                probabilities.values()
+            )
+
+        # ============================================================
+        # RESULT
+        # ============================================================
 
         result = {
             "agent": self.name,
             "model": self.model_name,
             "prediction": predicted_class,
             "probabilities": probabilities,
-            "status": "success"
+            "confidence": confidence,
+            "status": "success",
+            "device": str(self.device),
+            "quality": 1.0,
+            "missing_data_ratio": 0.0,
+            "modality": "clinical"
         }
 
         return result
@@ -284,3 +357,22 @@ class ClinicalReasoningAgent:
     def analyze(self, patient_data):
 
         return self.predict(patient_data)
+
+    # ================================================================
+    # CALL
+    # ================================================================
+
+    def __call__(self, patient_data):
+
+        return self.predict(patient_data)
+'''
+
+clinical_file.write_text(
+    clinical_code,
+    encoding="utf-8"
+)
+
+print("=" * 70)
+print("CLINICAL REASONING AGENT UPDATED")
+print("=" * 70)
+print(f"✓ File written: {clinical_file}")
