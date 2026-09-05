@@ -1,840 +1,772 @@
-# ================================================================
-# DECISION ENGINE
-# ================================================================
-# Produces a final system-level decision from:
-#
-#   1. Specialized agent outputs
-#   2. Conflict detection
-#   3. Clinical reasoning
-#
-# IMPORTANT:
-# The final "risk_score" generated here is a SYSTEM confidence /
-# reliability score. It is NOT a medical probability.
-# ================================================================
+# =============================================================================
+# LiverAI-MultiAgent
+# FILE: coordinator/decision.py
+# DECISION INTELLIGENCE ENGINE
+# =============================================================================
 
-from typing import Any, Dict, List
-import math
+from typing import Any
 
 
 class DecisionEngine:
     """
-    Final decision layer for the LiverAI multi-agent architecture.
+    Decision Intelligence layer for LiverAI.
+
+    This component does NOT replace the specialized models.
+
+    It evaluates:
+
+        - agent coverage
+        - confidence
+        - trust
+        - uncertainty
+        - conflicts
+        - clinical reasoning
+        - fused evidence
+
+    The engine produces a structured system-level decision.
     """
+
+    # =========================================================================
+    # INITIALIZATION
+    # =========================================================================
 
     def __init__(
         self,
-        minimum_coverage: float = 0.50,
-        minimum_confidence: float = 0.50,
-        minimum_trust: float = 0.50,
+        low_confidence_threshold: float = 0.55,
+        high_confidence_threshold: float = 0.80,
+        high_conflict_threshold: float = 0.50,
+        minimum_agent_coverage: float = 0.50,
     ):
 
-        self.minimum_coverage = float(
-            minimum_coverage
+        self.low_confidence_threshold = (
+            float(
+                low_confidence_threshold
+            )
         )
 
-        self.minimum_confidence = float(
-            minimum_confidence
+        self.high_confidence_threshold = (
+            float(
+                high_confidence_threshold
+            )
         )
 
-        self.minimum_trust = float(
-            minimum_trust
+        self.high_conflict_threshold = (
+            float(
+                high_conflict_threshold
+            )
         )
 
-    # ============================================================
-    # PUBLIC API
-    # ============================================================
+        self.minimum_agent_coverage = (
+            float(
+                minimum_agent_coverage
+            )
+        )
+
+    # =========================================================================
+    # MAIN DECISION
+    # =========================================================================
 
     def decide(
         self,
-        results: List[Dict[str, Any]],
+        agent_results,
         conflicts=None,
-        reasoning=None,
-    ) -> Dict[str, Any]:
-        """
-        Produce the final system decision.
+        fused_results=None,
+        clinical_reasoning=None,
+    ):
 
-        Parameters
-        ----------
-        results : list
-            Normalized agent result dictionaries.
-
-        conflicts : list
-            Conflicts detected by ConflictDetector.
-
-        reasoning : dict
-            Clinical reasoning output.
-
-        Returns
-        -------
-        dict
-            Final decision.
-        """
-
-        # --------------------------------------------------------
-        # Normalize inputs
-        # --------------------------------------------------------
-
-        results = self._normalize_results(
-            results
-        )
-
-        conflicts = self._normalize_conflicts(
+        conflicts = (
             conflicts
+            if conflicts is not None
+            else []
         )
 
-        reasoning = self._normalize_reasoning(
-            reasoning
+        fused_results = (
+            fused_results
+            if fused_results is not None
+            else {}
         )
 
-        # --------------------------------------------------------
-        # No results
-        # --------------------------------------------------------
+        clinical_reasoning = (
+            clinical_reasoning
+            if clinical_reasoning is not None
+            else {}
+        )
 
-        if not results:
+        # ---------------------------------------------------------------------
+        # PROTECT AGAINST INVALID INPUT
+        # ---------------------------------------------------------------------
 
-            return {
-                "status": "unavailable",
-                "decision": "insufficient_data",
-                "message": (
-                    "No agent results are available."
-                ),
-                "coverage": 0.0,
-                "mean_confidence": 0.0,
-                "mean_trust": 0.0,
-                "risk_score": 1.0,
-                "confidence": 0.0,
-                "conflicts": [],
-                "clinical_reasoning": reasoning,
-            }
+        if agent_results is None:
+            agent_results = []
 
-        # --------------------------------------------------------
-        # Analyze successful agents
-        # --------------------------------------------------------
+        if isinstance(
+            agent_results,
+            dict,
+        ):
+            agent_results = list(
+                agent_results.values()
+            )
 
-        successful = []
+        # ---------------------------------------------------------------------
+        # TOTAL AGENTS
+        # ---------------------------------------------------------------------
 
-        for result in results:
+        total_agents = len(
+            agent_results
+        )
 
-            status = str(
-                result.get(
-                    "status",
-                    ""
+        # ---------------------------------------------------------------------
+        # SUCCESSFUL AGENTS
+        # ---------------------------------------------------------------------
+
+        successful_agents = []
+
+        for result in agent_results:
+
+            if result is None:
+                continue
+
+            status = self._get(
+                result,
+                "status",
+                "success",
+            )
+
+            error = self._get(
+                result,
+                "error",
+                None,
+            )
+
+            prediction = self._get(
+                result,
+                "prediction",
+                None,
+            )
+
+            if (
+                status in (
+                    "success",
+                    "completed",
                 )
-            ).lower()
+                and error is None
+                and prediction is not None
+            ):
 
-            if status == "success":
-                successful.append(
+                successful_agents.append(
                     result
                 )
 
-        total_agents = len(
-            results
+        failed_agents = (
+            total_agents
+            - len(successful_agents)
         )
 
-        successful_agents = len(
-            successful
-        )
+        # ---------------------------------------------------------------------
+        # COVERAGE
+        # ---------------------------------------------------------------------
 
-        coverage = (
-            successful_agents / total_agents
-            if total_agents > 0
-            else 0.0
-        )
+        if total_agents > 0:
 
-        # --------------------------------------------------------
-        # Aggregate confidence / trust / quality
-        # --------------------------------------------------------
-
-        mean_confidence = self._mean(
-            [
-                self._clip01(
-                    self._safe_float(
-                        r.get(
-                            "confidence"
-                        ),
-                        0.0
-                    )
-                )
-                for r in successful
-            ]
-        )
-
-        mean_trust = self._mean(
-            [
-                self._clip01(
-                    self._safe_float(
-                        r.get(
-                            "trust"
-                        ),
-                        0.0
-                    )
-                )
-                for r in successful
-            ]
-        )
-
-        mean_quality = self._mean(
-            [
-                self._clip01(
-                    self._safe_float(
-                        r.get(
-                            "quality"
-                        ),
-                        0.0
-                    )
-                )
-                for r in successful
-            ]
-        )
-
-        # --------------------------------------------------------
-        # Conflict score
-        # --------------------------------------------------------
-
-        conflict_score = self._calculate_conflict_score(
-            conflicts,
-            successful_agents
-        )
-
-        # --------------------------------------------------------
-        # Clinical reasoning confidence
-        # --------------------------------------------------------
-
-        clinical_confidence = self._clinical_confidence(
-            reasoning
-        )
-
-        # --------------------------------------------------------
-        # System confidence
-        # --------------------------------------------------------
-
-        system_confidence = self._calculate_system_confidence(
-            coverage=coverage,
-            mean_confidence=mean_confidence,
-            mean_trust=mean_trust,
-            mean_quality=mean_quality,
-            conflict_score=conflict_score,
-            clinical_confidence=clinical_confidence,
-        )
-
-        # --------------------------------------------------------
-        # System risk
-        # --------------------------------------------------------
-
-        risk_score = self._clip01(
-            1.0 - system_confidence
-        )
-
-        # --------------------------------------------------------
-        # Determine decision
-        # --------------------------------------------------------
-
-        decision = self._make_decision(
-            coverage=coverage,
-            mean_confidence=mean_confidence,
-            mean_trust=mean_trust,
-            conflict_score=conflict_score,
-            successful_agents=successful_agents,
-            total_agents=total_agents,
-            reasoning=reasoning,
-        )
-
-        # --------------------------------------------------------
-        # Overall status
-        # --------------------------------------------------------
-
-        if successful_agents == 0:
-
-            status = "failed"
-
-        elif coverage < 1.0:
-
-            status = "partial"
+            coverage = (
+                len(successful_agents)
+                /
+                total_agents
+            )
 
         else:
 
-            status = "success"
+            coverage = 0.0
 
-        # --------------------------------------------------------
-        # Explanation
-        # --------------------------------------------------------
+        # ---------------------------------------------------------------------
+        # CONFIDENCE / TRUST / UNCERTAINTY
+        # ---------------------------------------------------------------------
 
-        explanation = self._build_explanation(
-            decision=decision,
-            coverage=coverage,
-            mean_confidence=mean_confidence,
-            mean_trust=mean_trust,
-            conflict_score=conflict_score,
-            clinical_confidence=clinical_confidence,
-            successful_agents=successful_agents,
-            total_agents=total_agents,
+        trust_values = []
+        confidence_values = []
+        uncertainty_values = []
+        quality_values = []
+
+        for result in successful_agents:
+
+            trust = self._safe_float(
+                self._get(
+                    result,
+                    "trust",
+                    0.0,
+                )
+            )
+
+            confidence = self._safe_float(
+                self._get(
+                    result,
+                    "confidence",
+                    0.0,
+                )
+            )
+
+            uncertainty = self._safe_float(
+                self._get(
+                    result,
+                    "uncertainty",
+                    1.0,
+                )
+            )
+
+            quality = self._safe_float(
+                self._get(
+                    result,
+                    "quality",
+                    0.0,
+                )
+            )
+
+            trust_values.append(
+                self._clip(trust)
+            )
+
+            confidence_values.append(
+                self._clip(confidence)
+            )
+
+            uncertainty_values.append(
+                self._clip(uncertainty)
+            )
+
+            quality_values.append(
+                self._clip(quality)
+            )
+
+        average_trust = (
+            sum(trust_values)
+            /
+            len(trust_values)
+            if trust_values
+            else 0.0
         )
 
-        # --------------------------------------------------------
-        # Final output
-        # --------------------------------------------------------
+        average_confidence = (
+            sum(confidence_values)
+            /
+            len(confidence_values)
+            if confidence_values
+            else 0.0
+        )
+
+        average_uncertainty = (
+            sum(uncertainty_values)
+            /
+            len(uncertainty_values)
+            if uncertainty_values
+            else 1.0
+        )
+
+        average_quality = (
+            sum(quality_values)
+            /
+            len(quality_values)
+            if quality_values
+            else 0.0
+        )
+
+        # ---------------------------------------------------------------------
+        # CONFLICT SCORE
+        # ---------------------------------------------------------------------
+
+        conflict_strengths = []
+
+        for conflict in conflicts:
+
+            if not isinstance(
+                conflict,
+                dict,
+            ):
+                continue
+
+            strength = self._safe_float(
+                conflict.get(
+                    "conflict_strength",
+                    0.0,
+                )
+            )
+
+            conflict_strengths.append(
+                self._clip(strength)
+            )
+
+        if conflict_strengths:
+
+            conflict_score = (
+                sum(conflict_strengths)
+                /
+                len(conflict_strengths)
+            )
+
+        else:
+
+            conflict_score = 0.0
+
+        # ---------------------------------------------------------------------
+        # CLINICAL REASONING
+        # ---------------------------------------------------------------------
+
+        clinical_prediction = None
+
+        clinical_confidence = 0.0
+
+        clinical_risk_score = None
+
+        clinical_risk_level = None
+
+        if isinstance(
+            clinical_reasoning,
+            dict,
+        ):
+
+            clinical_prediction = (
+                clinical_reasoning.get(
+                    "prediction"
+                )
+            )
+
+            clinical_confidence = (
+                self._safe_float(
+                    clinical_reasoning.get(
+                        "confidence",
+                        clinical_reasoning.get(
+                            "probability",
+                            0.0,
+                        ),
+                    )
+                )
+            )
+
+            clinical_confidence = (
+                self._clip(
+                    clinical_confidence
+                )
+            )
+
+            clinical_risk_score = (
+                clinical_reasoning.get(
+                    "risk_score"
+                )
+            )
+
+            clinical_risk_level = (
+                clinical_reasoning.get(
+                    "overall_risk"
+                )
+            )
+
+            # ---------------------------------------------------------------
+            # Some versions of the Clinical Reasoning Agent may store the
+            # risk information inside unified_assessment.
+            # ---------------------------------------------------------------
+
+            unified = (
+                clinical_reasoning.get(
+                    "unified_assessment",
+                    {}
+                )
+            )
+
+            if isinstance(
+                unified,
+                dict,
+            ):
+
+                if clinical_risk_score is None:
+
+                    clinical_risk_score = (
+                        unified.get(
+                            "risk_score"
+                        )
+                    )
+
+                if clinical_risk_level is None:
+
+                    clinical_risk_level = (
+                        unified.get(
+                            "overall_risk"
+                        )
+                    )
+
+        # ---------------------------------------------------------------------
+        # ADDITIONAL TEST / REVIEW LOGIC
+        # ---------------------------------------------------------------------
+
+        request_additional_tests = False
+
+        reasons = []
+
+        if coverage < (
+            self.minimum_agent_coverage
+        ):
+
+            request_additional_tests = True
+
+            reasons.append(
+                "Insufficient agent coverage."
+            )
+
+        if average_confidence < (
+            self.low_confidence_threshold
+        ):
+
+            request_additional_tests = True
+
+            reasons.append(
+                "Average prediction confidence is low."
+            )
+
+        if average_uncertainty > 0.50:
+
+            request_additional_tests = True
+
+            reasons.append(
+                "Prediction uncertainty is high."
+            )
+
+        if conflict_score >= (
+            self.high_conflict_threshold
+        ):
+
+            request_additional_tests = True
+
+            reasons.append(
+                "Strong disagreement detected between compatible agents."
+            )
+
+        # ---------------------------------------------------------------------
+        # DECISION CONFIDENCE
+        # ---------------------------------------------------------------------
+
+        decision_confidence = (
+
+            0.30
+            * average_trust
+
+            +
+
+            0.30
+            * average_confidence
+
+            +
+
+            0.20
+            * coverage
+
+            +
+
+            0.20
+            * (
+                1.0
+                - conflict_score
+            )
+        )
+
+        decision_confidence = (
+            self._clip(
+                decision_confidence
+            )
+        )
+
+        # ---------------------------------------------------------------------
+        # CLINICAL REASONING CONTRIBUTION
+        # ---------------------------------------------------------------------
+
+        if clinical_prediction is not None:
+
+            # Clinical reasoning is additional evidence.
+            #
+            # We do not allow it to completely override the other agents.
+
+            decision_confidence = (
+                0.75
+                * decision_confidence
+                +
+                0.25
+                * clinical_confidence
+            )
+
+            decision_confidence = (
+                self._clip(
+                    decision_confidence
+                )
+            )
+
+        # ---------------------------------------------------------------------
+        # FINAL DECISION
+        # ---------------------------------------------------------------------
+
+        if not successful_agents:
+
+            decision = (
+                "insufficient_evidence"
+            )
+
+        elif coverage < (
+            self.minimum_agent_coverage
+        ):
+
+            decision = (
+                "insufficient_coverage"
+            )
+
+        elif conflict_score >= (
+            self.high_conflict_threshold
+        ):
+
+            decision = (
+                "conflict_review_required"
+            )
+
+        elif clinical_prediction is not None:
+
+            if clinical_confidence >= (
+                self.high_confidence_threshold
+            ):
+
+                decision = (
+                    "clinical_reasoning_supported"
+                )
+
+            elif request_additional_tests:
+
+                decision = (
+                    "clinical_reasoning_with_review"
+                )
+
+            else:
+
+                decision = (
+                    "clinical_reasoning_supported"
+                )
+
+        elif decision_confidence >= (
+            self.high_confidence_threshold
+        ):
+
+            decision = (
+                "evidence_supported"
+            )
+
+        elif request_additional_tests:
+
+            decision = (
+                "review_required"
+            )
+
+        else:
+
+            decision = (
+                "evidence_supported"
+            )
+
+        # ---------------------------------------------------------------------
+        # RISK SCORE
+        # ---------------------------------------------------------------------
+
+        if clinical_risk_score is not None:
+
+            risk_score = self._clip(
+                clinical_risk_score
+            )
+
+        else:
+
+            risk_score = self._clip(
+                1.0
+                - decision_confidence
+            )
+
+        # ---------------------------------------------------------------------
+        # FINAL STATUS
+        # ---------------------------------------------------------------------
+
+        if not successful_agents:
+
+            status = (
+                "insufficient_evidence"
+            )
+
+        elif request_additional_tests:
+
+            status = (
+                "review_required"
+            )
+
+        else:
+
+            status = (
+                "decision_ready"
+            )
+
+        # ---------------------------------------------------------------------
+        # WARNING
+        # ---------------------------------------------------------------------
+
+        warning = None
+
+        if conflicts:
+
+            warning = (
+                "Prediction conflicts were detected "
+                "between compatible agents."
+            )
+
+        # ---------------------------------------------------------------------
+        # EXPLANATION
+        # ---------------------------------------------------------------------
+
+        explanation = (
+            f"{len(successful_agents)}/"
+            f"{total_agents} agents completed successfully. "
+            f"Coverage={coverage:.3f}. "
+            f"Mean confidence={average_confidence:.3f}. "
+            f"Mean trust={average_trust:.3f}. "
+            f"Mean uncertainty={average_uncertainty:.3f}. "
+            f"Conflict score={conflict_score:.3f}. "
+            f"Clinical reasoning confidence="
+            f"{clinical_confidence:.3f}. "
+            f"System decision: {decision}."
+        )
+
+        # ---------------------------------------------------------------------
+        # FINAL OBJECT
+        # ---------------------------------------------------------------------
 
         return {
             "status": status,
 
+            # IMPORTANT:
+            # This is the key expected by the orchestrator.
+
             "decision": decision,
 
-            "confidence": system_confidence,
+            "confidence": decision_confidence,
 
             "risk_score": risk_score,
 
             "coverage": coverage,
 
-            "successful_agents": successful_agents,
+            "successful_agents":
+                len(successful_agents),
 
-            "total_agents": total_agents,
+            "total_agents":
+                total_agents,
 
-            "mean_confidence": mean_confidence,
+            "failed_agents":
+                failed_agents,
 
-            "mean_trust": mean_trust,
+            "mean_confidence":
+                average_confidence,
 
-            "mean_quality": mean_quality,
+            "mean_trust":
+                average_trust,
 
-            "conflict_score": conflict_score,
+            "mean_uncertainty":
+                average_uncertainty,
 
-            "clinical_reasoning_confidence": (
-                clinical_confidence
-            ),
+            "mean_quality":
+                average_quality,
 
-            "conflicts": conflicts,
+            "conflict_score":
+                conflict_score,
 
-            "clinical_reasoning": reasoning,
+            "num_conflicts":
+                len(conflicts),
 
-            "explanation": explanation,
+            "clinical_prediction":
+                clinical_prediction,
+
+            "clinical_confidence":
+                clinical_confidence,
+
+            "clinical_risk_score":
+                clinical_risk_score,
+
+            "clinical_risk_level":
+                clinical_risk_level,
+
+            "request_additional_tests":
+                request_additional_tests,
+
+            "additional_test_reasons":
+                reasons,
+
+            "conflicts":
+                conflicts,
+
+            "fused_evidence":
+                fused_results,
+
+            "clinical_reasoning":
+                clinical_reasoning,
+
+            "warning":
+                warning,
+
+            "explanation":
+                explanation,
         }
 
-    # ============================================================
-    # DECISION LOGIC
-    # ============================================================
+    # =========================================================================
+    # SAFE ACCESS
+    # =========================================================================
 
-    def _make_decision(
-        self,
-        coverage: float,
-        mean_confidence: float,
-        mean_trust: float,
-        conflict_score: float,
-        successful_agents: int,
-        total_agents: int,
-        reasoning: Dict[str, Any],
-    ) -> str:
-        """
-        Determine system-level decision.
-
-        This deliberately avoids pretending that different
-        specialized agents predict one common disease class.
-        """
-
-        if successful_agents == 0:
-
-            return "insufficient_data"
-
-        if coverage < self.minimum_coverage:
-
-            return "insufficient_data"
-
-        # --------------------------------------------------------
-        # Strong conflict
-        # --------------------------------------------------------
-
-        if conflict_score >= 0.75:
-
-            return "requires_review"
-
-        # --------------------------------------------------------
-        # Low reliability
-        # --------------------------------------------------------
-
-        if mean_trust < self.minimum_trust:
-
-            return "requires_review"
-
-        if mean_confidence < self.minimum_confidence:
-
-            return "requires_review"
-
-        # --------------------------------------------------------
-        # Clinical reasoning can influence system action,
-        # but not be treated as a disease probability.
-        # --------------------------------------------------------
-
-        clinical_prediction = reasoning.get(
-            "prediction"
-        )
-
-        clinical_confidence = (
-            self._clinical_confidence(
-                reasoning
-            )
-        )
-
-        if (
-            clinical_prediction is not None
-            and clinical_confidence >= 0.75
-        ):
-
-            return "clinical_reasoning_supported"
-
-        # --------------------------------------------------------
-        # Otherwise sufficient evidence
-        # --------------------------------------------------------
-
-        return "evidence_available"
-
-    # ============================================================
-    # SYSTEM CONFIDENCE
-    # ============================================================
-
-    def _calculate_system_confidence(
-        self,
-        coverage: float,
-        mean_confidence: float,
-        mean_trust: float,
-        mean_quality: float,
-        conflict_score: float,
-        clinical_confidence: float,
-    ) -> float:
-
-        # --------------------------------------------------------
-        # Weighted reliability model
-        # --------------------------------------------------------
-
-        base_score = (
-            0.25 * coverage
-            + 0.25 * mean_confidence
-            + 0.25 * mean_trust
-            + 0.15 * mean_quality
-            + 0.10 * clinical_confidence
-        )
-
-        # --------------------------------------------------------
-        # Conflict penalty
-        # --------------------------------------------------------
-
-        conflict_penalty = (
-            0.30 * conflict_score
-        )
-
-        score = (
-            base_score
-            - conflict_penalty
-        )
-
-        return self._clip01(
-            score
-        )
-
-    # ============================================================
-    # CONFLICT SCORE
-    # ============================================================
-
-    def _calculate_conflict_score(
-        self,
-        conflicts,
-        successful_agents
-    ) -> float:
-
-        if not conflicts:
-            return 0.0
-
-        # --------------------------------------------------------
-        # If conflicts are dictionaries
-        # --------------------------------------------------------
-
-        scores = []
-
-        for conflict in conflicts:
-
-            if isinstance(
-                conflict,
-                dict
-            ):
-
-                value = conflict.get(
-                    "severity",
-                    conflict.get(
-                        "score",
-                        0.5
-                    )
-                )
-
-                value = self._safe_float(
-                    value,
-                    0.5
-                )
-
-                # String severity
-                if isinstance(
-                    conflict.get(
-                        "severity"
-                    ),
-                    str
-                ):
-
-                    severity = str(
-                        conflict.get(
-                            "severity"
-                        )
-                    ).lower()
-
-                    mapping = {
-                        "low": 0.25,
-                        "medium": 0.50,
-                        "high": 0.75,
-                        "critical": 1.00,
-                    }
-
-                    value = mapping.get(
-                        severity,
-                        0.50
-                    )
-
-                scores.append(
-                    self._clip01(
-                        value
-                    )
-                )
-
-            else:
-
-                # A conflict object exists but doesn't expose
-                # a numeric severity.
-                scores.append(
-                    0.50
-                )
-
-        if not scores:
-            return 0.0
-
-        return self._clip01(
-            sum(scores) / len(scores)
-        )
-
-    # ============================================================
-    # CLINICAL CONFIDENCE
-    # ============================================================
-
-    def _clinical_confidence(
-        self,
-        reasoning: Dict[str, Any]
-    ) -> float:
-
-        if not reasoning:
-            return 0.0
-
-        # Direct confidence
-        confidence = reasoning.get(
-            "confidence"
-        )
-
-        if confidence is not None:
-
-            return self._clip01(
-                self._safe_float(
-                    confidence,
-                    0.0
-                )
-            )
-
-        # Probability
-        probability = reasoning.get(
-            "probability"
-        )
-
-        if probability is not None:
-
-            return self._clip01(
-                self._safe_float(
-                    probability,
-                    0.0
-                )
-            )
-
-        # --------------------------------------------------------
-        # Extract maximum probability from dict
-        # --------------------------------------------------------
-
-        probabilities = reasoning.get(
-            "probabilities"
-        )
+    @staticmethod
+    def _get(
+        obj,
+        key,
+        default=None,
+    ):
 
         if isinstance(
-            probabilities,
-            dict
+            obj,
+            dict,
         ):
 
-            values = []
-
-            for value in probabilities.values():
-
-                number = self._safe_float(
-                    value
-                )
-
-                if number is not None:
-
-                    values.append(
-                        self._clip01(
-                            number
-                        )
-                    )
-
-            if values:
-
-                return max(values)
-
-        # --------------------------------------------------------
-        # class_probabilities
-        # --------------------------------------------------------
-
-        probabilities = reasoning.get(
-            "class_probabilities"
-        )
-
-        if isinstance(
-            probabilities,
-            dict
-        ):
-
-            values = []
-
-            for value in probabilities.values():
-
-                number = self._safe_float(
-                    value
-                )
-
-                if number is not None:
-
-                    values.append(
-                        self._clip01(
-                            number
-                        )
-                    )
-
-            if values:
-
-                return max(values)
-
-        elif isinstance(
-            probabilities,
-            (list, tuple)
-        ):
-
-            values = []
-
-            for value in probabilities:
-
-                number = self._safe_float(
-                    value
-                )
-
-                if number is not None:
-
-                    values.append(
-                        self._clip01(
-                            number
-                        )
-                    )
-
-            if values:
-
-                return max(values)
-
-        return 0.0
-
-    # ============================================================
-    # EXPLANATION
-    # ============================================================
-
-    def _build_explanation(
-        self,
-        decision,
-        coverage,
-        mean_confidence,
-        mean_trust,
-        conflict_score,
-        clinical_confidence,
-        successful_agents,
-        total_agents,
-    ) -> str:
-
-        parts = []
-
-        parts.append(
-            f"{successful_agents}/{total_agents} "
-            "agents completed successfully."
-        )
-
-        parts.append(
-            f"Coverage={coverage:.3f}."
-        )
-
-        parts.append(
-            f"Mean agent confidence="
-            f"{mean_confidence:.3f}."
-        )
-
-        parts.append(
-            f"Mean agent trust="
-            f"{mean_trust:.3f}."
-        )
-
-        parts.append(
-            f"Conflict score="
-            f"{conflict_score:.3f}."
-        )
-
-        if clinical_confidence > 0:
-
-            parts.append(
-                f"Clinical reasoning confidence="
-                f"{clinical_confidence:.3f}."
+            return obj.get(
+                key,
+                default,
             )
 
-        parts.append(
-            f"System decision: {decision}."
+        return getattr(
+            obj,
+            key,
+            default,
         )
 
-        return " ".join(parts)
-
-    # ============================================================
-    # INPUT NORMALIZATION
-    # ============================================================
-
-    def _normalize_results(
-        self,
-        results
-    ) -> List[Dict[str, Any]]:
-
-        if results is None:
-            return []
-
-        if not isinstance(
-            results,
-            list
-        ):
-
-            results = [results]
-
-        normalized = []
-
-        for result in results:
-
-            if result is None:
-                continue
-
-            if isinstance(
-                result,
-                dict
-            ):
-
-                normalized.append(
-                    result
-                )
-
-            elif hasattr(
-                result,
-                "to_dict"
-            ):
-
-                try:
-
-                    normalized.append(
-                        result.to_dict()
-                    )
-
-                except Exception:
-
-                    continue
-
-        return normalized
-
-    def _normalize_conflicts(
-        self,
-        conflicts
-    ) -> List[Any]:
-
-        if conflicts is None:
-            return []
-
-        if isinstance(
-            conflicts,
-            list
-        ):
-
-            return conflicts
-
-        return [conflicts]
-
-    def _normalize_reasoning(
-        self,
-        reasoning
-    ) -> Dict[str, Any]:
-
-        if reasoning is None:
-            return {}
-
-        if isinstance(
-            reasoning,
-            dict
-        ):
-
-            return dict(
-                reasoning
-            )
-
-        if hasattr(
-            reasoning,
-            "to_dict"
-        ):
-
-            try:
-
-                return reasoning.to_dict()
-
-            except Exception:
-
-                return {}
-
-        return {}
-
-    # ============================================================
-    # UTILITY FUNCTIONS
-    # ============================================================
+    # =========================================================================
+    # SAFE FLOAT
+    # =========================================================================
 
     @staticmethod
     def _safe_float(
         value,
-        default=None
+        default=0.0,
     ):
-
-        if value is None:
-            return default
 
         try:
 
-            value = float(value)
-
-            if not math.isfinite(value):
-                return default
-
-            return value
+            return float(value)
 
         except (
             TypeError,
-            ValueError
+            ValueError,
         ):
 
             return default
+
+    # =========================================================================
+    # CLIP
+    # =========================================================================
 
     @staticmethod
-    def _clip01(
-        value
+    def _clip(
+        value,
     ):
 
         try:
@@ -843,30 +775,15 @@ class DecisionEngine:
 
         except (
             TypeError,
-            ValueError
+            ValueError,
         ):
 
-            return 0.0
-
-        if not math.isfinite(value):
-            return 0.0
+            value = 0.0
 
         return max(
             0.0,
             min(
                 1.0,
-                value
+                value,
             )
         )
-
-    @staticmethod
-    def _mean(
-        values
-    ):
-
-        if not values:
-            return 0.0
-
-        return sum(
-            values
-        ) / len(values)
