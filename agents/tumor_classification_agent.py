@@ -1,222 +1,206 @@
-# =============================================================================
-# LiverAI-MultiAgent
-# TUMOR CLASSIFICATION AGENT
-# =============================================================================
+%%writefile /content/LiverAI-MultiAgent/agents/tumor_classification_agent.py
 
 import os
 import time
-import traceback
-
 import numpy as np
-
-try:
-    from PIL import Image
-except ImportError:
-    Image = None
-
-try:
-    import tensorflow as tf
-except ImportError:
-    tf = None
+import torch
+import torch.nn.functional as F
+from PIL import Image
+import timm
 
 
 class TumorClassificationAgent:
-    """
-    Tumor Classification Agent.
-
-    Input:
-        MRI 2D image.
-
-    Output:
-        5-class liver pathology classification.
-
-    Expected model:
-        Keras model (.keras)
-
-    Dataset information used by the project:
-        - MRI 2D slices
-        - 5 classes
-        - Recommended image size: 224x224
-    """
-
-    DEFAULT_CLASSES = [
-        "Angiosarcoma",
-        "Cholangiocarcinoma",
-        "Healthy",
-        "Hemangioma",
-        "Hepatocellular Carcinoma",
-    ]
 
     def __init__(
         self,
         model_path,
+        device=None,
         class_names=None,
-        image_size=(224, 224),
-        channels=3,
+        image_size=224,
+        confidence_threshold=0.5
     ):
-        self.agent_id = "TumorClassificationAgent"
-        self.agent = self.agent_id
-        self.task_type = "tumor_classification"
-
         self.model_path = model_path
-        self.image_size = tuple(image_size)
-        self.channels = channels
 
-        self.class_names = (
-            list(class_names)
-            if class_names is not None
-            else self.DEFAULT_CLASSES.copy()
+        self.device = torch.device(
+            device if device is not None
+            else ("cuda" if torch.cuda.is_available() else "cpu")
         )
 
-        self.model = None
+        self.image_size = image_size
+        self.confidence_threshold = confidence_threshold
 
-        self._validate_environment()
-        self._load_model()
+        self.class_names = class_names or [
+            "Angiosarcoma",
+            "Cholangiocarcinoma",
+            "Healthy",
+            "Hemangioma",
+            "Hepatocellular Carcinoma"
+        ]
 
-    # =========================================================================
-    # ENVIRONMENT
-    # =========================================================================
+        print("=" * 70)
+        print("TUMOR CLASSIFICATION AGENT")
+        print("=" * 70)
+        print(f"Model : {self.model_path}")
+        print(f"Device: {self.device}")
+        print(f"Classes: {self.class_names}")
 
-    def _validate_environment(self):
+        self.model = self._load_model()
 
-        if tf is None:
-            raise ImportError(
-                "TensorFlow is required for TumorClassificationAgent."
-            )
+        print("✓ Tumor model loaded successfully")
+        print("=" * 70)
+
+    # ============================================================
+    # MODEL LOADING
+    # ============================================================
+
+    def _load_model(self):
 
         if not os.path.exists(self.model_path):
             raise FileNotFoundError(
                 f"Tumor model not found:\n{self.model_path}"
             )
 
-    # =========================================================================
-    # LOAD MODEL
-    # =========================================================================
+        # --------------------------------------------------------
+        # Create EfficientNet-B0 architecture
+        # --------------------------------------------------------
 
-    def _load_model(self):
+        model = timm.create_model(
+            "efficientnet_b0",
+            pretrained=False,
+            num_classes=len(self.class_names),
+            drop_rate=0.4
+        )
 
-        print("=" * 70)
-        print("TUMOR CLASSIFICATION AGENT")
-        print("=" * 70)
+        # --------------------------------------------------------
+        # Load PyTorch checkpoint
+        # --------------------------------------------------------
 
-        print("Model:", self.model_path)
+        checkpoint = torch.load(
+            self.model_path,
+            map_location=self.device,
+            weights_only=False
+        )
 
-        try:
+        # --------------------------------------------------------
+        # Detect checkpoint structure
+        # --------------------------------------------------------
 
-            self.model = tf.keras.models.load_model(
-                self.model_path,
-                compile=False,
-            )
+        if isinstance(checkpoint, dict):
 
-            print("✓ Tumor Keras model loaded")
+            if "state_dict" in checkpoint:
+                state_dict = checkpoint["state_dict"]
 
-            try:
-                print("Input shape :", self.model.input_shape)
-            except Exception:
-                pass
+            elif "model_state_dict" in checkpoint:
+                state_dict = checkpoint["model_state_dict"]
 
-            try:
-                print("Output shape:", self.model.output_shape)
-            except Exception:
-                pass
+            elif "model" in checkpoint and isinstance(
+                checkpoint["model"], dict
+            ):
+                state_dict = checkpoint["model"]
 
-        except Exception as e:
+            else:
+                state_dict = checkpoint
 
-            print("✗ Failed to load tumor model")
-            print("Error:", e)
+        else:
+            state_dict = checkpoint
 
-            raise
+        # --------------------------------------------------------
+        # Clean prefixes
+        # --------------------------------------------------------
 
-    # =========================================================================
-    # INPUT LOADING
-    # =========================================================================
+        cleaned_state_dict = {}
 
-    def _load_image(self, image):
+        for key, value in state_dict.items():
 
-        if image is None:
-            raise ValueError(
-                "Tumor agent received no MRI image."
-            )
+            new_key = key
 
-        # ---------------------------------------------------------------------
-        # PATH
-        # ---------------------------------------------------------------------
+            for prefix in [
+                "module.",
+                "model.",
+                "net.",
+                "backbone."
+            ]:
 
-        if isinstance(image, (str, os.PathLike)):
+                if new_key.startswith(prefix):
+                    new_key = new_key[len(prefix):]
 
-            if not os.path.exists(image):
-                raise FileNotFoundError(
-                    f"MRI image not found: {image}"
-                )
+            cleaned_state_dict[new_key] = value
 
-            if Image is None:
-                raise ImportError(
-                    "Pillow is required to load image files."
-                )
+        # --------------------------------------------------------
+        # Load weights
+        # --------------------------------------------------------
 
-            image = Image.open(image)
+        missing_keys, unexpected_keys = model.load_state_dict(
+            cleaned_state_dict,
+            strict=False
+        )
 
-        # ---------------------------------------------------------------------
-        # PIL IMAGE
-        # ---------------------------------------------------------------------
+        print(f"Missing keys    : {len(missing_keys)}")
+        print(f"Unexpected keys : {len(unexpected_keys)}")
 
-        if Image is not None and isinstance(image, Image.Image):
+        if len(missing_keys) > 0:
+            print("Missing:")
+            for key in missing_keys[:10]:
+                print("  ", key)
+
+        if len(unexpected_keys) > 0:
+            print("Unexpected:")
+            for key in unexpected_keys[:10]:
+                print("  ", key)
+
+        model.to(self.device)
+        model.eval()
+
+        return model
+
+    # ============================================================
+    # IMAGE PREPROCESSING
+    # ============================================================
+
+    def _preprocess_image(self, image):
+
+        # --------------------------------------------------------
+        # PIL image
+        # --------------------------------------------------------
+
+        if isinstance(image, Image.Image):
 
             image = image.convert("RGB")
 
             image = image.resize(
-                self.image_size
+                (self.image_size, self.image_size)
             )
 
             image = np.asarray(
                 image,
                 dtype=np.float32
-            )
+            ) / 255.0
 
-        # ---------------------------------------------------------------------
-        # NUMPY ARRAY
-        # ---------------------------------------------------------------------
+        # --------------------------------------------------------
+        # NumPy image
+        # --------------------------------------------------------
 
         elif isinstance(image, np.ndarray):
 
-            image = image.astype(
-                np.float32,
-                copy=False
-            )
+            image = image.astype(np.float32)
 
             # Remove singleton dimensions
             image = np.squeeze(image)
 
-            # -------------------------------------------------------------
+            # ----------------------------------------------------
             # Grayscale
-            # -------------------------------------------------------------
+            # ----------------------------------------------------
 
             if image.ndim == 2:
 
-                image = self._normalize_image(
-                    image
-                )
+                image_min = image.min()
+                image_max = image.max()
 
-                if Image is not None:
-
-                    pil = Image.fromarray(
-                        (image * 255).astype(np.uint8)
-                    )
-
-                    pil = pil.resize(
-                        self.image_size
-                    )
-
-                    image = np.asarray(
-                        pil,
-                        dtype=np.float32
-                    )
-
-                else:
-
-                    image = self._resize_numpy(
-                        image,
-                        self.image_size
+                if image_max > image_min:
+                    image = (
+                        image - image_min
+                    ) / (
+                        image_max - image_min
                     )
 
                 image = np.stack(
@@ -224,576 +208,215 @@ class TumorClassificationAgent:
                     axis=-1
                 )
 
-            # -------------------------------------------------------------
-            # H x W x 1
-            # -------------------------------------------------------------
+            # ----------------------------------------------------
+            # H x W x C
+            # ----------------------------------------------------
 
-            elif image.ndim == 3 and image.shape[-1] == 1:
+            elif image.ndim == 3:
 
-                image = np.repeat(
-                    image,
-                    3,
-                    axis=-1
-                )
+                # C x H x W -> H x W x C
+                if image.shape[0] in [1, 3] and image.shape[-1] not in [1, 3]:
+                    image = np.transpose(
+                        image,
+                        (1, 2, 0)
+                    )
 
-                image = self._resize_numpy(
-                    image,
-                    self.image_size
-                )
+                if image.shape[-1] == 1:
+                    image = np.repeat(
+                        image,
+                        3,
+                        axis=-1
+                    )
 
-            # -------------------------------------------------------------
-            # H x W x 3
-            # -------------------------------------------------------------
-
-            elif image.ndim == 3 and image.shape[-1] == 3:
-
-                image = self._resize_numpy(
-                    image,
-                    self.image_size
-                )
+                elif image.shape[-1] != 3:
+                    raise ValueError(
+                        f"Unsupported image shape: {image.shape}"
+                    )
 
             else:
 
                 raise ValueError(
-                    "Unsupported MRI array shape: "
-                    f"{image.shape}"
+                    f"Unsupported image dimensions: {image.shape}"
                 )
+
+            # Normalize
+            image_min = image.min()
+            image_max = image.max()
+
+            if image_max > image_min:
+
+                if image_max > 1.0:
+                    image = image / 255.0
+
+            image = np.clip(
+                image,
+                0.0,
+                1.0
+            )
+
+            image = Image.fromarray(
+                (image * 255).astype(np.uint8)
+            )
+
+            image = image.resize(
+                (self.image_size, self.image_size)
+            )
+
+            image = np.asarray(
+                image,
+                dtype=np.float32
+            ) / 255.0
 
         else:
 
             raise TypeError(
-                "MRI input must be a file path, PIL image "
-                "or numpy array."
+                "Image must be a PIL.Image.Image "
+                "or numpy.ndarray."
             )
 
-        # ---------------------------------------------------------------------
-        # NORMALIZE
-        # ---------------------------------------------------------------------
+        # --------------------------------------------------------
+        # ImageNet normalization
+        # --------------------------------------------------------
 
-        image = self._normalize_image(
-            image
-        )
-
-        # ---------------------------------------------------------------------
-        # ENSURE CHANNELS
-        # ---------------------------------------------------------------------
-
-        if image.ndim == 2:
-
-            image = np.stack(
-                [image] * 3,
-                axis=-1
-            )
-
-        if image.ndim != 3:
-
-            raise ValueError(
-                f"Final MRI image must be 3D. "
-                f"Got shape={image.shape}"
-            )
-
-        if image.shape[-1] == 1:
-
-            image = np.repeat(
-                image,
-                3,
-                axis=-1
-            )
-
-        if image.shape[-1] != 3:
-
-            raise ValueError(
-                f"Expected 3 channels, got {image.shape[-1]}"
-            )
-
-        return image.astype(
-            np.float32
-        )
-
-    # =========================================================================
-    # NORMALIZATION
-    # =========================================================================
-
-    @staticmethod
-    def _normalize_image(image):
-
-        image = np.asarray(
-            image,
+        mean = np.array(
+            [0.485, 0.456, 0.406],
             dtype=np.float32
         )
 
-        if not np.isfinite(image).all():
-
-            image = np.nan_to_num(
-                image,
-                nan=0.0,
-                posinf=0.0,
-                neginf=0.0,
-            )
-
-        min_value = float(
-            image.min()
+        std = np.array(
+            [0.229, 0.224, 0.225],
+            dtype=np.float32
         )
 
-        max_value = float(
-            image.max()
+        image = (
+            image - mean
+        ) / std
+
+        # HWC -> CHW
+        image = np.transpose(
+            image,
+            (2, 0, 1)
         )
 
-        if max_value > min_value:
+        tensor = torch.tensor(
+            image,
+            dtype=torch.float32
+        ).unsqueeze(0)
 
-            image = (
-                image - min_value
-            ) / (
-                max_value - min_value
-            )
+        return tensor.to(self.device)
 
-        else:
-
-            image = np.zeros_like(
-                image,
-                dtype=np.float32
-            )
-
-        return image
-
-    # =========================================================================
-    # NUMPY RESIZE FALLBACK
-    # =========================================================================
-
-    @staticmethod
-    def _resize_numpy(
-        image,
-        target_size
-    ):
-
-        target_h, target_w = target_size
-
-        if image.ndim == 2:
-
-            h, w = image.shape
-
-            y_idx = np.linspace(
-                0,
-                h - 1,
-                target_h
-            ).astype(int)
-
-            x_idx = np.linspace(
-                0,
-                w - 1,
-                target_w
-            ).astype(int)
-
-            return image[
-                np.ix_(
-                    y_idx,
-                    x_idx
-                )
-            ]
-
-        if image.ndim == 3:
-
-            h, w, c = image.shape
-
-            y_idx = np.linspace(
-                0,
-                h - 1,
-                target_h
-            ).astype(int)
-
-            x_idx = np.linspace(
-                0,
-                w - 1,
-                target_w
-            ).astype(int)
-
-            return image[
-                np.ix_(
-                    y_idx,
-                    x_idx,
-                    np.arange(c)
-                )
-            ]
-
-        raise ValueError(
-            f"Unsupported image dimension: {image.ndim}"
-        )
-
-    # =========================================================================
+    # ============================================================
     # PREDICTION
-    # =========================================================================
+    # ============================================================
 
+    @torch.no_grad()
     def predict(self, image):
 
-        start_time = time.perf_counter()
+        start_time = time.time()
 
-        try:
+        tensor = self._preprocess_image(image)
 
-            if self.model is None:
-                raise RuntimeError(
-                    "Tumor model is not loaded."
-                )
+        logits = self.model(tensor)
 
-            processed = self._load_image(
-                image
-            )
-
-            batch = np.expand_dims(
-                processed,
-                axis=0
-            )
-
-            # -------------------------------------------------------------
-            # MODEL PREDICTION
-            # -------------------------------------------------------------
-
-            raw_output = self.model.predict(
-                batch,
-                verbose=0
-            )
-
-            probabilities = self._extract_probabilities(
-                raw_output
-            )
-
-            predicted_index = int(
-                np.argmax(
-                    probabilities
-                )
-            )
-
-            confidence = float(
-                probabilities[predicted_index]
-            )
-
-            if predicted_index < len(
-                self.class_names
-            ):
-
-                prediction = self.class_names[
-                    predicted_index
-                ]
-
-            else:
-
-                prediction = str(
-                    predicted_index
-                )
-
-            elapsed_ms = (
-                time.perf_counter()
-                - start_time
-            ) * 1000.0
-
-            uncertainty = float(
-                max(
-                    0.0,
-                    min(
-                        1.0,
-                        1.0 - confidence
-                    )
-                )
-            )
-
-            # -------------------------------------------------------------
-            # PROBABILITY DICTIONARY
-            # -------------------------------------------------------------
-
-            probability_dict = {}
-
-            for i, probability in enumerate(
-                probabilities
-            ):
-
-                if i < len(
-                    self.class_names
-                ):
-
-                    label = self.class_names[i]
-
-                else:
-
-                    label = str(i)
-
-                probability_dict[
-                    label
-                ] = float(probability)
-
-            return {
-                "agent_id":
-                    self.agent_id,
-
-                "agent":
-                    self.agent_id,
-
-                "task_type":
-                    self.task_type,
-
-                "status":
-                    "completed",
-
-                "prediction":
-                    prediction,
-
-                "predicted_class":
-                    prediction,
-
-                "predicted_index":
-                    predicted_index,
-
-                "probability":
-                    confidence,
-
-                "probabilities":
-                    probability_dict,
-
-                "confidence":
-                    confidence,
-
-                "uncertainty":
-                    uncertainty,
-
-                "quality":
-                    1.0,
-
-                "missing_data_ratio":
-                    0.0,
-
-                "latency_ms":
-                    elapsed_ms,
-
-                "details": {
-                    "modality":
-                        "MRI",
-
-                    "input_type":
-                        "2D image",
-
-                    "image_size":
-                        list(
-                            self.image_size
-                        ),
-
-                    "num_classes":
-                        len(
-                            self.class_names
-                        ),
-
-                    "classes":
-                        self.class_names,
-                },
-
-                "explanation":
-                    (
-                        "Tumor classification performed "
-                        "using the trained Keras model."
-                    ),
-
-                "error":
-                    None,
-            }
-
-        except Exception as e:
-
-            elapsed_ms = (
-                time.perf_counter()
-                - start_time
-            ) * 1000.0
-
-            traceback.print_exc()
-
-            return {
-                "agent_id":
-                    self.agent_id,
-
-                "agent":
-                    self.agent_id,
-
-                "task_type":
-                    self.task_type,
-
-                "status":
-                    "error",
-
-                "prediction":
-                    None,
-
-                "probability":
-                    None,
-
-                "confidence":
-                    0.0,
-
-                "uncertainty":
-                    1.0,
-
-                "quality":
-                    0.0,
-
-                "missing_data_ratio":
-                    1.0,
-
-                "latency_ms":
-                    elapsed_ms,
-
-                "details":
-                    {},
-
-                "explanation":
-                    None,
-
-                "error":
-                    str(e),
-
-                "traceback":
-                    traceback.format_exc(),
-            }
-
-    # =========================================================================
-    # OUTPUT HANDLING
-    # =========================================================================
-
-    @staticmethod
-    def _extract_probabilities(
-        raw_output
-    ):
-
-        if isinstance(
-            raw_output,
-            (list, tuple)
-        ):
-
-            raw_output = raw_output[0]
-
-        probabilities = np.asarray(
-            raw_output
+        probabilities = F.softmax(
+            logits,
+            dim=1
         )
 
-        probabilities = np.squeeze(
-            probabilities
+        confidence, predicted_idx = torch.max(
+            probabilities,
+            dim=1
         )
 
-        if probabilities.ndim != 1:
-
-            raise ValueError(
-                "Unexpected tumor model output shape: "
-                f"{probabilities.shape}"
-            )
-
-        probabilities = probabilities.astype(
-            np.float64
+        predicted_idx = int(
+            predicted_idx.item()
         )
 
-        if not np.isfinite(
-            probabilities
-        ).all():
-
-            raise ValueError(
-                "Tumor model returned NaN/Inf probabilities."
-            )
-
-        # ---------------------------------------------------------------------
-        # If output is not already a probability distribution,
-        # convert logits to softmax.
-        # ---------------------------------------------------------------------
-
-        total = float(
-            probabilities.sum()
+        confidence = float(
+            confidence.item()
         )
 
-        if (
-            np.any(probabilities < 0)
-            or
-            not np.isclose(
-                total,
-                1.0,
-                atol=1e-3
-            )
-        ):
+        probabilities_np = (
+            probabilities[0]
+            .detach()
+            .cpu()
+            .numpy()
+        )
 
-            probabilities = (
-                np.exp(
-                    probabilities
-                    -
-                    np.max(
-                        probabilities
-                    )
+        prediction = self.class_names[predicted_idx]
+
+        latency_ms = (
+            time.time() - start_time
+        ) * 1000.0
+
+        uncertainty = 1.0 - confidence
+
+        status = (
+            "success"
+            if confidence >= self.confidence_threshold
+            else "low_confidence"
+        )
+
+        return {
+            "agent": "TumorClassificationAgent",
+            "model": "EfficientNet-B0",
+            "task_type": "tumor_classification",
+
+            "prediction": prediction,
+
+            "class_index": predicted_idx,
+
+            "confidence": confidence,
+
+            "uncertainty": uncertainty,
+
+            "probabilities": {
+                self.class_names[i]: float(
+                    probabilities_np[i]
                 )
-            )
+                for i in range(len(self.class_names))
+            },
 
-            probabilities = (
-                probabilities
-                /
-                probabilities.sum()
-            )
+            "class_probabilities": probabilities_np.tolist(),
 
-        return probabilities.astype(
-            np.float32
-        )
+            "classes": self.class_names,
 
-    # =========================================================================
-    # MODEL INFORMATION
-    # =========================================================================
+            "status": status,
 
-    def get_model_info(self):
+            "device": str(self.device),
 
-        info = {
-            "agent":
-                self.agent_id,
+            "latency_ms": latency_ms,
 
-            "task":
-                self.task_type,
+            "quality": 1.0,
 
-            "model_path":
-                self.model_path,
+            "missing_data_ratio": 0.0,
 
-            "classes":
-                self.class_names,
-
-            "image_size":
-                self.image_size,
+            "modality": "2D_image"
         }
 
-        if self.model is not None:
+    # ============================================================
+    # ORCHESTRATOR COMPATIBILITY
+    # ============================================================
 
-            try:
-                info["input_shape"] = str(
-                    self.model.input_shape
-                )
-            except Exception:
-                pass
+    def run(self, image):
 
-            try:
-                info["output_shape"] = str(
-                    self.model.output_shape
-                )
-            except Exception:
-                pass
+        return self.predict(image)
 
-        return info
+    def __call__(self, image):
 
-    # =========================================================================
+        return self.predict(image)
+
+    # ============================================================
     # HEALTH CHECK
-    # =========================================================================
+    # ============================================================
 
     def health_check(self):
 
         return {
-            "agent":
-                self.agent_id,
-
-            "model_loaded":
-                self.model is not None,
-
-            "model_exists":
-                os.path.exists(
-                    self.model_path
-                ),
-
-            "status":
-                (
-                    "ready"
-                    if self.model is not None
-                    else "not_ready"
-                ),
+            "agent": "TumorClassificationAgent",
+            "status": "ready",
+            "model_loaded": self.model is not None,
+            "model_path": self.model_path,
+            "device": str(self.device),
+            "classes": self.class_names
         }
