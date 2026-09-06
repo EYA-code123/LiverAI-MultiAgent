@@ -1,4 +1,4 @@
-%%writefile coordinator/conflict.py
+
 
 """
 Conflict Detection and Resolution
