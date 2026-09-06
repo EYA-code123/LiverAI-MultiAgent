@@ -1,4 +1,4 @@
-%%writefile /content/LiverAI-MultiAgent/agents/fatty_liver_agent.py
+
 
 import time
 import numpy as np
