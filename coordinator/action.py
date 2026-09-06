@@ -1,164 +1,156 @@
+from pathlib import Path
+
+action_code = r'''
 class ActionEngine:
 
-    def generate(
-        self,
-        decision
-    ):
+    def __init__(self):
+        pass
 
-        level = decision.get(
-            "decision_level",
-            "UNCERTAIN"
-        )
+    def generate(self, decision):
+        """
+        Generate task-specific actions from task-level decisions.
+        """
 
-        prediction = decision.get(
-            "prediction"
-        )
+        task_decisions = decision.get("task_decisions", {})
 
-        confidence = float(
-            decision.get(
-                "confidence",
-                0.0
+        task_actions = {}
+
+        for task_type, task_decision in task_decisions.items():
+
+            decision_level = task_decision.get(
+                "decision_level",
+                task_decision.get("decision", "UNCERTAIN")
             )
-        )
 
-        risk = float(
-            decision.get(
-                "risk_score",
-                1.0
+            confidence = float(
+                task_decision.get("confidence", 0.0) or 0.0
             )
-        )
 
-        request_tests = decision.get(
-            "request_additional_tests",
-            False
-        )
+            risk_score = float(
+                task_decision.get("risk_score", 1.0) or 1.0
+            )
 
-        # =====================================================
-        # UNCERTAIN
-        # =====================================================
+            additional_tests = bool(
+                task_decision.get("request_additional_tests", False)
+            )
 
-        if request_tests:
+            # =========================================================
+            # LIVER SEGMENTATION
+            # =========================================================
 
-            return {
+            if task_type == "liver_segmentation":
 
-                "status":
-                    "cautious",
+                if decision_level == "HIGH":
+                    task_actions[task_type] = {
+                        "status": "high_confidence",
+                        "actions": [
+                            "Liver segmentation completed successfully.",
+                            "Review the generated liver mask and probability map.",
+                            "Use the segmentation as imaging support for further analysis.",
+                            "Do not use the automated segmentation as a standalone diagnosis."
+                        ],
+                        "referral": True,
+                        "follow_up": True,
+                        "additional_tests": additional_tests,
+                        "risk_score": risk_score,
+                        "confidence": confidence
+                    }
 
-                "actions": [
+                elif decision_level == "MODERATE":
+                    task_actions[task_type] = {
+                        "status": "moderate_confidence",
+                        "actions": [
+                            "Liver segmentation completed with moderate confidence.",
+                            "Review the generated liver mask and probability map.",
+                            "Consider additional imaging evidence if clinically indicated.",
+                            "Specialist review is recommended before clinical use."
+                        ],
+                        "referral": True,
+                        "follow_up": True,
+                        "additional_tests": True,
+                        "risk_score": risk_score,
+                        "confidence": confidence
+                    }
 
-                    "Additional clinical assessment recommended.",
+                else:
+                    task_actions[task_type] = {
+                        "status": "cautious",
+                        "actions": [
+                            "Liver segmentation evidence is insufficient.",
+                            "Review the generated segmentation output if available.",
+                            "Consider additional imaging or clinical evidence.",
+                            "Specialist review recommended.",
+                            "Do not use this automated output as a standalone diagnosis."
+                        ],
+                        "referral": True,
+                        "follow_up": True,
+                        "additional_tests": True,
+                        "risk_score": risk_score,
+                        "confidence": confidence
+                    }
 
-                    "Consider additional imaging or laboratory data.",
+                continue
 
-                    "Specialist review recommended.",
+            # =========================================================
+            # CLASSIFICATION / OTHER TASKS
+            # =========================================================
 
-                    "Do not use this automated output as a standalone diagnosis."
-                ],
+            prediction = task_decision.get("prediction")
 
-                "referral":
-                    True,
+            if decision_level == "HIGH":
+                task_actions[task_type] = {
+                    "status": "high_confidence",
+                    "actions": [
+                        f"Finding requiring clinical validation: {prediction}.",
+                        "Review the supporting evidence.",
+                        "Consider specialist confirmation before intervention."
+                    ],
+                    "referral": True,
+                    "follow_up": True,
+                    "additional_tests": additional_tests,
+                    "risk_score": risk_score,
+                    "confidence": confidence
+                }
 
-                "follow_up":
-                    True,
+            elif decision_level == "MODERATE":
+                task_actions[task_type] = {
+                    "status": "moderate_confidence",
+                    "actions": [
+                        f"Preliminary finding: {prediction}.",
+                        "Perform clinical review.",
+                        "Consider additional evidence if clinically indicated."
+                    ],
+                    "referral": True,
+                    "follow_up": True,
+                    "additional_tests": True,
+                    "risk_score": risk_score,
+                    "confidence": confidence
+                }
 
-                "additional_tests":
-                    True
-            }
-
-        # =====================================================
-        # HIGH
-        # =====================================================
-
-        if level == "HIGH":
-
-            return {
-
-                "status":
-                    "high_confidence",
-
-                "actions": [
-
-                    f"Finding requiring clinical validation: {prediction}.",
-
-                    "Review the supporting evidence.",
-
-                    "Consider specialist confirmation before intervention."
-                ],
-
-                "referral":
-                    True,
-
-                "follow_up":
-                    True,
-
-                "additional_tests":
-                    False,
-
-                "risk_score":
-                    risk,
-
-                "confidence":
-                    confidence
-            }
-
-        # =====================================================
-        # MODERATE
-        # =====================================================
-
-        if level == "MODERATE":
-
-            return {
-
-                "status":
-                    "moderate_confidence",
-
-                "actions": [
-
-                    f"Preliminary finding: {prediction}.",
-
-                    "Perform clinical review.",
-
-                    "Consider additional evidence if clinically indicated."
-                ],
-
-                "referral":
-                    True,
-
-                "follow_up":
-                    True,
-
-                "additional_tests":
-                    True,
-
-                "risk_score":
-                    risk,
-
-                "confidence":
-                    confidence
-            }
-
-        # =====================================================
-        # FALLBACK
-        # =====================================================
+            else:
+                task_actions[task_type] = {
+                    "status": "cautious",
+                    "actions": [
+                        "Additional clinical assessment recommended.",
+                        "Consider additional imaging or laboratory data.",
+                        "Specialist review recommended.",
+                        "Do not use this automated output as a standalone diagnosis."
+                    ],
+                    "referral": True,
+                    "follow_up": True,
+                    "additional_tests": True,
+                    "risk_score": risk_score,
+                    "confidence": confidence
+                }
 
         return {
-
-            "status":
-                "uncertain",
-
-            "actions": [
-
-                "Insufficient evidence.",
-
-                "Additional assessment required."
-            ],
-
-            "referral":
-                True,
-
-            "follow_up":
-                True,
-
-            "additional_tests":
-                True
+            "task_actions": task_actions
         }
+'''
+
+path = Path("/content/LiverAI-MultiAgent/coordinator/action.py")
+path.write_text(action_code, encoding="utf-8")
+
+print("✅ coordinator/action.py replaced")
+print("Path:", path)
+print("Size:", path.stat().st_size, "bytes")
