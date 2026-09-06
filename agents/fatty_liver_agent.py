@@ -3,31 +3,40 @@
 # =============================================================================
 
 import time
+import warnings
 import numpy as np
 import pandas as pd
 
 
 class FattyLiverAgent:
+    """
+    Agent de classification du fatty liver.
+
+    Modèle :
+        LightGBM Pipeline
+
+    Entrées :
+        mcv
+        alkphos
+        sgpt
+        sgot
+        gammagt
+        drinks
+
+    Sortie :
+        prediction
+        confidence
+        uncertainty
+        class_probabilities
+    """
 
     # =========================================================================
-    # INIT
+    # INITIALIZATION
     # =========================================================================
 
     def __init__(self, model_package):
 
-        self.agent_id = "FattyLiverAgent"
-
-        self.task_type = "fatty_liver_classification"
-
-        self.modality = "clinical_tabular"
-
         self.model_name = "LightGBM Pipeline"
-
-        self.target_name = "selector"
-
-        # ---------------------------------------------------------------------
-        # Expected training features
-        # ---------------------------------------------------------------------
 
         self.feature_names = [
             "mcv",
@@ -38,6 +47,9 @@ class FattyLiverAgent:
             "drinks"
         ]
 
+        self.target_name = "selector"
+
+        self.model = None
         self.target_classes = None
 
         # ---------------------------------------------------------------------
@@ -47,69 +59,55 @@ class FattyLiverAgent:
         if isinstance(model_package, dict):
 
             if "model" not in model_package:
-
                 raise ValueError(
-                    "model_package dictionary must contain a 'model' key."
+                    "model_package doit contenir une clé 'model'."
                 )
 
             self.model = model_package["model"]
 
             if "target_classes" in model_package:
+                self.target_classes = model_package["target_classes"]
 
-                self.target_classes = model_package[
-                    "target_classes"
-                ]
+            elif "classes" in model_package:
+                self.target_classes = model_package["classes"]
 
         else:
+            # Le modèle actuel est directement un sklearn Pipeline
+            self.model = model_package
 
-            # Accept sklearn Pipeline / estimator directly
-            if hasattr(model_package, "predict"):
+        if self.model is None:
+            raise ValueError(
+                "Le modèle FattyLiver n'a pas pu être chargé."
+            )
 
-                self.model = model_package
-
-            else:
-
-                raise TypeError(
-                    "FattyLiverAgent expects a fitted model/Pipeline "
-                    "or a dictionary containing 'model'."
-                )
+        if not hasattr(self.model, "predict"):
+            raise TypeError(
+                "Le modèle fourni doit posséder une méthode predict()."
+            )
 
         # ---------------------------------------------------------------------
-        # Try to recover classes from the model
+        # Try to recover classes automatically
         # ---------------------------------------------------------------------
 
         if self.target_classes is None:
 
             if hasattr(self.model, "classes_"):
-
-                self.target_classes = [
-                    str(c)
-                    for c in self.model.classes_
-                ]
+                self.target_classes = list(self.model.classes_)
 
             elif hasattr(self.model, "named_steps"):
 
-                for _, step in self.model.named_steps.items():
+                classifier = self.model.named_steps.get("classifier")
 
-                    if hasattr(step, "classes_"):
+                if classifier is not None and hasattr(
+                    classifier,
+                    "classes_"
+                ):
+                    self.target_classes = list(classifier.classes_)
 
-                        self.target_classes = [
-                            str(c)
-                            for c in step.classes_
-                        ]
-
-                        break
-
-        # ---------------------------------------------------------------------
-        # Final fallback
-        # ---------------------------------------------------------------------
-
-        if self.target_classes is None:
-
+        # Convert classes to strings for stable JSON output
+        if self.target_classes is not None:
             self.target_classes = [
-                "0",
-                "1",
-                "2"
+                str(value) for value in self.target_classes
             ]
 
     # =========================================================================
@@ -128,14 +126,13 @@ class FattyLiverAgent:
 
         elif isinstance(patient_data, dict):
 
-            X = pd.DataFrame(
-                [patient_data]
-            )
+            X = pd.DataFrame([patient_data])
 
         else:
 
             raise TypeError(
-                "patient_data must be a dictionary or pandas DataFrame."
+                "patient_data doit être un dictionnaire "
+                "ou un pandas.DataFrame."
             )
 
         # ---------------------------------------------------------------------
@@ -149,7 +146,7 @@ class FattyLiverAgent:
             )
 
         # ---------------------------------------------------------------------
-        # Add missing expected features
+        # Add missing features
         # ---------------------------------------------------------------------
 
         for feature in self.feature_names:
@@ -159,19 +156,13 @@ class FattyLiverAgent:
                 X[feature] = np.nan
 
         # ---------------------------------------------------------------------
-        # Keep EXACT training order
+        # Keep only expected features
         # ---------------------------------------------------------------------
 
-        X = X.loc[
-            :,
-            self.feature_names
-        ].copy()
+        X = X[self.feature_names].copy()
 
         # ---------------------------------------------------------------------
-        # Convert every feature explicitly to float
-        #
-        # This avoids integer/object dtype issues and makes the input
-        # compatible with the preprocessing pipeline.
+        # Convert features to numeric
         # ---------------------------------------------------------------------
 
         for feature in self.feature_names:
@@ -179,18 +170,63 @@ class FattyLiverAgent:
             X[feature] = pd.to_numeric(
                 X[feature],
                 errors="coerce"
-            ).astype(float)
-
-        # ---------------------------------------------------------------------
-        # Force DataFrame
-        # ---------------------------------------------------------------------
-
-        X = pd.DataFrame(
-            X,
-            columns=self.feature_names
-        )
+            )
 
         return X
+
+    # =========================================================================
+    # SAFE MODEL PREDICTION
+    # =========================================================================
+
+    def _predict_safely(self, X):
+
+        """
+        Exécute predict() en supprimant uniquement le warning LightGBM
+        connu concernant les feature names.
+
+        Le modèle lui-même n'est PAS modifié.
+        """
+
+        with warnings.catch_warnings():
+
+            warnings.filterwarnings(
+                "ignore",
+                message=(
+                    "X does not have valid feature names, "
+                    "but LGBMClassifier was fitted with feature names"
+                ),
+                category=UserWarning
+            )
+
+            prediction = self.model.predict(X)
+
+        return prediction
+
+    # =========================================================================
+    # SAFE PROBABILITY PREDICTION
+    # =========================================================================
+
+    def _predict_proba_safely(self, X):
+
+        """
+        Exécute predict_proba() en supprimant uniquement le warning
+        LightGBM lié aux feature names.
+        """
+
+        with warnings.catch_warnings():
+
+            warnings.filterwarnings(
+                "ignore",
+                message=(
+                    "X does not have valid feature names, "
+                    "but LGBMClassifier was fitted with feature names"
+                ),
+                category=UserWarning
+            )
+
+            probabilities = self.model.predict_proba(X)
+
+        return probabilities
 
     # =========================================================================
     # PREDICT
@@ -206,17 +242,14 @@ class FattyLiverAgent:
             # Prepare input
             # -----------------------------------------------------------------
 
-            X = self._prepare_input(
-                patient_data
-            )
+            X = self._prepare_input(patient_data)
 
             # -----------------------------------------------------------------
-            # Missing data quality
+            # Missing data
             # -----------------------------------------------------------------
 
             missing_ratio = float(
-                X.isna().sum().sum()
-                / X.size
+                X.isna().sum().sum() / X.size
             )
 
             quality = max(
@@ -226,38 +259,28 @@ class FattyLiverAgent:
 
             # -----------------------------------------------------------------
             # Prediction
-            #
-            # IMPORTANT:
-            # The Pipeline performs its own preprocessing/imputation.
             # -----------------------------------------------------------------
 
-            prediction = self.model.predict(
-                X
-            )
+            prediction = self._predict_safely(X)
+
+            prediction_value = prediction[0]
 
             # -----------------------------------------------------------------
             # Probability
             # -----------------------------------------------------------------
 
             probabilities = None
+            confidence = 0.0
+            uncertainty = 1.0
+            class_probabilities = {}
 
             if hasattr(
                 self.model,
                 "predict_proba"
             ):
 
-                probabilities = self.model.predict_proba(
-                    X
-                )[0]
-
-            # -----------------------------------------------------------------
-            # Convert probabilities
-            # -----------------------------------------------------------------
-
-            if probabilities is not None:
-
                 probabilities = np.asarray(
-                    probabilities,
+                    self._predict_proba_safely(X)[0],
                     dtype=float
                 )
 
@@ -270,12 +293,50 @@ class FattyLiverAgent:
                 )
 
                 # -------------------------------------------------------------
-                # Ensure number of class labels matches probabilities
+                # Recover target classes if necessary
                 # -------------------------------------------------------------
 
-                if len(self.target_classes) != len(
-                    probabilities
-                ):
+                if self.target_classes is None:
+
+                    if hasattr(
+                        self.model,
+                        "classes_"
+                    ):
+
+                        self.target_classes = [
+                            str(value)
+                            for value in self.model.classes_
+                        ]
+
+                    elif hasattr(
+                        self.model,
+                        "named_steps"
+                    ):
+
+                        classifier = (
+                            self.model
+                            .named_steps
+                            .get("classifier")
+                        )
+
+                        if (
+                            classifier is not None
+                            and hasattr(
+                                classifier,
+                                "classes_"
+                            )
+                        ):
+
+                            self.target_classes = [
+                                str(value)
+                                for value in classifier.classes_
+                            ]
+
+                # -------------------------------------------------------------
+                # Build probability dictionary
+                # -------------------------------------------------------------
+
+                if self.target_classes is None:
 
                     self.target_classes = [
                         str(i)
@@ -284,57 +345,49 @@ class FattyLiverAgent:
                         )
                     ]
 
-                class_probabilities = {
+                for i, probability in enumerate(
+                    probabilities
+                ):
 
-                    self.target_classes[i]:
-                    float(probabilities[i])
+                    if i < len(
+                        self.target_classes
+                    ):
 
-                    for i in range(
-                        len(probabilities)
-                    )
-                }
+                        class_name = (
+                            self.target_classes[i]
+                        )
 
-            else:
+                    else:
 
-                confidence = None
+                        class_name = str(i)
 
-                uncertainty = None
-
-                class_probabilities = {}
+                    class_probabilities[
+                        class_name
+                    ] = float(probability)
 
             # -----------------------------------------------------------------
-            # Prediction value
+            # Inference time
             # -----------------------------------------------------------------
 
-            prediction_value = prediction[0]
+            inference_time = (
+                time.time() - start_time
+            )
 
             # -----------------------------------------------------------------
             # Result
             # -----------------------------------------------------------------
 
-            result = {
+            return {
 
                 "status": "success",
 
-                "agent": self.agent_id,
-
-                "agent_id": self.agent_id,
-
-                "task_type": self.task_type,
-
-                "modality": self.modality,
+                "agent": "FattyLiverAgent",
 
                 "model": self.model_name,
 
                 "prediction": str(
                     prediction_value
                 ),
-
-                "predicted_label": str(
-                    prediction_value
-                ),
-
-                "probability": confidence,
 
                 "confidence": confidence,
 
@@ -344,50 +397,31 @@ class FattyLiverAgent:
 
                 "missing_ratio": missing_ratio,
 
-                "missing_data_ratio": missing_ratio,
-
                 "class_probabilities":
                     class_probabilities,
 
                 "features_used":
-                    list(self.feature_names),
+                    self.feature_names,
 
                 "inference_time":
-                    time.time() - start_time,
-
-                "latency_ms":
-                    (
-                        time.time() - start_time
-                    ) * 1000,
-
-                "error": None
+                    inference_time
             }
 
-            return result
-
-        # ---------------------------------------------------------------------
-        # Error handling
-        # ---------------------------------------------------------------------
-
         except Exception as e:
+
+            inference_time = (
+                time.time() - start_time
+            )
 
             return {
 
                 "status": "error",
 
-                "agent": self.agent_id,
-
-                "agent_id": self.agent_id,
-
-                "task_type": self.task_type,
-
-                "modality": self.modality,
+                "agent": "FattyLiverAgent",
 
                 "model": self.model_name,
 
                 "prediction": None,
-
-                "probability": None,
 
                 "confidence": 0.0,
 
@@ -397,30 +431,13 @@ class FattyLiverAgent:
 
                 "missing_ratio": 1.0,
 
-                "missing_data_ratio": 1.0,
-
                 "class_probabilities": {},
 
                 "features_used":
-                    list(self.feature_names),
+                    self.feature_names,
 
                 "inference_time":
-                    time.time() - start_time,
-
-                "latency_ms":
-                    (
-                        time.time() - start_time
-                    ) * 1000,
+                    inference_time,
 
                 "error": str(e)
             }
-
-    # =========================================================================
-    # ALIAS
-    # =========================================================================
-
-    def analyze(self, patient_data):
-
-        return self.predict(
-            patient_data
-        )
