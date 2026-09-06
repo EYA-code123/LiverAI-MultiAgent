@@ -1,24 +1,14 @@
-from pathlib import Path
-
-COORDINATOR_PATH = Path(
-    "/content/LiverAI-MultiAgent/coordinator/liver_coordinator.py"
-)
-
-COORDINATOR_CODE = r'''
 # =============================================================================
-# LiverAI-MultiAgent
-# LIVER AI COORDINATOR
-# TASK-AWARE ADAPTIVE COORDINATION
+# LIVER AI — TASK-AWARE MULTI-AGENT COORDINATOR
 # =============================================================================
 
 from collections import defaultdict
 from datetime import datetime
 
-
 from coordinator.trust_manager import TrustManager
 from coordinator.conflict_detector import ConflictDetector
-from coordinator.adaptive_fusion import AdaptiveFusion
 from coordinator.conflict_resolver import ConflictResolver
+from coordinator.adaptive_fusion import AdaptiveFusion
 from coordinator.reasoning import EvidenceReasoner
 from coordinator.decision import DecisionEngine
 from coordinator.action import ActionEngine
@@ -26,28 +16,36 @@ from coordinator.feedback import FeedbackEngine
 
 
 class LiverCoordinator:
+    """
+    Task-aware coordinator for the LiverAI multi-agent system.
+
+    Important:
+    - Different medical tasks are NOT merged into one global prediction.
+    - Each agent keeps its own task-specific prediction.
+    - Evidence is fused for coordination metrics only.
+    - Conflicts are detected only between agents solving the same task.
+    """
 
     # =========================================================================
     # INIT
     # =========================================================================
 
-    def __init__(
-        self,
-        agents=None,
-        minimum_confidence=0.55,
-        minimum_coverage=0.50,
-        minimum_quality=0.50,
-    ):
+    def __init__(self, agents=None):
 
-        self.name = "LiverAICoordinator"
+        self.agents = {}
+        self.agent_metadata = {}
 
         # ---------------------------------------------------------------------
-        # COMPONENTS
+        # Coordination components
         # ---------------------------------------------------------------------
 
         self.trust_manager = TrustManager()
 
         self.conflict_detector = ConflictDetector()
+
+        self.conflict_resolver = ConflictResolver(
+            consensus_threshold=0.60
+        )
 
         self.fusion = AdaptiveFusion(
             min_confidence=0.0,
@@ -55,17 +53,9 @@ class LiverCoordinator:
             use_trust=True
         )
 
-        self.conflict_resolver = ConflictResolver()
+        self.reasoner = EvidenceReasoner()
 
-        self.reasoner = EvidenceReasoner(
-            minimum_confidence=minimum_confidence
-        )
-
-        self.decision_engine = DecisionEngine(
-            moderate_confidence=minimum_confidence,
-            minimum_coverage=minimum_coverage,
-            minimum_quality=minimum_quality
-        )
+        self.decision_engine = DecisionEngine()
 
         self.action_engine = ActionEngine()
 
@@ -74,50 +64,58 @@ class LiverCoordinator:
         )
 
         # ---------------------------------------------------------------------
-        # AGENTS
+        # Optional initial agents
         # ---------------------------------------------------------------------
 
-        self.agents = {}
-
         if agents:
-            self._register_initial_agents(agents)
+
+            self._load_agents(agents)
 
     # =========================================================================
-    # INITIAL AGENTS
+    # LOAD AGENTS
     # =========================================================================
 
-    def _register_initial_agents(self, agents):
+    def _load_agents(self, agents):
 
         if isinstance(agents, dict):
 
-            for agent_id, config in agents.items():
+            for agent_id, agent_info in agents.items():
 
-                if isinstance(config, dict):
+                if isinstance(agent_info, dict):
 
-                    agent = config.get("agent")
-                    task_type = config.get(
+                    agent = agent_info.get("agent")
+
+                    task_type = agent_info.get(
                         "task_type",
-                        agent_id
+                        "unknown"
                     )
-                    modality = config.get(
+
+                    modality = agent_info.get(
                         "modality",
                         "unknown"
                     )
 
                 else:
 
-                    agent = config
-                    task_type = agent_id
-                    modality = "unknown"
-
-                if agent is not None:
-
-                    self.register_agent(
-                        agent_id=agent_id,
-                        agent=agent,
-                        task_type=task_type,
-                        modality=modality
+                    agent = agent_info
+                    task_type = getattr(
+                        agent,
+                        "task_type",
+                        "unknown"
                     )
+
+                    modality = getattr(
+                        agent,
+                        "modality",
+                        "unknown"
+                    )
+
+                self.register_agent(
+                    agent_id=agent_id,
+                    agent=agent,
+                    task_type=task_type,
+                    modality=modality
+                )
 
     # =========================================================================
     # REGISTER
@@ -127,75 +125,67 @@ class LiverCoordinator:
         self,
         agent_id,
         agent,
-        task_type,
+        task_type="unknown",
         modality="unknown"
     ):
 
-        if not agent_id:
-            raise ValueError(
-                "agent_id cannot be empty."
-            )
-
         if agent is None:
+
             raise ValueError(
                 f"Agent '{agent_id}' cannot be None."
             )
 
-        metadata = {
+        self.agents[agent_id] = agent
 
-            "agent_id":
-                str(agent_id),
+        self.agent_metadata[agent_id] = {
 
-            "agent":
-                agent,
+            "task_type": task_type,
 
-            "task_type":
-                str(task_type),
-
-            "modality":
-                str(modality),
-
-            "registered_at":
-                datetime.utcnow().isoformat(),
-
-            "status":
-                "registered"
+            "modality": modality
         }
 
-        self.agents[str(agent_id)] = metadata
+        # Register agent in trust manager
 
-        # Register initial historical trust
-        self.trust_manager.register_agent(
-            str(agent_id),
-            performance=0.5
-        )
+        try:
+
+            self.trust_manager.register_agent(
+                agent_id
+            )
+
+        except TypeError:
+
+            try:
+
+                self.trust_manager.register_agent(
+                    agent_id=agent_id
+                )
+
+            except Exception:
+
+                pass
 
         return {
             "status": "registered",
-            "agent_id": str(agent_id),
-            "task_type": str(task_type),
-            "modality": str(modality)
+            "agent_id": agent_id,
+            "task_type": task_type,
+            "modality": modality
         }
 
     # =========================================================================
     # UNREGISTER
     # =========================================================================
 
-    def unregister_agent(
-        self,
-        agent_id
-    ):
+    def unregister_agent(self, agent_id):
 
-        agent_id = str(agent_id)
+        self.agents.pop(
+            agent_id,
+            None
+        )
 
-        if agent_id not in self.agents:
-
-            return {
-                "status": "not_found",
-                "agent_id": agent_id
-            }
-
-        del self.agents[agent_id]
+        self.agent_metadata.pop(
+            agent_id,
+            None
+        )
 
         return {
             "status": "unregistered",
@@ -210,21 +200,26 @@ class LiverCoordinator:
 
         output = []
 
-        for agent_id, metadata in self.agents.items():
+        for agent_id in self.agents:
+
+            metadata = self.agent_metadata.get(
+                agent_id,
+                {}
+            )
 
             output.append({
 
-                "agent_id":
-                    agent_id,
+                "agent_id": agent_id,
 
-                "task_type":
-                    metadata["task_type"],
+                "task_type": metadata.get(
+                    "task_type",
+                    "unknown"
+                ),
 
-                "modality":
-                    metadata["modality"],
-
-                "status":
-                    metadata["status"]
+                "modality": metadata.get(
+                    "modality",
+                    "unknown"
+                )
             })
 
         return output
@@ -233,19 +228,11 @@ class LiverCoordinator:
     # GET AGENT
     # =========================================================================
 
-    def get_agent(
-        self,
-        agent_id
-    ):
+    def get_agent(self, agent_id):
 
-        metadata = self.agents.get(
-            str(agent_id)
+        return self.agents.get(
+            agent_id
         )
-
-        if metadata is None:
-            return None
-
-        return metadata["agent"]
 
     # =========================================================================
     # NORMALIZE RESULT
@@ -254,498 +241,275 @@ class LiverCoordinator:
     def _normalize_result(
         self,
         agent_id,
-        result
+        result,
+        task_type,
+        modality
     ):
-
-        metadata = self.agents[
-            str(agent_id)
-        ]
 
         if result is None:
 
             result = {}
 
-        elif hasattr(result, "to_dict"):
+        normalized = dict(result)
 
-            try:
-                result = result.to_dict()
-            except Exception:
-                result = {}
+        normalized["agent_id"] = agent_id
 
-        elif not isinstance(result, dict):
-
-            result = {
-                "prediction": result
-            }
-
-        result = dict(result)
-
-        result.setdefault(
-            "agent_id",
-            str(agent_id)
-        )
-
-        result.setdefault(
+        normalized["agent"] = normalized.get(
             "agent",
-            str(agent_id)
+            agent_id
         )
 
-        result.setdefault(
+        normalized["task_type"] = normalized.get(
             "task_type",
-            metadata["task_type"]
+            task_type
         )
 
-        result.setdefault(
+        normalized["modality"] = normalized.get(
             "modality",
-            metadata["modality"]
+            modality
         )
 
-        result.setdefault(
+        normalized["status"] = normalized.get(
             "status",
             "success"
         )
 
-        result.setdefault(
-            "prediction",
-            None
+        normalized["prediction"] = normalized.get(
+            "prediction"
         )
 
-        result.setdefault(
-            "confidence",
-            0.0
-        )
-
-        result.setdefault(
-            "uncertainty",
-            1.0 -
-            float(
-                result.get(
-                    "confidence",
-                    0.0
-                )
-            )
-        )
-
-        result.setdefault(
-            "quality",
-            0.5
-        )
-
-        result.setdefault(
-            "missing_data_ratio",
-            0.0
-        )
-
-        result.setdefault(
-            "stability",
-            0.5
-        )
-
-        result.setdefault(
-            "utility",
-            0.5
-        )
-
-        result.setdefault(
+        normalized["probability"] = normalized.get(
             "probability",
-            result.get(
+            normalized.get(
                 "confidence"
             )
         )
 
-        result.setdefault(
-            "error",
-            None
+        normalized["confidence"] = float(
+            normalized.get(
+                "confidence",
+                0.0
+            ) or 0.0
         )
 
-        return result
+        normalized["uncertainty"] = float(
+            normalized.get(
+                "uncertainty",
+                1.0 - normalized["confidence"]
+            ) or 0.0
+        )
+
+        normalized["quality"] = float(
+            normalized.get(
+                "quality",
+                1.0
+            ) or 0.0
+        )
+
+        normalized["missing_data_ratio"] = float(
+            normalized.get(
+                "missing_data_ratio",
+                normalized.get(
+                    "missing_ratio",
+                    0.0
+                )
+            ) or 0.0
+        )
+
+        return normalized
 
     # =========================================================================
-    # COMPUTE TRUST
+    # GROUP RESULTS BY TASK
+    # =========================================================================
+
+    def _group_by_task(self, results):
+
+        grouped = defaultdict(list)
+
+        for result in results:
+
+            task_type = result.get(
+                "task_type",
+                "unknown"
+            )
+
+            grouped[task_type].append(
+                result
+            )
+
+        return dict(grouped)
+
+    # =========================================================================
+    # TRUST
     # =========================================================================
 
     def _compute_trust(
         self,
-        result
+        result,
+        task_results
     ):
 
         agent_id = result.get(
-            "agent_id",
-            result.get(
-                "agent",
-                "unknown"
-            )
+            "agent_id"
         )
 
         confidence = float(
             result.get(
                 "confidence",
                 0.0
-            )
-        )
-
-        uncertainty = float(
-            result.get(
-                "uncertainty",
-                1.0 - confidence
-            )
+            ) or 0.0
         )
 
         quality = float(
             result.get(
                 "quality",
-                0.5
-            )
-        )
-
-        missing_data_ratio = float(
-            result.get(
-                "missing_data_ratio",
                 0.0
-            )
+            ) or 0.0
         )
 
-        stability = float(
+        uncertainty = float(
             result.get(
-                "stability",
-                0.5
-            )
+                "uncertainty",
+                1.0
+            ) or 1.0
         )
 
-        utility = float(
-            result.get(
-                "utility",
-                0.5
-            )
-        )
+        # Agreement with other agents solving the same task
 
-        # For a first version, agreement is computed
-        # later at task level. Neutral value here.
-        agreement = float(
-            result.get(
-                "agreement",
-                0.5
-            )
-        )
+        valid_predictions = [
 
-        modality_available = (
-            result.get(
-                "status"
-            )
-            not in (
-                "not_available",
-                "not_run"
-            )
-        )
+            r.get("prediction")
 
-        trust = self.trust_manager.compute_trust(
+            for r in task_results
 
-            agent_id=agent_id,
-
-            confidence=confidence,
-
-            uncertainty=uncertainty,
-
-            quality=quality,
-
-            missing_data_ratio=missing_data_ratio,
-
-            agreement=agreement,
-
-            stability=stability,
-
-            utility=utility,
-
-            modality_available=modality_available
-        )
-
-        return float(trust)
-
-    # =========================================================================
-    # EXECUTE AGENT
-    # =========================================================================
-
-    def _execute_agent(
-        self,
-        agent_id,
-        inputs
-    ):
-
-        metadata = self.agents[
-            str(agent_id)
+            if r.get("status") == "success"
+            and r.get("prediction") is not None
         ]
 
-        agent = metadata[
-            "agent"
-        ]
+        if len(valid_predictions) <= 1:
+
+            agreement = 1.0
+
+        else:
+
+            prediction = result.get(
+                "prediction"
+            )
+
+            matches = sum(
+
+                1
+
+                for p in valid_predictions
+
+                if p == prediction
+            )
+
+            agreement = (
+                matches /
+                len(valid_predictions)
+            )
+
+        result["agreement"] = float(
+            agreement
+        )
+
+        # ---------------------------------------------------------------------
+        # Compute reliability
+        # ---------------------------------------------------------------------
 
         try:
 
-            # ---------------------------------------------------------------
-            # INPUT SELECTION
-            # ---------------------------------------------------------------
-
-            if isinstance(inputs, dict):
-
-                if agent_id in inputs:
-
-                    agent_input = inputs[
-                        agent_id
-                    ]
-
-                elif metadata["task_type"] in inputs:
-
-                    agent_input = inputs[
-                        metadata["task_type"]
-                    ]
-
-                else:
-
-                    agent_input = inputs
-
-            else:
-
-                agent_input = inputs
-
-            # ---------------------------------------------------------------
-            # EXECUTION
-            # ---------------------------------------------------------------
-
-            if hasattr(
-                agent,
-                "predict"
-            ):
-
-                result = agent.predict(
-                    agent_input
-                )
-
-            elif hasattr(
-                agent,
-                "analyze"
-            ):
-
-                result = agent.analyze(
-                    agent_input
-                )
-
-            elif callable(agent):
-
-                result = agent(
-                    agent_input
-                )
-
-            else:
-
-                raise TypeError(
-                    f"Agent '{agent_id}' has no "
-                    "predict(), analyze(), or callable interface."
-                )
-
-            return self._normalize_result(
-                agent_id,
-                result
+            reliability = (
+                0.40 * confidence
+                + 0.30 * quality
+                + 0.20 * agreement
+                + 0.10 * (1.0 - uncertainty)
             )
 
-        except Exception as e:
+        except Exception:
 
-            return self._normalize_result(
-                agent_id,
-                {
-                    "status":
-                        "error",
+            reliability = 0.0
 
-                    "prediction":
-                        None,
-
-                    "confidence":
-                        0.0,
-
-                    "uncertainty":
-                        1.0,
-
-                    "quality":
-                        0.0,
-
-                    "error":
-                        str(e)
-                }
+        reliability = max(
+            0.0,
+            min(
+                1.0,
+                reliability
             )
-
-    # =========================================================================
-    # GROUP BY TASK
-    # =========================================================================
-
-    def _group_by_task(
-        self,
-        results
-    ):
-
-        groups = defaultdict(list)
-
-        for result in results:
-
-            task = result.get(
-                "task_type",
-                "unknown"
-            )
-
-            groups[
-                task
-            ].append(
-                result
-            )
-
-        return dict(groups)
-
-    # =========================================================================
-    # GROUP BY MODALITY
-    # =========================================================================
-
-    def _group_by_modality(
-        self,
-        results
-    ):
-
-        groups = defaultdict(list)
-
-        for result in results:
-
-            modality = result.get(
-                "modality",
-                "unknown"
-            )
-
-            groups[
-                modality
-            ].append(
-                result
-            )
-
-        return dict(groups)
-
-    # =========================================================================
-    # TASK AGREEMENT
-    # =========================================================================
-
-    def _compute_task_agreement(
-        self,
-        results
-    ):
-
-        valid = [
-
-            r for r in results
-
-            if r.get(
-                "prediction"
-            ) is not None
-
-            and r.get(
-                "status"
-            ) in (
-                "success",
-                "completed"
-            )
-        ]
-
-        if len(valid) < 2:
-            return 1.0
-
-        predictions = [
-            str(
-                r.get(
-                    "prediction"
-                )
-            )
-            for r in valid
-        ]
-
-        counts = {}
-
-        for prediction in predictions:
-
-            counts[prediction] = (
-                counts.get(
-                    prediction,
-                    0
-                )
-                + 1
-            )
-
-        majority = max(
-            counts.values()
         )
 
-        return float(
-            majority /
-            len(predictions)
-        )
+        # ---------------------------------------------------------------------
+        # Trust manager
+        # ---------------------------------------------------------------------
 
-    # =========================================================================
-    # UPDATE TASK TRUST
-    # =========================================================================
+        try:
 
-    def _update_task_trust(
-        self,
-        results
-    ):
-
-        groups = self._group_by_task(
-            results
-        )
-
-        for task_type, task_results in groups.items():
-
-            agreement = (
-                self._compute_task_agreement(
-                    task_results
-                )
+            trust = self.trust_manager.compute_trust(
+                agent_id=agent_id,
+                current_reliability=reliability
             )
 
-            for result in task_results:
+        except TypeError:
 
-                result["agreement"] = (
-                    agreement
+            try:
+
+                trust = self.trust_manager.compute_trust(
+                    agent_id,
+                    reliability
                 )
 
-                try:
+            except Exception:
 
-                    result["trust"] = (
-                        self._compute_trust(
-                            result
-                        )
-                    )
+                trust = 0.5
 
-                except Exception:
+        except Exception:
 
-                    result["trust"] = (
-                        0.5
-                    )
+            trust = 0.5
+
+        result["trust"] = float(
+            trust
+        )
+
+        result["reliability"] = float(
+            reliability
+        )
+
+        return result
 
     # =========================================================================
-    # RESOLVE CONFLICTS
+    # CONFLICT DETECTION
+    # =========================================================================
+
+    def _detect_conflicts(self, results):
+
+        try:
+
+            return self.conflict_detector.detect(
+                results
+            )
+
+        except Exception:
+
+            return []
+
+    # =========================================================================
+    # CONFLICT RESOLUTION
     # =========================================================================
 
     def _resolve_conflicts(
         self,
-        results
+        results,
+        conflicts
     ):
 
-        # ConflictDetector is already task-aware.
-        conflicts = (
-            self.conflict_detector.detect(
-                results
-            )
-        )
-
-        groups = self._group_by_task(
+        grouped = self._group_by_task(
             results
         )
 
         resolutions = {}
 
-        for task_type, task_results in groups.items():
+        for task_type, task_results in grouped.items():
 
             task_conflicts = [
 
@@ -758,688 +522,431 @@ class LiverCoordinator:
                 ) == task_type
             ]
 
-            valid = [
-
-                r
-
-                for r in task_results
-
-                if r.get(
-                    "prediction"
-                ) is not None
-            ]
-
-            if len(valid) == 0:
-                continue
-
-            if len(valid) == 1:
-
-                resolutions[task_type] = {
-
-                    "status":
-                        "resolved",
-
-                    "consensus":
-                        True,
-
-                    "prediction":
-                        valid[0].get(
-                            "prediction"
-                        ),
-
-                    "consensus_strength":
-                        1.0,
-
-                    "reason":
-                        "Single valid agent."
-                }
-
-                continue
-
             try:
 
-                resolutions[
-                    task_type
-                ] = self.conflict_resolver.resolve(
-
-                    task_type=task_type,
-
-                    results=task_results,
-
-                    conflicts=task_conflicts
-                )
-
-            except Exception as e:
-
-                resolutions[
-                    task_type
-                ] = {
-
-                    "status":
-                        "error",
-
-                    "consensus":
-                        False,
-
-                    "prediction":
-                        None,
-
-                    "consensus_strength":
-                        0.0,
-
-                    "reason":
-                        str(e)
-                }
-
-        return conflicts, resolutions
-
-    # =========================================================================
-    # BUILD TASK ASSESSMENTS
-    # =========================================================================
-
-    def _build_task_assessments(
-        self,
-        results,
-        resolutions
-    ):
-
-        groups = self._group_by_task(
-            results
-        )
-
-        assessments = {}
-
-        for task_type, task_results in groups.items():
-
-            valid = [
-
-                r
-
-                for r in task_results
-
-                if r.get(
-                    "prediction"
-                ) is not None
-
-                and r.get(
-                    "status"
-                ) in (
-                    "success",
-                    "completed"
-                )
-            ]
-
-            resolution = resolutions.get(
-                task_type
-            )
-
-            # ---------------------------------------------------------------
-            # Task-local reasoning
-            # ---------------------------------------------------------------
-
-            reasoning = self.reasoner.synthesize(
-
-                valid,
-
-                conflict_resolution=resolution
-            )
-
-            # ---------------------------------------------------------------
-            # Task-local decision
-            # ---------------------------------------------------------------
-
-            task_conflicts = [
-
-                c
-
-                for c in (
-                    self.conflict_detector.detect(
-                        task_results
+                resolution = (
+                    self.conflict_resolver.resolve(
+                        task_type=task_type,
+                        results=task_results,
+                        conflicts=task_conflicts
                     )
                 )
 
-                if c.get(
+            except Exception as exc:
+
+                resolution = {
+
+                    "status": "failed",
+
+                    "consensus": False,
+
+                    "prediction": None,
+
+                    "consensus_strength": 0.0,
+
+                    "scores": {},
+
+                    "reason": str(exc)
+                }
+
+            resolutions[task_type] = resolution
+
+        return resolutions
+
+    # =========================================================================
+    # EVIDENCE GRAPH
+    # =========================================================================
+
+    def _build_evidence_graph(self, results):
+
+        graph = []
+
+        for i in range(
+            len(results)
+        ):
+
+            for j in range(
+                i + 1,
+                len(results)
+            ):
+
+                first = results[i]
+
+                second = results[j]
+
+                first_task = first.get(
                     "task_type"
-                ) == task_type
-            ]
+                )
 
-            decision = self.decision_engine.decide(
+                second_task = second.get(
+                    "task_type"
+                )
 
-                results=valid,
+                # -------------------------------------------------------------
+                # Different medical tasks
+                # -------------------------------------------------------------
 
-                conflicts=task_conflicts,
+                if first_task != second_task:
 
-                reasoning=reasoning
-            )
+                    relation = "complements"
 
-            # ---------------------------------------------------------------
-            # Normalize naming
-            # ---------------------------------------------------------------
+                # -------------------------------------------------------------
+                # Same task
+                # -------------------------------------------------------------
 
-            decision_level = decision.get(
-                "decision",
-                "UNCERTAIN"
-            )
+                elif (
+                    first.get("prediction")
+                    ==
+                    second.get("prediction")
+                ):
 
-            # ---------------------------------------------------------------
-            # ActionEngine expects decision_level
-            # ---------------------------------------------------------------
+                    relation = "supports"
 
-            action_input = dict(
-                decision
-            )
+                else:
 
-            action_input[
-                "decision_level"
-            ] = decision_level
+                    relation = "conflicts"
 
-            action = self.action_engine.generate(
-                action_input
-            )
+                graph.append({
 
-            assessments[
-                task_type
-            ] = {
-
-                "task_type":
-                    task_type,
-
-                "num_agents":
-                    len(task_results),
-
-                "num_valid_agents":
-                    len(valid),
-
-                "coverage":
-                    (
-                        len(valid)
-                        /
-                        len(task_results)
-                        if task_results
-                        else 0.0
+                    "agent_1": first.get(
+                        "agent_id"
                     ),
 
-                "agreement":
-                    self._compute_task_agreement(
-                        task_results
+                    "agent_2": second.get(
+                        "agent_id"
                     ),
 
-                "resolution":
-                    resolution,
+                    "task_1": first_task,
 
-                "reasoning":
-                    reasoning,
+                    "task_2": second_task,
 
-                "decision":
-                    decision,
+                    "relation": relation
+                })
 
-                "action":
-                    action
-            }
-
-        return assessments
+        return graph
 
     # =========================================================================
-    # RUN REASONING
+    # TASK DECISIONS
     # =========================================================================
 
-    def _run_reasoning(
+    def _build_task_decisions(
         self,
         results,
+        conflicts,
         resolutions
     ):
 
-        assessments = (
-            self._build_task_assessments(
-                results,
-                resolutions
-            )
-        )
-
-        # Build a global evidence graph only.
-        # No global prediction is created.
-        evidence_graph = (
-            self.reasoner.build_evidence_graph(
-                results
-            )
-        )
-
-        return {
-
-            "status":
-                "completed",
-
-            "task_assessments":
-                assessments,
-
-            "evidence_graph":
-                evidence_graph,
-
-            "prediction":
-                None,
-
-            "explanation":
-                (
-                    "Evidence was synthesized "
-                    "independently for each task. "
-                    "Predictions from different tasks "
-                    "were not merged."
-                )
-        }
-
-    # =========================================================================
-    # RUN DECISION
-    # =========================================================================
-
-    def _run_decision(
-        self,
-        results,
-        reasoning
-    ):
-
-        assessments = reasoning.get(
-            "task_assessments",
-            {}
+        grouped = self._group_by_task(
+            results
         )
 
         task_decisions = {}
 
-        for task_type, assessment in assessments.items():
+        task_actions = {}
 
-            task_decisions[
-                task_type
-            ] = assessment.get(
-                "decision",
+        for task_type, task_results in grouped.items():
+
+            valid_results = [
+
+                result
+
+                for result in task_results
+
+                if result.get(
+                    "status"
+                ) == "success"
+            ]
+
+            resolution = resolutions.get(
+                task_type,
                 {}
             )
 
-        # ---------------------------------------------------------------------
-        # GLOBAL COORDINATION METRICS
-        # ---------------------------------------------------------------------
-
-        total = len(results)
-
-        valid = [
-
-            r
-
-            for r in results
-
-            if r.get(
+            prediction = resolution.get(
                 "prediction"
-            ) is not None
-
-            and r.get(
-                "status"
-            ) in (
-                "success",
-                "completed"
             )
-        ]
 
-        coverage = (
-            len(valid) / total
-            if total > 0
-            else 0.0
+            if prediction is None and valid_results:
+
+                prediction = valid_results[0].get(
+                    "prediction"
+                )
+
+            # -------------------------------------------------------------
+            # Aggregate confidence
+            # -------------------------------------------------------------
+
+            if valid_results:
+
+                confidence_values = [
+
+                    float(
+                        result.get(
+                            "confidence",
+                            0.0
+                        ) or 0.0
+                    )
+
+                    for result in valid_results
+                ]
+
+                confidence = sum(
+                    confidence_values
+                ) / len(
+                    confidence_values
+                )
+
+            else:
+
+                confidence = 0.0
+
+            # -------------------------------------------------------------
+            # Decision engine
+            # -------------------------------------------------------------
+
+            try:
+
+                decision = self.decision_engine.decide(
+                    task_results
+                )
+
+            except TypeError:
+
+                try:
+
+                    decision = self.decision_engine.decide(
+                        results=task_results
+                    )
+
+                except Exception:
+
+                    decision = {
+
+                        "status": (
+                            "insufficient_evidence"
+                            if not valid_results
+                            else "completed"
+                        ),
+
+                        "decision": (
+                            "UNCERTAIN"
+                            if confidence < 0.60
+                            else "MODERATE"
+                        ),
+
+                        "prediction": prediction,
+
+                        "confidence": confidence
+                    }
+
+            except Exception:
+
+                decision = {
+
+                    "status": (
+                        "insufficient_evidence"
+                        if not valid_results
+                        else "completed"
+                    ),
+
+                    "decision": (
+                        "UNCERTAIN"
+                        if confidence < 0.60
+                        else "MODERATE"
+                    ),
+
+                    "prediction": prediction,
+
+                    "confidence": confidence
+                }
+
+            decision = dict(
+                decision
+            )
+
+            # Normalize naming used by ActionEngine
+
+            if "decision_level" not in decision:
+
+                decision["decision_level"] = decision.get(
+                    "decision",
+                    "UNCERTAIN"
+                )
+
+            decision["prediction"] = prediction
+
+            decision["confidence"] = confidence
+
+            decision["task_type"] = task_type
+
+            task_decisions[task_type] = decision
+
+            # -------------------------------------------------------------
+            # Actions
+            # -------------------------------------------------------------
+
+            try:
+
+                action = self.action_engine.generate(
+                    decision
+                )
+
+            except Exception:
+
+                action = {
+
+                    "status": "cautious",
+
+                    "actions": [
+
+                        "Clinical review recommended.",
+
+                        "Consider additional evidence.",
+
+                        "Do not use this automated output "
+                        "as a standalone diagnosis."
+                    ],
+
+                    "referral": True,
+
+                    "follow_up": True,
+
+                    "additional_tests": True
+                }
+
+            task_actions[task_type] = action
+
+        return (
+            task_decisions,
+            task_actions
         )
 
-        if valid:
+    # =========================================================================
+    # COORDINATION SUMMARY
+    # =========================================================================
 
-            mean_confidence = sum(
+    def _build_coordination_summary(
+        self,
+        results,
+        conflicts
+    ):
+
+        valid_results = [
+
+            result
+
+            for result in results
+
+            if result.get(
+                "status"
+            ) == "success"
+        ]
+
+        if valid_results:
+
+            confidence_values = [
 
                 float(
-                    r.get(
+                    result.get(
                         "confidence",
                         0.0
-                    )
+                    ) or 0.0
                 )
 
-                for r in valid
+                for result in valid_results
+            ]
 
-            ) / len(valid)
-
-            mean_trust = sum(
+            trust_values = [
 
                 float(
-                    r.get(
+                    result.get(
                         "trust",
                         0.0
-                    )
+                    ) or 0.0
                 )
 
-                for r in valid
+                for result in valid_results
+            ]
 
-            ) / len(valid)
-
-            mean_quality = sum(
+            quality_values = [
 
                 float(
-                    r.get(
+                    result.get(
                         "quality",
-                        0.5
-                    )
+                        0.0
+                    ) or 0.0
                 )
 
-                for r in valid
+                for result in valid_results
+            ]
 
-            ) / len(valid)
+            mean_confidence = (
+                sum(confidence_values)
+                /
+                len(confidence_values)
+            )
+
+            mean_trust = (
+                sum(trust_values)
+                /
+                len(trust_values)
+            )
+
+            mean_quality = (
+                sum(quality_values)
+                /
+                len(quality_values)
+            )
 
         else:
 
             mean_confidence = 0.0
+
             mean_trust = 0.0
+
             mean_quality = 0.0
 
-        # ---------------------------------------------------------------------
-        # GLOBAL CONFLICTS ONLY REPRESENT SAME-TASK CONFLICTS
-        # ---------------------------------------------------------------------
+        return {
 
-        conflicts = (
-            self.conflict_detector.detect(
-                results
-            )
-        )
+            "num_agents": len(results),
 
-        conflict_values = [
+            "num_valid_agents": len(
+                valid_results
+            ),
 
-            float(
-                c.get(
-                    "conflict_strength",
-                    0.0
-                )
-            )
+            "coverage": (
+                len(valid_results)
+                /
+                len(results)
+                if results
+                else 0.0
+            ),
 
-            for c in conflicts
-        ]
-
-        conflict_score = (
-
-            sum(conflict_values)
-            /
-            len(conflict_values)
-
-            if conflict_values
-
-            else 0.0
-        )
-
-        if not valid:
-
-            coordination_level = "UNCERTAIN"
-
-        elif coverage < 0.50:
-
-            coordination_level = "UNCERTAIN"
-
-        elif conflict_score >= 0.50:
-
-            coordination_level = "UNCERTAIN"
-
-        elif mean_confidence >= 0.80 and mean_trust >= 0.70:
-
-            coordination_level = "HIGH"
-
-        elif mean_confidence >= 0.55:
-
-            coordination_level = "MODERATE"
-
-        else:
-
-            coordination_level = "UNCERTAIN"
-
-        risk_score = (
-
-            0.40 * (
-                1.0 -
+            "mean_confidence": (
                 mean_confidence
-            )
+            ),
 
-            +
-
-            0.30 * (
-                1.0 -
+            "mean_trust": (
                 mean_trust
-            )
+            ),
 
-            +
-
-            0.20 *
-            conflict_score
-
-            +
-
-            0.10 * (
-                1.0 -
+            "mean_quality": (
                 mean_quality
-            )
-        )
+            ),
 
-        risk_score = max(
-            0.0,
-            min(
-                1.0,
-                risk_score
-            )
-        )
+            "num_conflicts": len(
+                conflicts
+            ),
 
-        return {
-
-            "status":
-                "completed",
-
-            "decision_level":
-                coordination_level,
-
-            "task_decisions":
-                task_decisions,
-
-            # IMPORTANT:
-            # No global prediction.
-            "prediction":
-                None,
-
-            "confidence":
-                float(
-                    mean_confidence
-                ),
-
-            "uncertainty":
-                float(
-                    1.0 -
-                    mean_confidence
-                ),
-
-            "trust":
-                float(
-                    mean_trust
-                ),
-
-            "quality":
-                float(
-                    mean_quality
-                ),
-
-            "coverage":
-                float(
-                    coverage
-                ),
-
-            "conflict_score":
-                float(
-                    conflict_score
-                ),
-
-            "risk_score":
-                float(
-                    risk_score
-                ),
-
-            "request_additional_tests":
-                coordination_level ==
-                "UNCERTAIN",
-
-            "num_agents":
-                total,
-
-            "num_valid_agents":
-                len(valid),
-
-            "explanation":
-                (
-                    "Global coordination metrics "
-                    "summarize heterogeneous evidence. "
-                    "No cross-task prediction was generated."
+            "conflict_score": (
+                len(conflicts)
+                /
+                max(
+                    1,
+                    len(results)
                 )
+            )
         }
-
-    # =========================================================================
-    # RUN ACTION
-    # =========================================================================
-
-    def _run_action(
-        self,
-        decision
-    ):
-
-        task_actions = {}
-
-        for task_type, task_decision in (
-            decision.get(
-                "task_decisions",
-                {}
-            ).items()
-        ):
-
-            action_input = dict(
-                task_decision
-            )
-
-            action_input[
-                "decision_level"
-            ] = task_decision.get(
-                "decision",
-                "UNCERTAIN"
-            )
-
-            task_actions[
-                task_type
-            ] = self.action_engine.generate(
-                action_input
-            )
-
-        return {
-
-            "status":
-                "completed",
-
-            "task_actions":
-                task_actions,
-
-            "global_action":
-                {
-                    "status":
-                        "coordination_only",
-
-                    "message":
-                        (
-                            "Clinical actions should "
-                            "be interpreted per task."
-                        )
-                }
-        }
-
-    # =========================================================================
-    # TASK SUMMARY
-    # =========================================================================
-
-    def _build_task_summary(
-        self,
-        results
-    ):
-
-        groups = self._group_by_task(
-            results
-        )
-
-        summary = {}
-
-        for task_type, task_results in groups.items():
-
-            valid = [
-
-                r
-
-                for r in task_results
-
-                if r.get(
-                    "prediction"
-                ) is not None
-
-                and r.get(
-                    "status"
-                ) in (
-                    "success",
-                    "completed"
-                )
-            ]
-
-            summary[
-                task_type
-            ] = {
-
-                "agents":
-                    [
-                        r.get(
-                            "agent_id",
-                            r.get(
-                                "agent"
-                            )
-                        )
-
-                        for r in task_results
-                    ],
-
-                "valid_agents":
-                    [
-                        r.get(
-                            "agent_id",
-                            r.get(
-                                "agent"
-                            )
-                        )
-
-                        for r in valid
-                    ],
-
-                "num_agents":
-                    len(task_results),
-
-                "num_valid_agents":
-                    len(valid),
-
-                "predictions":
-                    [
-                        r.get(
-                            "prediction"
-                        )
-
-                        for r in valid
-                    ],
-
-                "confidence":
-                    [
-                        float(
-                            r.get(
-                                "confidence",
-                                0.0
-                            )
-                        )
-
-                        for r in valid
-                    ]
-            }
-
-        return summary
 
     # =========================================================================
     # RUN
@@ -1447,9 +954,28 @@ class LiverCoordinator:
 
     def run(
         self,
-        patient_id,
-        inputs=None
+        patient_id=None,
+        inputs=None,
+        images=None,
+        **kwargs
     ):
+
+        # ---------------------------------------------------------------------
+        # No agents
+        # ---------------------------------------------------------------------
+
+        if not self.agents:
+
+            return {
+
+                "status": "insufficient_evidence",
+
+                "patient_id": patient_id,
+
+                "agents": [],
+
+                "error": "No agents registered."
+            }
 
         inputs = (
             inputs
@@ -1457,171 +983,521 @@ class LiverCoordinator:
             else {}
         )
 
-        started_at = (
-            datetime.utcnow()
+        images = (
+            images
+            if images is not None
+            else {}
         )
 
         results = []
 
-        # ---------------------------------------------------------------------
-        # EXECUTE ALL REGISTERED AGENTS
-        # ---------------------------------------------------------------------
+        # =====================================================================
+        # EXECUTE AGENTS
+        # =====================================================================
 
-        for agent_id in self.agents:
+        for agent_id, agent in self.agents.items():
 
-            result = self._execute_agent(
+            metadata = self.agent_metadata.get(
                 agent_id,
-                inputs
+                {}
             )
+
+            task_type = metadata.get(
+                "task_type",
+                "unknown"
+            )
+
+            modality = metadata.get(
+                "modality",
+                "unknown"
+            )
+
+            # -----------------------------------------------------------------
+            # Agent-specific input
+            # -----------------------------------------------------------------
+
+            if isinstance(inputs, dict):
+
+                agent_input = inputs.get(
+                    agent_id
+                )
+
+            else:
+
+                agent_input = inputs
+
+            # -----------------------------------------------------------------
+            # Image-specific input
+            # -----------------------------------------------------------------
+
+            if isinstance(images, dict):
+
+                agent_image = images.get(
+                    agent_id
+                )
+
+            else:
+
+                agent_image = images
+
+            try:
+
+                # =============================================================
+                # FALLBACK
+                # =============================================================
+
+                if agent_input is None:
+
+                    agent_input = kwargs.get(
+                        "patient_data"
+                    )
+
+                # =============================================================
+                # PREDICT
+                # =============================================================
+
+                if hasattr(
+                    agent,
+                    "predict"
+                ):
+
+                    # ---------------------------------------------------------
+                    # 2D IMAGE AGENT
+                    # ---------------------------------------------------------
+
+                    if modality == "2D_image":
+
+                        if agent_image is None:
+
+                            raise ValueError(
+                                f"No image provided for "
+                                f"agent '{agent_id}'."
+                            )
+
+                        raw_result = agent.predict(
+                            agent_image
+                        )
+
+                    # ---------------------------------------------------------
+                    # ALL NON-IMAGE AGENTS
+                    # ---------------------------------------------------------
+
+                    else:
+
+                        if agent_input is None:
+
+                            raise ValueError(
+                                f"No input provided for "
+                                f"agent '{agent_id}'."
+                            )
+
+                        raw_result = agent.predict(
+                            agent_input
+                        )
+
+                # =============================================================
+                # ANALYZE
+                # =============================================================
+
+                elif hasattr(
+                    agent,
+                    "analyze"
+                ):
+
+                    raw_result = agent.analyze(
+                        agent_input
+                    )
+
+                else:
+
+                    raise AttributeError(
+
+                        f"Agent '{agent_id}' has neither "
+                        "'predict' nor 'analyze'."
+                    )
+
+                # =============================================================
+                # NORMALIZE
+                # =============================================================
+
+                normalized = self._normalize_result(
+
+                    agent_id=agent_id,
+
+                    result=raw_result,
+
+                    task_type=task_type,
+
+                    modality=modality
+                )
+
+            except Exception as exc:
+
+                normalized = {
+
+                    "agent_id": agent_id,
+
+                    "agent": agent_id,
+
+                    "task_type": task_type,
+
+                    "modality": modality,
+
+                    "prediction": None,
+
+                    "probability": None,
+
+                    "confidence": 0.0,
+
+                    "uncertainty": 1.0,
+
+                    "quality": 0.0,
+
+                    "missing_data_ratio": 1.0,
+
+                    "status": "failed",
+
+                    "error": str(exc),
+
+                    "details": {}
+                }
 
             results.append(
-                result
+                normalized
             )
 
-        # ---------------------------------------------------------------------
+        # =====================================================================
         # TRUST
-        # ---------------------------------------------------------------------
+        # =====================================================================
 
-        self._update_task_trust(
+        grouped = self._group_by_task(
             results
         )
 
-        # ---------------------------------------------------------------------
-        # CONFLICT
-        # ---------------------------------------------------------------------
+        for result in results:
 
-        conflicts, resolutions = (
-            self._resolve_conflicts(
+            task_results = grouped.get(
+                result.get(
+                    "task_type"
+                ),
+                []
+            )
+
+            if result.get(
+                "status"
+            ) == "success":
+
+                self._compute_trust(
+
+                    result,
+
+                    task_results
+                )
+
+            else:
+
+                result["trust"] = 0.0
+
+                result["agreement"] = 0.0
+
+        # =====================================================================
+        # ADAPTIVE FUSION
+        # =====================================================================
+
+        try:
+
+            fusion_result = self.fusion.fuse(
                 results
             )
-        )
 
-        # ---------------------------------------------------------------------
-        # FUSION
-        # ---------------------------------------------------------------------
+        except Exception as exc:
 
-        fusion_result = self.fusion.fuse(
+            fusion_result = {
+
+                "status": "failed",
+
+                "error": str(exc)
+            }
+
+        # =====================================================================
+        # CONFLICTS
+        # =====================================================================
+
+        conflicts = self._detect_conflicts(
             results
         )
 
-        # ---------------------------------------------------------------------
-        # REASONING
-        # ---------------------------------------------------------------------
+        resolutions = self._resolve_conflicts(
 
-        reasoning = self._run_reasoning(
             results,
+
+            conflicts
+        )
+
+        # =====================================================================
+        # EVIDENCE GRAPH
+        # =====================================================================
+
+        evidence_graph = self._build_evidence_graph(
+            results
+        )
+
+        # =====================================================================
+        # TASK DECISIONS + ACTIONS
+        # =====================================================================
+
+        (
+            task_decisions,
+            task_actions
+        ) = self._build_task_decisions(
+
+            results,
+
+            conflicts,
+
             resolutions
         )
 
-        # ---------------------------------------------------------------------
-        # DECISION
-        # ---------------------------------------------------------------------
+        # =====================================================================
+        # REASONING
+        # =====================================================================
 
-        decision = self._run_decision(
-            results,
-            reasoning
-        )
+        reasoning_result = {
 
-        # ---------------------------------------------------------------------
-        # ACTION
-        # ---------------------------------------------------------------------
+            "status": (
+                "completed"
+                if results
+                else "insufficient_evidence"
+            ),
 
-        action = self._run_action(
-            decision
-        )
+            "task_assessments": {
 
-        # ---------------------------------------------------------------------
-        # TASK SUMMARY
-        # ---------------------------------------------------------------------
+                task: {
 
-        task_summary = (
-            self._build_task_summary(
-                results
+                    "prediction": resolutions.get(
+                        task,
+                        {}
+                    ).get(
+                        "prediction"
+                    ),
+
+                    "confidence": resolutions.get(
+                        task,
+                        {}
+                    ).get(
+                        "consensus_strength",
+                        0.0
+                    ),
+
+                    "resolution": resolutions.get(
+                        task,
+                        {}
+                    )
+                }
+
+                for task in grouped
+            },
+
+            "evidence_graph": evidence_graph,
+
+            "explanation": (
+
+                "Evidence was evaluated separately "
+                "for each medical task. "
+                "Different tasks are complementary "
+                "and are not merged into one prediction."
+            )
+        }
+
+        # =====================================================================
+        # GLOBAL DECISION
+        # =====================================================================
+
+        coordination = (
+            self._build_coordination_summary(
+
+                results,
+
+                conflicts
             )
         )
 
-        elapsed_ms = (
-            datetime.utcnow()
-            - started_at
-        ).total_seconds() * 1000.0
+        decision_result = {
+
+            "status": (
+
+                "completed"
+                if results
+                else "insufficient_evidence"
+            ),
+
+            "task_decisions": task_decisions,
+
+            "coordination": coordination,
+
+            # IMPORTANT:
+            # No global medical prediction.
+
+            "prediction": None,
+
+            "explanation": (
+
+                "Decisions are task-specific. "
+                "No global medical class is inferred "
+                "from heterogeneous agents."
+            )
+        }
+
+        # =====================================================================
+        # FINAL RESULT
+        # =====================================================================
 
         return {
 
-            "status":
-                "completed",
+            "status": "completed",
 
-            "patient_id":
-                patient_id,
+            "patient_id": patient_id,
 
-            "coordinator":
-                self.name,
+            "agents": results,
 
-            "timestamp":
-                started_at.isoformat(),
+            "task_summary": {
 
-            "latency_ms":
-                float(
-                    elapsed_ms
-                ),
+                task: {
 
-            "num_registered_agents":
-                len(
-                    self.agents
-                ),
+                    "num_agents": len(
+                        task_results
+                    ),
 
-            "agent_results":
-                results,
+                    "prediction": resolutions.get(
+                        task,
+                        {}
+                    ).get(
+                        "prediction"
+                    ),
 
-            "task_summary":
-                task_summary,
+                    "conflict": any(
 
-            "conflicts":
-                conflicts,
+                        c.get(
+                            "task_type"
+                        ) == task
 
-            "conflict_resolutions":
-                resolutions,
+                        for c in conflicts
+                    )
+                }
 
-            "fusion":
-                fusion_result,
+                for task, task_results
+                in grouped.items()
+            },
 
-            "reasoning":
-                reasoning,
+            "conflicts": conflicts,
 
-            "decision":
-                decision,
+            "conflict_resolution": resolutions,
 
-            "action":
-                action
+            "fusion": fusion_result,
+
+            "reasoning": reasoning_result,
+
+            "decision": decision_result,
+
+            "action": {
+
+                "task_actions": task_actions
+            },
+
+            "timestamp": datetime.utcnow().isoformat()
         }
 
     # =========================================================================
     # FEEDBACK
     # =========================================================================
 
+    def update_feedback(
+        self,
+        agent_results,
+        ground_truths
+    ):
+
+        if not agent_results:
+
+            return {
+                "status": "no_results"
+            }
+
+        # ---------------------------------------------------------------------
+        # Group by task
+        # ---------------------------------------------------------------------
+
+        grouped = self._group_by_task(
+            agent_results
+        )
+
+        feedback_results = {}
+
+        for task_type, results in grouped.items():
+
+            # Ground truth may be:
+            # {
+            #     "cirrhosis_classification": 1,
+            #     "fibrosis_classification": 0
+            # }
+
+            if isinstance(
+                ground_truths,
+                dict
+            ):
+
+                ground_truth = ground_truths.get(
+                    task_type
+                )
+
+            else:
+
+                ground_truth = ground_truths
+
+            if ground_truth is None:
+
+                continue
+
+            try:
+
+                feedback = (
+                    self.feedback_engine.update(
+                        results,
+                        ground_truth
+                    )
+                )
+
+            except Exception as exc:
+
+                feedback = {
+
+                    "status": "failed",
+
+                    "error": str(exc)
+                }
+
+            feedback_results[task_type] = feedback
+
+        return {
+
+            "status": "completed",
+
+            "feedback": feedback_results
+        }
+
+    # =========================================================================
+    # FEEDBACK ALIAS
+    # =========================================================================
+
     def feedback(
         self,
         agent_results,
-        ground_truth
+        ground_truths
     ):
 
-        if isinstance(
+        return self.update_feedback(
             agent_results,
-            dict
-        ):
-
-            results = list(
-                agent_results.values()
-            )
-
-        else:
-
-            results = list(
-                agent_results
-            )
-
-        return self.feedback_engine.update(
-            results,
-            ground_truth
+            ground_truths
         )
 
     # =========================================================================
@@ -1630,169 +1506,60 @@ class LiverCoordinator:
 
     def health_check(self):
 
-        agents_status = {}
+        agents_status = []
 
-        for agent_id, metadata in (
-            self.agents.items()
-        ):
+        for agent_id, agent in self.agents.items():
 
-            agent = metadata[
-                "agent"
-            ]
+            metadata = self.agent_metadata.get(
+                agent_id,
+                {}
+            )
 
-            try:
+            agents_status.append({
 
-                if hasattr(
+                "agent_id": agent_id,
+
+                "loaded": agent is not None,
+
+                "has_predict": hasattr(
                     agent,
-                    "health_check"
-                ):
+                    "predict"
+                ),
 
-                    status = agent.health_check()
+                "has_analyze": hasattr(
+                    agent,
+                    "analyze"
+                ),
 
-                else:
+                "task_type": metadata.get(
+                    "task_type",
+                    "unknown"
+                ),
 
-                    status = {
-                        "status":
-                            "available"
-                    }
-
-            except Exception as e:
-
-                status = {
-
-                    "status":
-                        "error",
-
-                    "error":
-                        str(e)
-                }
-
-            agents_status[
-                agent_id
-            ] = {
-
-                "task_type":
-                    metadata[
-                        "task_type"
-                    ],
-
-                "modality":
-                    metadata[
-                        "modality"
-                    ],
-
-                "health":
-                    status
-            }
+                "modality": metadata.get(
+                    "modality",
+                    "unknown"
+                )
+            })
 
         return {
 
-            "coordinator":
-                self.name,
+            "status": (
+                "healthy"
+                if agents_status
+                else "empty"
+            ),
 
-            "status":
-                "healthy",
+            "num_agents": len(
+                self.agents
+            ),
 
-            "num_agents":
-                len(
-                    self.agents
-                ),
-
-            "agents":
-                agents_status
+            "agents": agents_status
         }
-
-    # =========================================================================
-    # UTILITY
-    # =========================================================================
-
-    @staticmethod
-    def _clip(
-        value
-    ):
-
-        try:
-
-            value = float(
-                value
-            )
-
-        except Exception:
-
-            return 0.0
-
-        return max(
-            0.0,
-            min(
-                1.0,
-                value
-            )
-        )
-
-    @staticmethod
-    def _same_value(
-        a,
-        b
-    ):
-
-        return str(
-            a
-        ).strip().lower() == str(
-            b
-        ).strip().lower()
 
 
 # =============================================================================
-# BACKWARD COMPATIBILITY
+# BACKWARD-COMPATIBILITY ALIAS
 # =============================================================================
 
 LiverAICoordinator = LiverCoordinator
-'''
-
-COORDINATOR_PATH.write_text(
-    COORDINATOR_CODE,
-    encoding="utf-8"
-)
-
-print("✅ liver_coordinator.py reconstruit")
-print("📁", COORDINATOR_PATH)
-print("📦 Taille :", COORDINATOR_PATH.stat().st_size, "bytes")
-
-# ============================================================================
-# VÉRIFICATION
-# ============================================================================
-
-text = COORDINATOR_PATH.read_text(
-    encoding="utf-8"
-)
-
-print()
-print("===== VÉRIFICATION =====")
-print(
-    "LiverCoordinator :",
-    "class LiverCoordinator" in text
-)
-print(
-    "list_agents :",
-    "def list_agents(" in text
-)
-print(
-    "get_agent :",
-    "def get_agent(" in text
-)
-print(
-    "register_agent :",
-    "def register_agent(" in text
-)
-print(
-    "run :",
-    "def run(" in text
-)
-print(
-    "task-aware :",
-    "_group_by_task" in text
-)
-print(
-    "alias :",
-    "LiverAICoordinator = LiverCoordinator" in text
-)
