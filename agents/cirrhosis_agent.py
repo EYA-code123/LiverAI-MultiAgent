@@ -5,6 +5,7 @@
 import time
 import numpy as np
 import pandas as pd
+import joblib
 
 
 class CirrhosisAgent:
@@ -20,7 +21,6 @@ class CirrhosisAgent:
         self.model = None
         self.target_encoder = None
 
-        # Features expected by the trained XGBoost model
         self.features = [
             "N_Days",
             "Status",
@@ -45,37 +45,54 @@ class CirrhosisAgent:
         self._load_model()
 
     # =========================================================================
-    # MODEL LOADING
+    # LOAD MODEL
     # =========================================================================
 
     def _load_model(self):
 
         try:
 
-            import joblib
-
             self.model = joblib.load(
                 self.model_path
             )
 
+            print("=" * 70)
+            print("CIRRHOSIS AGENT INITIALIZED")
+            print("=" * 70)
+            print("Model path :", self.model_path)
             print(
-                f"✅ CirrhosisAgent model loaded: "
-                f"{self.model_path}"
-            )
-
-            print(
-                "   Model type:",
+                "Model type :",
                 type(self.model).__name__
             )
 
+            model_features = getattr(
+                self.model,
+                "feature_names_in_",
+                None
+            )
+
+            if model_features is not None:
+
+                self.features = [
+                    str(x)
+                    for x in model_features
+                ]
+
             print(
-                "   Classes:",
+                "Features   :",
+                len(self.features)
+            )
+
+            print(
+                "Classes    :",
                 getattr(
                     self.model,
                     "classes_",
                     None
                 )
             )
+
+            print("=" * 70)
 
         except Exception as e:
 
@@ -91,17 +108,15 @@ class CirrhosisAgent:
     def _prepare_dataframe(self, data):
 
         # ---------------------------------------------------------------------
-        # Dictionary input
+        # Dictionary
         # ---------------------------------------------------------------------
 
         if isinstance(data, dict):
 
-            df = pd.DataFrame(
-                [data]
-            )
+            df = pd.DataFrame([data])
 
         # ---------------------------------------------------------------------
-        # DataFrame input
+        # DataFrame
         # ---------------------------------------------------------------------
 
         elif isinstance(data, pd.DataFrame):
@@ -116,58 +131,35 @@ class CirrhosisAgent:
 
             try:
 
-                df = pd.DataFrame(
-                    data
-                )
+                df = pd.DataFrame(data)
 
             except Exception as e:
 
                 raise ValueError(
-                    "Unsupported cirrhosis input type: "
+                    "Unsupported input type: "
                     f"{type(e).__name__}: {e}"
                 )
 
         # ---------------------------------------------------------------------
-        # Use model feature names whenever available
+        # Add missing features
         # ---------------------------------------------------------------------
 
-        model_features = getattr(
-            self.model,
-            "feature_names_in_",
-            None
-        )
-
-        if model_features is not None:
-
-            expected_features = [
-                str(feature)
-                for feature in model_features
-            ]
-
-        else:
-
-            expected_features = self.features
-
-        # ---------------------------------------------------------------------
-        # Add missing columns
-        # ---------------------------------------------------------------------
-
-        for feature in expected_features:
+        for feature in self.features:
 
             if feature not in df.columns:
 
                 df[feature] = np.nan
 
         # ---------------------------------------------------------------------
-        # Keep only expected features and exact order
+        # Exact feature order
         # ---------------------------------------------------------------------
 
         df = df[
-            expected_features
+            self.features
         ].copy()
 
         # ---------------------------------------------------------------------
-        # Convert values to numeric
+        # Numeric conversion
         # ---------------------------------------------------------------------
 
         for column in df.columns:
@@ -189,38 +181,17 @@ class CirrhosisAgent:
 
         try:
 
-            # -----------------------------------------------------------------
-            # Prepare input
-            # -----------------------------------------------------------------
+            # =================================================================
+            # PREPARE DATA
+            # =================================================================
 
             df = self._prepare_dataframe(
                 data
             )
 
-            # -----------------------------------------------------------------
-            # Prediction
-            # -----------------------------------------------------------------
-
-            raw_prediction = self.model.predict(
-                df
-            )
-
-            raw_prediction = np.asarray(
-                raw_prediction
-            ).reshape(-1)
-
-            if len(raw_prediction) == 0:
-
-                raise ValueError(
-                    "The cirrhosis model returned "
-                    "an empty prediction."
-                )
-
-            prediction = raw_prediction[0]
-
-            # -----------------------------------------------------------------
-            # Validate prediction against model classes
-            # -----------------------------------------------------------------
+            # =================================================================
+            # MODEL CLASSES
+            # =================================================================
 
             model_classes = getattr(
                 self.model,
@@ -228,29 +199,43 @@ class CirrhosisAgent:
                 None
             )
 
-            if model_classes is not None:
+            if model_classes is None:
 
-                valid_classes = np.asarray(
-                    model_classes
-                ).reshape(-1)
+                raise ValueError(
+                    "The cirrhosis model does not expose "
+                    "`classes_`."
+                )
 
-                if not any(
-                    prediction == cls
-                    for cls in valid_classes
-                ):
+            model_classes = np.asarray(
+                model_classes
+            ).reshape(-1)
 
-                    raise ValueError(
-                        f"Invalid model prediction "
-                        f"{prediction}. "
-                        f"Expected one of "
-                        f"{valid_classes.tolist()}."
-                    )
+            # =================================================================
+            # PROBABILITY-BASED PREDICTION
+            # =================================================================
+            #
+            # IMPORTANT:
+            #
+            # The current XGBoost model produces:
+            #
+            # model.classes_ = [0, 1, 2]
+            #
+            # but model.predict() returns 3.0.
+            #
+            # Therefore we use predict_proba() and map the winning
+            # probability back to model.classes_.
+            #
+            # Example:
+            #
+            # probabilities = [0.26, 0.22, 0.51]
+            # argmax          = 2
+            # classes_[2]     = 2
+            #
+            # Final prediction = 2
+            #
+            # =================================================================
 
-            # -----------------------------------------------------------------
-            # Probability
-            # -----------------------------------------------------------------
-
-            probability = None
+            probabilities = None
             class_probabilities = None
 
             if hasattr(
@@ -258,95 +243,150 @@ class CirrhosisAgent:
                 "predict_proba"
             ):
 
-                try:
+                probabilities = (
+                    self.model.predict_proba(
+                        df
+                    )
+                )
 
-                    probabilities = (
-                        self.model.predict_proba(
-                            df
-                        )
+                probabilities = np.asarray(
+                    probabilities
+                )
+
+                if probabilities.ndim != 2:
+
+                    raise ValueError(
+                        "Unexpected probability output shape: "
+                        f"{probabilities.shape}"
                     )
 
-                    probabilities = np.asarray(
-                        probabilities
+                if probabilities.shape[0] == 0:
+
+                    raise ValueError(
+                        "The model returned no probability."
                     )
 
-                    if probabilities.ndim == 2:
+                if probabilities.shape[1] != len(
+                    model_classes
+                ):
 
-                        class_probabilities = (
-                            probabilities[0]
-                            .astype(float)
-                            .tolist()
-                        )
+                    raise ValueError(
+                        "Number of probability columns "
+                        "does not match model classes. "
+                        f"probabilities={probabilities.shape}, "
+                        f"classes={model_classes.shape}"
+                    )
 
-                        probability = float(
-                            np.max(
-                                probabilities[0]
-                            )
-                        )
+                # First sample
+                sample_probabilities = (
+                    probabilities[0]
+                    .astype(float)
+                )
 
-                except Exception:
+                # Store probabilities
+                class_probabilities = (
+                    sample_probabilities
+                    .tolist()
+                )
 
-                    probability = None
-                    class_probabilities = None
+                # Winning probability index
+                predicted_index = int(
+                    np.argmax(
+                        sample_probabilities
+                    )
+                )
 
-            # -----------------------------------------------------------------
-            # IMPORTANT:
-            #
-            # Do NOT apply target_encoder.inverse_transform().
-            #
-            # The current XGBoost model already has:
-            #
-            # classes_ = [0, 1, 2]
-            #
-            # The previous target encoder transformed class 2 into "3.0",
-            # which produced an invalid prediction.
-            # -----------------------------------------------------------------
+                # Map index -> actual model class
+                prediction = model_classes[
+                    predicted_index
+                ]
 
-            predicted_label = prediction
+                probability = float(
+                    sample_probabilities[
+                        predicted_index
+                    ]
+                )
 
-            # -----------------------------------------------------------------
-            # Convert NumPy scalar
-            # -----------------------------------------------------------------
+            else:
+
+                # =============================================================
+                # FALLBACK
+                # =============================================================
+
+                raw_prediction = (
+                    self.model.predict(df)
+                )
+
+                raw_prediction = np.asarray(
+                    raw_prediction
+                ).reshape(-1)
+
+                if len(raw_prediction) == 0:
+
+                    raise ValueError(
+                        "The model returned an empty prediction."
+                    )
+
+                prediction = raw_prediction[0]
+
+                probability = None
+
+            # =================================================================
+            # VALIDATE PREDICTION
+            # =================================================================
+
+            if not any(
+                prediction == cls
+                for cls in model_classes
+            ):
+
+                raise ValueError(
+                    f"Invalid prediction {prediction}. "
+                    f"Expected one of "
+                    f"{model_classes.tolist()}."
+                )
+
+            # =================================================================
+            # CONVERT NUMPY VALUE
+            # =================================================================
 
             if isinstance(
-                predicted_label,
+                prediction,
                 np.generic
             ):
 
-                predicted_label = (
-                    predicted_label.item()
-                )
+                prediction = prediction.item()
 
-            # -----------------------------------------------------------------
-            # Keep integer class labels as integers
-            # -----------------------------------------------------------------
+            # =================================================================
+            # FORCE INTEGER FOR INTEGER CLASS LABELS
+            # =================================================================
 
             if isinstance(
-                predicted_label,
+                prediction,
                 (float, np.floating)
             ):
 
                 if float(
-                    predicted_label
+                    prediction
                 ).is_integer():
 
-                    predicted_label = int(
-                        predicted_label
+                    prediction = int(
+                        prediction
                     )
 
-            # -----------------------------------------------------------------
-            # Confidence
-            # -----------------------------------------------------------------
+            # =================================================================
+            # CONFIDENCE
+            # =================================================================
 
             confidence = (
-                probability
+                float(probability)
                 if probability is not None
                 else 0.0
             )
 
-            # -----------------------------------------------------------------
-            # Uncertainty
-            # -----------------------------------------------------------------
+            # =================================================================
+            # UNCERTAINTY
+            # =================================================================
 
             uncertainty = max(
                 0.0,
@@ -356,9 +396,9 @@ class CirrhosisAgent:
                 )
             )
 
-            # -----------------------------------------------------------------
-            # Missing data
-            # -----------------------------------------------------------------
+            # =================================================================
+            # MISSING DATA
+            # =================================================================
 
             missing_data_ratio = float(
                 df.isna()
@@ -366,9 +406,9 @@ class CirrhosisAgent:
                 .mean()
             )
 
-            # -----------------------------------------------------------------
-            # Quality
-            # -----------------------------------------------------------------
+            # =================================================================
+            # QUALITY
+            # =================================================================
 
             quality = max(
                 0.0,
@@ -378,18 +418,18 @@ class CirrhosisAgent:
                 )
             )
 
-            # -----------------------------------------------------------------
-            # Latency
-            # -----------------------------------------------------------------
+            # =================================================================
+            # LATENCY
+            # =================================================================
 
             latency_ms = (
                 time.perf_counter()
                 - start_time
             ) * 1000
 
-            # -----------------------------------------------------------------
-            # Final result
-            # -----------------------------------------------------------------
+            # =================================================================
+            # RESULT
+            # =================================================================
 
             return {
 
@@ -405,13 +445,13 @@ class CirrhosisAgent:
                     ).__name__,
 
                 "prediction":
-                    predicted_label,
+                    prediction,
 
                 "predicted_label":
-                    predicted_label,
+                    prediction,
 
                 "probability":
-                    probability,
+                    confidence,
 
                 "confidence":
                     confidence,
@@ -427,6 +467,9 @@ class CirrhosisAgent:
 
                 "class_probabilities":
                     class_probabilities,
+
+                "model_classes":
+                    model_classes.tolist(),
 
                 "features_used":
                     list(
@@ -449,7 +492,7 @@ class CirrhosisAgent:
             }
 
         # =====================================================================
-        # ERROR HANDLING
+        # ERROR
         # =====================================================================
 
         except Exception as e:
@@ -498,6 +541,19 @@ class CirrhosisAgent:
                 "class_probabilities":
                     None,
 
+                "model_classes":
+                    getattr(
+                        self.model,
+                        "classes_",
+                        None
+                    ).tolist()
+                    if getattr(
+                        self.model,
+                        "classes_",
+                        None
+                    ) is not None
+                    else None,
+
                 "features_used":
                     [],
 
@@ -522,6 +578,4 @@ class CirrhosisAgent:
 
     def analyze(self, data):
 
-        return self.predict(
-            data
-        )
+        return self.predict(data)
