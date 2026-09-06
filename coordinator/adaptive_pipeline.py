@@ -1,5 +1,5 @@
-from coordinator.coordinator import (
-    LiverAICoordinator
+from coordinator.liver_coordinator import (
+    LiverCoordinator as LiverAICoordinator
 )
 
 
