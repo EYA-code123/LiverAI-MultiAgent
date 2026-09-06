@@ -610,149 +610,250 @@ class LiverAIOrchestrator:
     # MAIN RUN
     # =========================================================================
 
-    def run(
-        self,
-        patient_id: str = "UNKNOWN",
-        patient_data: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+   def run(
+    self,
+    patient_id: str = "UNKNOWN",
+    patient_data: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
 
-        start_time = time.perf_counter()
+    start_time = time.perf_counter()
 
-        if patient_data is None:
-            patient_data = {}
+    if patient_data is None:
+        patient_data = {}
 
-        # ---------------------------------------------------------------------
-        # STEP 1 - SPECIALIZED AGENTS
-        # ---------------------------------------------------------------------
+    # ============================================================
+    # 1. SPECIALIZED AGENTS
+    # ============================================================
 
-        specialized_results = (
-            self.run_specialized_agents(
-                patient_data
+    specialized_results = self.run_specialized_agents(
+        patient_data
+    )
+
+    if specialized_results is None:
+        specialized_results = {}
+
+    # ============================================================
+    # 2. CLINICAL REASONING
+    # ============================================================
+
+    clinical_result = self.run_clinical_reasoning(
+        patient_data,
+        specialized_results,
+    )
+
+    if clinical_result is None:
+        clinical_result = self._not_run_result(
+            "clinical_reasoning",
+            "Clinical reasoning returned None.",
+        )
+
+    # ============================================================
+    # 3. COMBINE ALL RESULTS
+    # ============================================================
+
+    all_results = dict(
+        specialized_results
+    )
+
+    all_results[
+        "clinical_reasoning"
+    ] = clinical_result
+
+    # ============================================================
+    # 4. ADAPTIVE FUSION
+    # ============================================================
+
+    fusion = self._run_adaptive_fusion(
+        all_results
+    )
+
+    # ============================================================
+    # 5. CONFLICT DETECTION
+    # ============================================================
+
+    conflicts = self._run_conflict_detection(
+        all_results
+    )
+
+    # ============================================================
+    # 6. DECISION ENGINE
+    # ============================================================
+
+    decision = self._run_decision_engine(
+        results=all_results,
+        conflicts=conflicts,
+        fusion=fusion,
+        clinical_result=clinical_result,
+    )
+
+    # ============================================================
+    # 7. AGENT STATUS
+    # ============================================================
+
+    total_agents = 6
+
+    successful_agents = sum(
+        1
+        for result in all_results.values()
+        if isinstance(result, dict)
+        and result.get("status") == "success"
+    )
+
+    failed_agents = [
+        name
+        for name, result in all_results.items()
+        if isinstance(result, dict)
+        and result.get("status") == "error"
+    ]
+
+    not_run_agents = [
+        name
+        for name, result in all_results.items()
+        if isinstance(result, dict)
+        and result.get("status") == "not_run"
+    ]
+
+    coverage = (
+        successful_agents / total_agents
+        if total_agents > 0
+        else 0.0
+    )
+
+    if successful_agents == 0:
+        overall_status = "failed"
+    elif successful_agents == total_agents:
+        overall_status = "success"
+    else:
+        overall_status = "partial"
+
+    # ============================================================
+    # 8. FINAL DECISION
+    # ============================================================
+
+    if isinstance(decision, dict):
+
+        final_decision = decision.get(
+            "decision",
+            decision.get(
+                "decision_level",
+                "UNCERTAIN"
             )
         )
 
-        # ---------------------------------------------------------------------
-        # STEP 2 - CLINICAL REASONING
-        # ---------------------------------------------------------------------
+    else:
 
-        clinical_reasoning = (
-            self.run_clinical_reasoning(
-                patient_data,
-                specialized_results,
-            )
+        final_decision = str(
+            decision
         )
 
-        # ---------------------------------------------------------------------
-        # STEP 3 - ALL RESULTS
-        # ---------------------------------------------------------------------
+    # ============================================================
+    # 9. CLINICAL CONTEXT
+    # ============================================================
 
-        all_results = dict(
-            specialized_results
-        )
-
-        all_results[
-            "clinical_reasoning"
-        ] = clinical_reasoning
-
-        # ---------------------------------------------------------------------
-        # STEP 4 - FUSION
-        # ---------------------------------------------------------------------
-
-        fusion = self._run_adaptive_fusion(
-            all_results
-        )
-
-        # ---------------------------------------------------------------------
-        # STEP 5 - CONFLICT DETECTION
-        # ---------------------------------------------------------------------
-
-        conflicts = self._run_conflict_detection(
-            all_results
-        )
-
-        # ---------------------------------------------------------------------
-        # STEP 6 - DECISION ENGINE
-        # ---------------------------------------------------------------------
-
-        decision = self._run_decision_engine(
-            results=all_results,
-            conflicts=conflicts,
-            fusion=fusion,
-            clinical_result=clinical_reasoning,
-        )
-
-        # ---------------------------------------------------------------------
-        # STEP 7 - FINAL DECISION
-        # ---------------------------------------------------------------------
-
-        final_decision = self._build_final_decision(
-            decision=decision,
-            fusion=fusion,
-            conflicts=conflicts,
-            clinical_reasoning=clinical_reasoning,
-            all_results=all_results,
-        )
-
-        # ---------------------------------------------------------------------
-        # STATUS
-        # ---------------------------------------------------------------------
-
-        successful_agents = sum(
-            1
-            for result in all_results.values()
-            if result.get("status") == "success"
-        )
-
-        total_agents = 6
-
-        if successful_agents == 0:
-            overall_status = "failed"
-
-        elif successful_agents == total_agents:
-            overall_status = "success"
-
-        else:
-            overall_status = "partial"
-
-        # ---------------------------------------------------------------------
-        # COORDINATION
-        # ---------------------------------------------------------------------
-
-        failed_agents = [
-            name
-            for name, result in all_results.items()
-            if result.get("status") == "error"
-        ]
-
-        not_run_agents = [
-            name
-            for name, result in all_results.items()
-            if result.get("status") == "not_run"
-        ]
-
-        coverage = (
-            successful_agents / total_agents
-            if total_agents > 0
-            else 0.0
-        )
-
-        # ---------------------------------------------------------------------
-        # LATENCY
-        # ---------------------------------------------------------------------
-
-        latency_ms = (
-            time.perf_counter() - start_time
-        ) * 1000.0
-
-        # ---------------------------------------------------------------------
-        # CLINICAL CONTEXT
-        # ---------------------------------------------------------------------
+    try:
 
         clinical_context = (
             self._build_clinical_context(
                 all_results
             )
         )
+
+    except Exception as exc:
+
+        clinical_context = {
+            "status": "error",
+            "error": repr(exc),
+        }
+
+    # ============================================================
+    # 10. LATENCY
+    # ============================================================
+
+    latency_ms = (
+        time.perf_counter()
+        - start_time
+    ) * 1000.0
+
+    # ============================================================
+    # 11. FINAL OUTPUT
+    # ============================================================
+
+    return {
+
+        "status": overall_status,
+
+        "patient_id": patient_id,
+
+        "timestamp":
+            datetime.now().isoformat(),
+
+        # --------------------------------------------------------
+        # SIX AGENTS
+        # --------------------------------------------------------
+
+        "specialized_results":
+            specialized_results,
+
+        "agent_results":
+            all_results,
+
+        "clinical_reasoning":
+            clinical_result,
+
+        # --------------------------------------------------------
+        # COORDINATION
+        # --------------------------------------------------------
+
+        "fusion":
+            fusion,
+
+        "conflicts":
+            conflicts,
+
+        "decision":
+            decision,
+
+        "final_decision":
+            final_decision,
+
+        # --------------------------------------------------------
+        # METRICS
+        # --------------------------------------------------------
+
+        "coordination": {
+
+            "total_agents":
+                total_agents,
+
+            "successful_agents":
+                successful_agents,
+
+            "failed_agents":
+                failed_agents,
+
+            "not_run_agents":
+                not_run_agents,
+
+            "coverage":
+                round(
+                    coverage,
+                    4
+                ),
+
+            "latency_ms":
+                round(
+                    latency_ms,
+                    3
+                ),
+        },
+
+        # --------------------------------------------------------
+        # CLINICAL CONTEXT
+        # --------------------------------------------------------
+
+        "clinical_context":
+            clinical_context,
+    }
 
         # ---------------------------------------------------------------------
         # SAVE STATE
@@ -1782,119 +1883,117 @@ class LiverAIOrchestrator:
     # DECISION ENGINE
     # =========================================================================
 
-    def _run_decision_engine(
-        self,
-        results: Dict[str, Dict[str, Any]],
-        conflicts,
-        fusion: Dict[str, Any],
-        clinical_result: Dict[str, Any],
-    ) -> Dict[str, Any]:
+def _run_decision_engine(
+    self,
+    results: Dict[str, Dict[str, Any]],
+    conflicts,
+    fusion: Dict[str, Any],
+    clinical_result: Dict[str, Any],
+) -> Dict[str, Any]:
 
-        if self.decision_engine is None:
+    if self.decision_engine is None:
 
-            return {
-                "status": "unavailable",
-                "decision": "insufficient_evidence",
-                "confidence": 0.0,
-                "risk_score": 1.0,
-                "coverage": 0.0,
-                "error": "DecisionEngine unavailable.",
-            }
+        return {
+            "status": "unavailable",
+            "decision": "insufficient_evidence",
+            "confidence": 0.0,
+            "risk_score": 1.0,
+            "coverage": 0.0,
+            "error":
+                "DecisionEngine unavailable.",
+        }
 
-        all_results = list(
-            results.values()
+    all_results = list(
+        results.values()
+    )
+
+    # ============================================================
+    # CURRENT DecisionEngine API
+    # ============================================================
+
+    try:
+
+        decision = self.decision_engine.decide(
+            results=all_results,
+            conflicts=conflicts,
+            reasoning=clinical_result,
         )
+
+        if isinstance(
+            decision,
+            dict
+        ):
+
+            return decision
+
+        return {
+            "status": "completed",
+            "decision": str(
+                decision
+            ),
+            "confidence": 0.0,
+            "risk_score": None,
+        }
+
+    except TypeError:
+
+        # ========================================================
+        # COMPATIBILITY WITH OTHER DECISION ENGINE VERSIONS
+        # ========================================================
 
         try:
 
-            # =================================================================
-            # IMPORTANT FIX
-            #
-            # Use KEYWORD arguments.
-            #
-            # Old incorrect version:
-            #
-            # decide(
-            #     all_results,
-            #     conflicts,
-            #     clinical_result
-            # )
-            #
-            # This sent clinical_result into fused_results.
-            # =================================================================
-
-            decision = self.decision_engine.decide(
-                agent_results=all_results,
-                conflicts=conflicts,
-                fused_results=fusion,
-                clinical_reasoning=clinical_result,
+            decision = (
+                self.decision_engine.decide(
+                    all_results,
+                    conflicts,
+                    clinical_result,
+                )
             )
 
             if isinstance(
                 decision,
-                dict,
+                dict
             ):
+
                 return decision
 
             return {
                 "status": "completed",
-                "decision": str(decision),
+                "decision": str(
+                    decision
+                ),
                 "confidence": 0.0,
                 "risk_score": None,
-                "raw_result": decision,
             }
 
-        except TypeError:
-
-            # -----------------------------------------------------------------
-            # Compatibility fallback for an older DecisionEngine
-            # -----------------------------------------------------------------
-
-            try:
-
-                decision = self.decision_engine.decide(
-                    all_results,
-                    conflicts,
-                    fusion,
-                    clinical_result,
-                )
-
-                if isinstance(
-                    decision,
-                    dict,
-                ):
-                    return decision
-
-                return {
-                    "status": "completed",
-                    "decision": str(decision),
-                    "confidence": 0.0,
-                    "risk_score": None,
-                }
-
-            except Exception as e:
-
-                return {
-                    "status": "error",
-                    "decision": "insufficient_evidence",
-                    "confidence": 0.0,
-                    "risk_score": 1.0,
-                    "coverage": 0.0,
-                    "error": repr(e),
-                    "traceback": traceback.format_exc(),
-                }
-
-        except Exception as e:
+        except Exception as exc:
 
             return {
                 "status": "error",
-                "decision": "insufficient_evidence",
+                "decision":
+                    "insufficient_evidence",
                 "confidence": 0.0,
                 "risk_score": 1.0,
                 "coverage": 0.0,
-                "error": repr(e),
-                "traceback": traceback.format_exc(),
+                "error": repr(exc),
+                "traceback":
+                    traceback.format_exc(),
             }
+
+    except Exception as exc:
+
+        return {
+            "status": "error",
+            "decision":
+                "insufficient_evidence",
+            "confidence": 0.0,
+            "risk_score": 1.0,
+            "coverage": 0.0,
+            "error": repr(exc),
+            "traceback":
+                traceback.format_exc(),
+        }
 
     # =========================================================================
     # BUILD FINAL DECISION
