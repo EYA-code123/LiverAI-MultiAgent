@@ -1,154 +1,87 @@
 # =============================================================================
-# CIRRHOSIS AGENT - VERSION ROBUSTE
+# LIVERAI - CIRRHOSIS AGENT
 # =============================================================================
 
-import os
 import time
 import numpy as np
 import pandas as pd
-import joblib
 
 
 class CirrhosisAgent:
-    """
-    Agent de classification de la cirrhose.
-
-    Compatible avec :
-        1. un package dict contenant :
-           {
-               "model": model,
-               "feature_names": [...],
-               "categorical_columns": [...],
-               "numerical_columns": [...],
-               "encoders": {...},
-               "target_encoder": ...
-           }
-
-        2. un modèle directement sauvegardé.
-    """
-
-    def __init__(self, model_path):
-        if not isinstance(model_path, (str, os.PathLike)):
-            raise TypeError(
-                "model_path doit être un chemin vers le modèle."
-            )
-
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(
-                f"Cirrhosis model not found:\n{model_path}"
-            )
-
-        self.model_path = str(model_path)
-
-        # ---------------------------------------------------------------------
-        # Chargement
-        # ---------------------------------------------------------------------
-        self._load_model()
-
-        print("=" * 70)
-        print("CIRRHOSIS AGENT INITIALIZED")
-        print("=" * 70)
-        print(f"Model path : {self.model_path}")
-        print(f"Model type : {type(self.model).__name__}")
-        print(f"Features   : {len(self.feature_names)}")
-        print("=" * 70)
 
     # =========================================================================
-    # LOAD MODEL
+    # INITIALIZATION
+    # =========================================================================
+
+    def __init__(self, model_path):
+
+        self.model_path = model_path
+
+        self.model = None
+        self.target_encoder = None
+
+        # Features expected by the trained XGBoost model
+        self.features = [
+            "N_Days",
+            "Status",
+            "Drug",
+            "Age",
+            "Sex",
+            "Ascites",
+            "Hepatomegaly",
+            "Spiders",
+            "Edema",
+            "Bilirubin",
+            "Cholesterol",
+            "Albumin",
+            "Copper",
+            "Alk_Phos",
+            "SGOT",
+            "Tryglicerides",
+            "Platelets",
+            "Prothrombin"
+        ]
+
+        self._load_model()
+
+    # =========================================================================
+    # MODEL LOADING
     # =========================================================================
 
     def _load_model(self):
 
         try:
-            package = joblib.load(self.model_path)
+
+            import joblib
+
+            self.model = joblib.load(
+                self.model_path
+            )
+
+            print(
+                f"✅ CirrhosisAgent model loaded: "
+                f"{self.model_path}"
+            )
+
+            print(
+                "   Model type:",
+                type(self.model).__name__
+            )
+
+            print(
+                "   Classes:",
+                getattr(
+                    self.model,
+                    "classes_",
+                    None
+                )
+            )
 
         except Exception as e:
+
             raise RuntimeError(
-                "\nImpossible de charger le modèle Cirrhosis.\n"
-                f"Fichier : {self.model_path}\n"
-                f"Erreur  : {type(e).__name__}: {e}\n\n"
-                "Le problème vient probablement du fichier .pkl "
-                "lui-même et non de CirrhosisAgent."
-            ) from e
-
-        # ---------------------------------------------------------------------
-        # CAS 1 : package
-        # ---------------------------------------------------------------------
-        if isinstance(package, dict):
-
-            self.model = package.get("model")
-
-            if self.model is None:
-                raise ValueError(
-                    "Le package Cirrhosis ne contient pas la clé 'model'."
-                )
-
-            self.feature_names = package.get(
-                "feature_names",
-                []
-            )
-
-            self.categorical_columns = package.get(
-                "categorical_columns",
-                []
-            )
-
-            self.numerical_columns = package.get(
-                "numerical_columns",
-                []
-            )
-
-            self.encoders = package.get(
-                "encoders",
-                {}
-            )
-
-            self.target_encoder = package.get(
-                "target_encoder",
-                None
-            )
-
-        # ---------------------------------------------------------------------
-        # CAS 2 : modèle directement sauvegardé
-        # ---------------------------------------------------------------------
-        else:
-
-            self.model = package
-
-            self.feature_names = []
-            self.categorical_columns = []
-            self.numerical_columns = []
-            self.encoders = {}
-            self.target_encoder = None
-
-            # Essayer de récupérer les features depuis XGBoost
-            try:
-
-                if hasattr(self.model, "feature_names_in_"):
-
-                    self.feature_names = list(
-                        self.model.feature_names_in_
-                    )
-
-                elif hasattr(self.model, "get_booster"):
-
-                    booster = self.model.get_booster()
-
-                    if booster.feature_names is not None:
-                        self.feature_names = list(
-                            booster.feature_names
-                        )
-
-            except Exception:
-                pass
-
-        # ---------------------------------------------------------------------
-        # Vérification
-        # ---------------------------------------------------------------------
-        if not hasattr(self.model, "predict"):
-            raise TypeError(
-                "L'objet chargé n'est pas un modèle compatible "
-                "avec predict()."
+                "Unable to load Cirrhosis model: "
+                f"{type(e).__name__}: {e}"
             )
 
     # =========================================================================
@@ -158,141 +91,96 @@ class CirrhosisAgent:
     def _prepare_dataframe(self, data):
 
         # ---------------------------------------------------------------------
-        # DataFrame
+        # Dictionary input
         # ---------------------------------------------------------------------
-        if isinstance(data, pd.DataFrame):
+
+        if isinstance(data, dict):
+
+            df = pd.DataFrame(
+                [data]
+            )
+
+        # ---------------------------------------------------------------------
+        # DataFrame input
+        # ---------------------------------------------------------------------
+
+        elif isinstance(data, pd.DataFrame):
 
             df = data.copy()
 
         # ---------------------------------------------------------------------
-        # Dict
+        # Other tabular input
         # ---------------------------------------------------------------------
-        elif isinstance(data, dict):
 
-            df = pd.DataFrame([data])
-
-        # ---------------------------------------------------------------------
-        # Array / list
-        # ---------------------------------------------------------------------
         else:
-
-            arr = np.asarray(data)
-
-            if arr.ndim == 1:
-                arr = arr.reshape(1, -1)
-
-            if self.feature_names:
-
-                if arr.shape[1] != len(self.feature_names):
-
-                    raise ValueError(
-                        f"Nombre de features incorrect.\n"
-                        f"Reçu       : {arr.shape[1]}\n"
-                        f"Attendu    : {len(self.feature_names)}\n"
-                        f"Features   : {self.feature_names}"
-                    )
-
-                df = pd.DataFrame(
-                    arr,
-                    columns=self.feature_names
-                )
-
-            else:
-
-                df = pd.DataFrame(arr)
-
-        # ---------------------------------------------------------------------
-        # Supprimer target
-        # ---------------------------------------------------------------------
-        target_columns = [
-            "Stage",
-            "stage",
-            "target",
-            "Target"
-        ]
-
-        for col in target_columns:
-
-            if col in df.columns:
-                df = df.drop(columns=[col])
-
-        # ---------------------------------------------------------------------
-        # Vérification / ajout des features
-        # ---------------------------------------------------------------------
-        if self.feature_names:
-
-            missing = [
-                col
-                for col in self.feature_names
-                if col not in df.columns
-            ]
-
-            if missing:
-
-                raise ValueError(
-                    "Features Cirrhosis manquantes : "
-                    + ", ".join(missing)
-                )
-
-            df = df[self.feature_names]
-
-        # ---------------------------------------------------------------------
-        # Encodage catégoriel
-        # ---------------------------------------------------------------------
-        for col in self.categorical_columns:
-
-            if col not in df.columns:
-                continue
-
-            encoder = self.encoders.get(col)
-
-            if encoder is None:
-                continue
-
-            values = df[col].astype(str)
 
             try:
 
-                df[col] = encoder.transform(values)
-
-            except Exception:
-
-                classes = list(
-                    getattr(
-                        encoder,
-                        "classes_",
-                        []
-                    )
+                df = pd.DataFrame(
+                    data
                 )
 
-                mapping = {
-                    str(value): index
-                    for index, value in enumerate(classes)
-                }
+            except Exception as e:
 
-                df[col] = (
-                    values
-                    .map(mapping)
-                    .fillna(-1)
-                    .astype(float)
+                raise ValueError(
+                    "Unsupported cirrhosis input type: "
+                    f"{type(e).__name__}: {e}"
                 )
 
         # ---------------------------------------------------------------------
-        # Conversion numérique
+        # Use model feature names whenever available
         # ---------------------------------------------------------------------
-        for col in self.numerical_columns:
 
-            if col in df.columns:
+        model_features = getattr(
+            self.model,
+            "feature_names_in_",
+            None
+        )
 
-                df[col] = pd.to_numeric(
-                    df[col],
-                    errors="coerce"
-                )
+        if model_features is not None:
+
+            expected_features = [
+                str(feature)
+                for feature in model_features
+            ]
+
+        else:
+
+            expected_features = self.features
+
+        # ---------------------------------------------------------------------
+        # Add missing columns
+        # ---------------------------------------------------------------------
+
+        for feature in expected_features:
+
+            if feature not in df.columns:
+
+                df[feature] = np.nan
+
+        # ---------------------------------------------------------------------
+        # Keep only expected features and exact order
+        # ---------------------------------------------------------------------
+
+        df = df[
+            expected_features
+        ].copy()
+
+        # ---------------------------------------------------------------------
+        # Convert values to numeric
+        # ---------------------------------------------------------------------
+
+        for column in df.columns:
+
+            df[column] = pd.to_numeric(
+                df[column],
+                errors="coerce"
+            )
 
         return df
 
     # =========================================================================
-    # PREDICT
+    # PREDICTION
     # =========================================================================
 
     def predict(self, data):
@@ -301,30 +189,82 @@ class CirrhosisAgent:
 
         try:
 
-            df = self._prepare_dataframe(data)
+            # -----------------------------------------------------------------
+            # Prepare input
+            # -----------------------------------------------------------------
 
-            # ---------------------------------------------------------------
+            df = self._prepare_dataframe(
+                data
+            )
+
+            # -----------------------------------------------------------------
             # Prediction
-            # ---------------------------------------------------------------
-            raw_prediction = self.model.predict(df)
+            # -----------------------------------------------------------------
+
+            raw_prediction = self.model.predict(
+                df
+            )
 
             raw_prediction = np.asarray(
                 raw_prediction
             ).reshape(-1)
 
+            if len(raw_prediction) == 0:
+
+                raise ValueError(
+                    "The cirrhosis model returned "
+                    "an empty prediction."
+                )
+
             prediction = raw_prediction[0]
 
-            # ---------------------------------------------------------------
+            # -----------------------------------------------------------------
+            # Validate prediction against model classes
+            # -----------------------------------------------------------------
+
+            model_classes = getattr(
+                self.model,
+                "classes_",
+                None
+            )
+
+            if model_classes is not None:
+
+                valid_classes = np.asarray(
+                    model_classes
+                ).reshape(-1)
+
+                if not any(
+                    prediction == cls
+                    for cls in valid_classes
+                ):
+
+                    raise ValueError(
+                        f"Invalid model prediction "
+                        f"{prediction}. "
+                        f"Expected one of "
+                        f"{valid_classes.tolist()}."
+                    )
+
+            # -----------------------------------------------------------------
             # Probability
-            # ---------------------------------------------------------------
+            # -----------------------------------------------------------------
+
             probability = None
             class_probabilities = None
 
-            if hasattr(self.model, "predict_proba"):
+            if hasattr(
+                self.model,
+                "predict_proba"
+            ):
 
                 try:
 
-                    probabilities = self.model.predict_proba(df)
+                    probabilities = (
+                        self.model.predict_proba(
+                            df
+                        )
+                    )
 
                     probabilities = np.asarray(
                         probabilities
@@ -339,65 +279,130 @@ class CirrhosisAgent:
                         )
 
                         probability = float(
-                            np.max(probabilities[0])
+                            np.max(
+                                probabilities[0]
+                            )
                         )
 
                 except Exception:
-                    probability = None
 
-            # ---------------------------------------------------------------
-            # Target decoding
-            # ---------------------------------------------------------------
+                    probability = None
+                    class_probabilities = None
+
+            # -----------------------------------------------------------------
+            # IMPORTANT:
+            #
+            # Do NOT apply target_encoder.inverse_transform().
+            #
+            # The current XGBoost model already has:
+            #
+            # classes_ = [0, 1, 2]
+            #
+            # The previous target encoder transformed class 2 into "3.0",
+            # which produced an invalid prediction.
+            # -----------------------------------------------------------------
+
             predicted_label = prediction
 
-            if self.target_encoder is not None:
+            # -----------------------------------------------------------------
+            # Convert NumPy scalar
+            # -----------------------------------------------------------------
 
-                try:
-
-                    predicted_label = (
-                        self.target_encoder
-                        .inverse_transform(
-                            [int(prediction)]
-                        )[0]
-                    )
-
-                except Exception:
-                    predicted_label = prediction
-
-            # ---------------------------------------------------------------
-            # Convert numpy values
-            # ---------------------------------------------------------------
             if isinstance(
                 predicted_label,
                 np.generic
             ):
-                predicted_label = predicted_label.item()
 
-            # ---------------------------------------------------------------
+                predicted_label = (
+                    predicted_label.item()
+                )
+
+            # -----------------------------------------------------------------
+            # Keep integer class labels as integers
+            # -----------------------------------------------------------------
+
+            if isinstance(
+                predicted_label,
+                (float, np.floating)
+            ):
+
+                if float(
+                    predicted_label
+                ).is_integer():
+
+                    predicted_label = int(
+                        predicted_label
+                    )
+
+            # -----------------------------------------------------------------
             # Confidence
-            # ---------------------------------------------------------------
+            # -----------------------------------------------------------------
+
             confidence = (
                 probability
                 if probability is not None
                 else 0.0
             )
 
-            # ---------------------------------------------------------------
+            # -----------------------------------------------------------------
+            # Uncertainty
+            # -----------------------------------------------------------------
+
+            uncertainty = max(
+                0.0,
+                min(
+                    1.0,
+                    1.0 - confidence
+                )
+            )
+
+            # -----------------------------------------------------------------
+            # Missing data
+            # -----------------------------------------------------------------
+
+            missing_data_ratio = float(
+                df.isna()
+                .mean()
+                .mean()
+            )
+
+            # -----------------------------------------------------------------
+            # Quality
+            # -----------------------------------------------------------------
+
+            quality = max(
+                0.0,
+                min(
+                    1.0,
+                    1.0 - missing_data_ratio
+                )
+            )
+
+            # -----------------------------------------------------------------
             # Latency
-            # ---------------------------------------------------------------
+            # -----------------------------------------------------------------
+
             latency_ms = (
-                time.perf_counter() - start_time
+                time.perf_counter()
+                - start_time
             ) * 1000
+
+            # -----------------------------------------------------------------
+            # Final result
+            # -----------------------------------------------------------------
 
             return {
 
-                "agent": "CirrhosisAgent",
+                "agent":
+                    "CirrhosisAgent",
 
                 "task_type":
                     "cirrhosis_classification",
 
                 "model":
-                    type(self.model).__name__,
+                    type(
+                        self.model
+                    ).__name__,
 
                 "prediction":
                     predicted_label,
@@ -411,21 +416,30 @@ class CirrhosisAgent:
                 "confidence":
                     confidence,
 
+                "uncertainty":
+                    uncertainty,
+
+                "quality":
+                    quality,
+
+                "trust":
+                    None,
+
                 "class_probabilities":
                     class_probabilities,
 
                 "features_used":
-                    list(df.columns),
-
-                "missing_data_ratio":
-                    float(
-                        df.isna()
-                        .mean()
-                        .mean()
+                    list(
+                        df.columns
                     ),
 
+                "missing_data_ratio":
+                    missing_data_ratio,
+
                 "latency_ms":
-                    float(latency_ms),
+                    float(
+                        latency_ms
+                    ),
 
                 "status":
                     "success",
@@ -434,10 +448,15 @@ class CirrhosisAgent:
                     None
             }
 
+        # =====================================================================
+        # ERROR HANDLING
+        # =====================================================================
+
         except Exception as e:
 
             latency_ms = (
-                time.perf_counter() - start_time
+                time.perf_counter()
+                - start_time
             ) * 1000
 
             return {
@@ -447,6 +466,13 @@ class CirrhosisAgent:
 
                 "task_type":
                     "cirrhosis_classification",
+
+                "model":
+                    type(
+                        self.model
+                    ).__name__
+                    if self.model is not None
+                    else None,
 
                 "prediction":
                     None,
@@ -460,6 +486,15 @@ class CirrhosisAgent:
                 "confidence":
                     0.0,
 
+                "uncertainty":
+                    1.0,
+
+                "quality":
+                    0.0,
+
+                "trust":
+                    None,
+
                 "class_probabilities":
                     None,
 
@@ -470,7 +505,9 @@ class CirrhosisAgent:
                     None,
 
                 "latency_ms":
-                    float(latency_ms),
+                    float(
+                        latency_ms
+                    ),
 
                 "status":
                     "error",
@@ -480,9 +517,11 @@ class CirrhosisAgent:
             }
 
     # =========================================================================
-    # RUN
+    # ALIAS
     # =========================================================================
 
-    def run(self, data):
+    def analyze(self, data):
 
-        return self.predict(data)
+        return self.predict(
+            data
+        )
