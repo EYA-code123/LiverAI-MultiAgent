@@ -8,10 +8,7 @@ from coordinator.liver_coordinator import LiverCoordinator
 class AdaptiveCoordinationPipeline:
 
     def __init__(self, agents=None):
-
-        self.coordinator = LiverCoordinator(
-            agents=agents
-        )
+        self.coordinator = LiverCoordinator(agents=agents)
 
     # =========================================================================
     # REGISTER
@@ -24,7 +21,6 @@ class AdaptiveCoordinationPipeline:
         task_type,
         modality="unknown"
     ):
-
         return self.coordinator.register_agent(
             agent_id=agent_id,
             agent=agent,
@@ -33,38 +29,17 @@ class AdaptiveCoordinationPipeline:
         )
 
     # =========================================================================
-    # UNREGISTER
+    # AGENT MANAGEMENT
     # =========================================================================
 
-    def unregister_agent(
-        self,
-        agent_id
-    ):
-
-        return self.coordinator.unregister_agent(
-            agent_id
-        )
-
-    # =========================================================================
-    # LIST AGENTS
-    # =========================================================================
+    def unregister_agent(self, agent_id):
+        return self.coordinator.unregister_agent(agent_id)
 
     def list_agents(self):
-
         return self.coordinator.list_agents()
 
-    # =========================================================================
-    # GET AGENT
-    # =========================================================================
-
-    def get_agent(
-        self,
-        agent_id
-    ):
-
-        return self.coordinator.get_agent(
-            agent_id
-        )
+    def get_agent(self, agent_id):
+        return self.coordinator.get_agent(agent_id)
 
     # =========================================================================
     # RUN
@@ -77,7 +52,6 @@ class AdaptiveCoordinationPipeline:
         images=None,
         ground_truth=None
     ):
-
         return self.coordinator.run(
             patient_id=patient_id,
             inputs=inputs,
@@ -94,7 +68,6 @@ class AdaptiveCoordinationPipeline:
         agent_results,
         ground_truths
     ):
-
         return self.coordinator.update_feedback(
             agent_results=agent_results,
             ground_truths=ground_truths
@@ -105,5 +78,4 @@ class AdaptiveCoordinationPipeline:
     # =========================================================================
 
     def health_check(self):
-
         return self.coordinator.health_check()
