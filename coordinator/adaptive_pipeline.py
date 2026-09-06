@@ -47,24 +47,20 @@ class AdaptiveCoordinationPipeline:
     # RUN
     # =========================================================
 
-    def run(
-        self,
-        patient_id,
-        inputs=None,
-        ground_truth=None
-    ):
+  def run(
+    self,
+    patient_id,
+    inputs=None,
+    images=None,
+    ground_truth=None
+):
 
-        return self.coordinator.run(
-
-            patient_id=
-                patient_id,
-
-            inputs=
-                inputs,
-
-            ground_truth=
-                ground_truth
-        )
+    return self.coordinator.run(
+        patient_id=patient_id,
+        inputs=inputs,
+        images=images,
+        ground_truth=ground_truth
+    )
 
     # =========================================================
     # FEEDBACK
