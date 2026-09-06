@@ -1,291 +1,240 @@
-import time
-import traceback
+from typing import Any, Dict
+import numpy as np
 
 
 class AgentAdapter:
+    """
+    Converts heterogeneous specialist-agent outputs
+    into the unified LiverAI message format.
+    """
 
-    def __init__(
-        self,
-        agent_id,
-        agent,
-        task_type,
-        modality="unknown"
-    ):
+    REQUIRED_FIELDS = [
+        "agent_id",
+        "model_version",
+        "task_type",
+        "prediction",
+        "probabilities",
+        "confidence",
+        "uncertainty",
+        "data_quality",
+        "missing_data_ratio",
+        "feature_importance",
+        "embedding",
+        "explanation",
+        "latency_ms",
+        "status",
+        "error",
+    ]
 
-        self.agent_id = agent_id
-        self.agent = agent
-        self.task_type = task_type
-        self.modality = modality
-
-    # =========================================================
-    # RUN
-    # =========================================================
-
-    def predict(
-        self,
-        patient_id,
-        data
-    ):
-
-        start = time.perf_counter()
-
+    @staticmethod
+    def _clip01(value, default=0.0):
         try:
+            return float(np.clip(float(value), 0.0, 1.0))
+        except (TypeError, ValueError):
+            return default
 
-            if self.agent is None:
+    @staticmethod
+    def _extract_probabilities(result):
+        probabilities = result.get("probabilities")
 
-                return {
+        if probabilities is not None:
+            return probabilities
 
-                    "patient_id":
-                        patient_id,
+        probabilities = result.get("class_probabilities")
 
-                    "agent_id":
-                        self.agent_id,
+        if probabilities is not None:
+            return probabilities
 
-                    "agent":
-                        self.agent_id,
+        probability = result.get("probability")
 
-                    "task_type":
-                        self.task_type,
+        if probability is not None:
+            return probability
 
-                    "modality":
-                        self.modality,
+        return None
 
-                    "prediction":
-                        None,
-
-                    "status":
-                        "unavailable",
-
-                    "error":
-                        "Agent is not loaded."
-                }
-
-            # -------------------------------------------------
-            # Try predict()
-            # -------------------------------------------------
-
-            if hasattr(
-                self.agent,
-                "predict"
-            ):
-
-                output = (
-                    self.agent.predict(
-                        data
-                    )
-                )
-
-            # -------------------------------------------------
-            # Try run()
-            # -------------------------------------------------
-
-            elif hasattr(
-                self.agent,
-                "run"
-            ):
-
-                output = (
-                    self.agent.run(
-                        data
-                    )
-                )
-
-            else:
-
-                raise AttributeError(
-                    "Agent must expose "
-                    "predict() or run()."
-                )
-
-            latency_ms = (
-
-                time.perf_counter()
-                - start
-            ) * 1000.0
-
-            if not isinstance(
-                output,
-                dict
-            ):
-
-                output = {
-
-                    "prediction":
-                        output
-                }
-
-            output = dict(
-                output
-            )
-
-            output.setdefault(
-                "patient_id",
-                patient_id
-            )
-
-            output.setdefault(
-                "agent_id",
-                self.agent_id
-            )
-
-            output.setdefault(
-                "agent",
-                self.agent_id
-            )
-
-            output.setdefault(
-                "task_type",
-                self.task_type
-            )
-
-            output.setdefault(
-                "modality",
-                self.modality
-            )
-
-            output.setdefault(
-                "status",
-                "success"
-            )
-
-            output[
-                "latency_ms"
-            ] = latency_ms
-
-            # -------------------------------------------------
-            # Normalize
-            # -------------------------------------------------
-
-            return self.normalize(
-                output
-            )
-
-        except Exception as exc:
-
-            latency_ms = (
-
-                time.perf_counter()
-                - start
-            ) * 1000.0
-
+    @staticmethod
+    def normalize(agent_id: str, result: Dict[str, Any]):
+        if result is None:
             return {
-
-                "patient_id":
-                    patient_id,
-
-                "agent_id":
-                    self.agent_id,
-
-                "agent":
-                    self.agent_id,
-
-                "task_type":
-                    self.task_type,
-
-                "modality":
-                    self.modality,
-
-                "prediction":
-                    None,
-
-                "probability":
-                    None,
-
-                "class_probabilities":
-                    {},
-
-                "confidence":
-                    0.0,
-
-                "uncertainty":
-                    1.0,
-
-                "quality":
-                    0.0,
-
-                "missing_data_ratio":
-                    1.0,
-
-                "status":
-                    "error",
-
-                "error":
-                    str(exc),
-
-                "traceback":
-                    traceback.format_exc(),
-
-                "latency_ms":
-                    latency_ms
+                "agent_id": agent_id,
+                "model_version": "unknown",
+                "task_type": "unknown",
+                "prediction": None,
+                "probabilities": None,
+                "confidence": 0.0,
+                "uncertainty": 1.0,
+                "data_quality": 0.0,
+                "missing_data_ratio": 1.0,
+                "feature_importance": {},
+                "embedding": None,
+                "explanation": None,
+                "latency_ms": 0.0,
+                "status": "unavailable",
+                "error": "No result returned by agent",
             }
 
-    # =========================================================
-    # NORMALIZE
-    # =========================================================
+        if not isinstance(result, dict):
+            result = {
+                "prediction": result,
+                "status": "success",
+            }
 
-    def normalize(
-        self,
-        result
-    ):
+        status = result.get("status", "success")
 
-        result.setdefault(
+        prediction = result.get(
             "prediction",
-            None
+            result.get("predicted_label")
         )
 
-        result.setdefault(
-            "probability",
-            None
+        probabilities = AgentAdapter._extract_probabilities(result)
+
+        confidence = result.get("confidence")
+
+        if confidence is None:
+            confidence = result.get("probability")
+
+        confidence = AgentAdapter._clip01(
+            confidence,
+            default=0.0
         )
 
-        result.setdefault(
-            "class_probabilities",
-            {}
+        uncertainty = result.get("uncertainty")
+
+        if uncertainty is None:
+            uncertainty = 1.0 - confidence
+
+        uncertainty = AgentAdapter._clip01(
+            uncertainty,
+            default=1.0 - confidence
         )
 
-        result.setdefault(
-            "confidence",
-            0.0
+        quality = result.get("data_quality")
+
+        if quality is None:
+            quality = result.get("quality")
+
+        missing_ratio = result.get("missing_data_ratio")
+
+        if missing_ratio is None:
+            missing_ratio = result.get("missing_ratio")
+
+        if missing_ratio is None:
+            missing_ratio = 1.0 - AgentAdapter._clip01(
+                quality,
+                default=0.0
+            )
+
+        missing_ratio = AgentAdapter._clip01(
+            missing_ratio,
+            default=0.0
         )
 
-        result.setdefault(
-            "uncertainty",
-            1.0
+        if quality is None:
+            quality = 1.0 - missing_ratio
+
+        quality = AgentAdapter._clip01(
+            quality,
+            default=1.0 - missing_ratio
         )
 
-        result.setdefault(
-            "quality",
-            1.0
-        )
-
-        result.setdefault(
-            "missing_data_ratio",
-            0.0
-        )
-
-        result.setdefault(
-            "agreement",
-            0.5
-        )
-
-        result.setdefault(
-            "stability",
-            0.5
-        )
-
-        result.setdefault(
-            "utility",
-            0.5
-        )
-
-        result.setdefault(
+        feature_importance = result.get(
             "feature_importance",
             {}
         )
 
-        result.setdefault(
-            "explanation",
-            None
+        embedding = result.get(
+            "embedding"
         )
 
-        return result
+        explanation = result.get(
+            "explanation"
+        )
+
+        latency = result.get("latency_ms")
+
+        if latency is None:
+            latency = result.get("inference_time", 0.0)
+
+        try:
+            latency = float(latency)
+
+            # Some agents report inference_time in seconds.
+            if "inference_time" in result and "latency_ms" not in result:
+                latency *= 1000.0
+
+        except (TypeError, ValueError):
+            latency = 0.0
+
+        task_type = result.get(
+            "task_type",
+            "unknown"
+        )
+
+        model_version = result.get(
+            "model_version",
+            result.get("model", "unknown")
+        )
+
+        return {
+            "agent_id": str(
+                result.get(
+                    "agent_id",
+                    result.get(
+                        "agent",
+                        agent_id
+                    )
+                )
+            ),
+
+            "model_version": str(
+                model_version
+            ),
+
+            "task_type": str(
+                task_type
+            ),
+
+            "prediction": prediction,
+
+            "probabilities": probabilities,
+
+            "confidence": confidence,
+
+            "uncertainty": uncertainty,
+
+            "data_quality": quality,
+
+            "missing_data_ratio": missing_ratio,
+
+            "feature_importance": (
+                feature_importance
+                if isinstance(
+                    feature_importance,
+                    dict
+                )
+                else {}
+            ),
+
+            "embedding": embedding,
+
+            "explanation": explanation,
+
+            "latency_ms": latency,
+
+            "status": status,
+
+            "error": result.get("error"),
+        }
+
+    @classmethod
+    def validate(cls, result):
+        missing = [
+            field
+            for field in cls.REQUIRED_FIELDS
+            if field not in result
+        ]
+
+        return {
+            "valid": len(missing) == 0,
+            "missing_fields": missing,
+        }
