@@ -72,6 +72,7 @@ class FattyLiverAgent:
                 self.target_classes = model_package["classes"]
 
         else:
+
             # Le modèle actuel est directement un sklearn Pipeline
             self.model = model_package
 
@@ -92,22 +93,37 @@ class FattyLiverAgent:
         if self.target_classes is None:
 
             if hasattr(self.model, "classes_"):
-                self.target_classes = list(self.model.classes_)
+
+                self.target_classes = list(
+                    self.model.classes_
+                )
 
             elif hasattr(self.model, "named_steps"):
 
-                classifier = self.model.named_steps.get("classifier")
+                classifier = (
+                    self.model
+                    .named_steps
+                    .get("classifier")
+                )
 
-                if classifier is not None and hasattr(
-                    classifier,
-                    "classes_"
+                if (
+                    classifier is not None
+                    and hasattr(classifier, "classes_")
                 ):
-                    self.target_classes = list(classifier.classes_)
 
-        # Convert classes to strings for stable JSON output
+                    self.target_classes = list(
+                        classifier.classes_
+                    )
+
+        # ---------------------------------------------------------------------
+        # Convert classes to strings
+        # ---------------------------------------------------------------------
+
         if self.target_classes is not None:
+
             self.target_classes = [
-                str(value) for value in self.target_classes
+                str(value)
+                for value in self.target_classes
             ]
 
     # =========================================================================
@@ -181,21 +197,17 @@ class FattyLiverAgent:
     def _predict_safely(self, X):
 
         """
-        Exécute predict() en supprimant uniquement le warning LightGBM
-        connu concernant les feature names.
+        Exécute predict() sans afficher les UserWarnings générés
+        par sklearn/LightGBM concernant les feature names.
 
-        Le modèle lui-même n'est PAS modifié.
+        Le modèle sauvegardé n'est pas modifié.
         """
 
         with warnings.catch_warnings():
 
-            warnings.filterwarnings(
+            warnings.simplefilter(
                 "ignore",
-                message=(
-                    "X does not have valid feature names, "
-                    "but LGBMClassifier was fitted with feature names"
-                ),
-                category=UserWarning
+                UserWarning
             )
 
             prediction = self.model.predict(X)
@@ -209,19 +221,17 @@ class FattyLiverAgent:
     def _predict_proba_safely(self, X):
 
         """
-        Exécute predict_proba() en supprimant uniquement le warning
-        LightGBM lié aux feature names.
+        Exécute predict_proba() sans afficher les UserWarnings générés
+        par sklearn/LightGBM concernant les feature names.
+
+        Le modèle sauvegardé n'est pas modifié.
         """
 
         with warnings.catch_warnings():
 
-            warnings.filterwarnings(
+            warnings.simplefilter(
                 "ignore",
-                message=(
-                    "X does not have valid feature names, "
-                    "but LGBMClassifier was fitted with feature names"
-                ),
-                category=UserWarning
+                UserWarning
             )
 
             probabilities = self.model.predict_proba(X)
@@ -242,7 +252,9 @@ class FattyLiverAgent:
             # Prepare input
             # -----------------------------------------------------------------
 
-            X = self._prepare_input(patient_data)
+            X = self._prepare_input(
+                patient_data
+            )
 
             # -----------------------------------------------------------------
             # Missing data
@@ -270,8 +282,11 @@ class FattyLiverAgent:
             # -----------------------------------------------------------------
 
             probabilities = None
+
             confidence = 0.0
+
             uncertainty = 1.0
+
             class_probabilities = {}
 
             if hasattr(
