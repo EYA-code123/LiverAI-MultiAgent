@@ -54,6 +54,8 @@ class AgentAdapter:
 
     @staticmethod
     def normalize(agent_id: str, result: Dict[str, Any]):
+
+        # Agent returned nothing
         if result is None:
             return {
                 "agent_id": agent_id,
@@ -73,6 +75,7 @@ class AgentAdapter:
                 "error": "No result returned by agent",
             }
 
+        # Convert non-dict output
         if not isinstance(result, dict):
             result = {
                 "prediction": result,
@@ -81,13 +84,22 @@ class AgentAdapter:
 
         status = result.get("status", "success")
 
+        # ---------------------------------------------------------
+        # Prediction
+        # ---------------------------------------------------------
         prediction = result.get(
             "prediction",
             result.get("predicted_label")
         )
 
+        # ---------------------------------------------------------
+        # Probabilities
+        # ---------------------------------------------------------
         probabilities = AgentAdapter._extract_probabilities(result)
 
+        # ---------------------------------------------------------
+        # Confidence
+        # ---------------------------------------------------------
         confidence = result.get("confidence")
 
         if confidence is None:
@@ -98,6 +110,9 @@ class AgentAdapter:
             default=0.0
         )
 
+        # ---------------------------------------------------------
+        # Uncertainty
+        # ---------------------------------------------------------
         uncertainty = result.get("uncertainty")
 
         if uncertainty is None:
@@ -108,11 +123,17 @@ class AgentAdapter:
             default=1.0 - confidence
         )
 
+        # ---------------------------------------------------------
+        # Data quality
+        # ---------------------------------------------------------
         quality = result.get("data_quality")
 
         if quality is None:
             quality = result.get("quality")
 
+        # ---------------------------------------------------------
+        # Missing data ratio
+        # ---------------------------------------------------------
         missing_ratio = result.get("missing_data_ratio")
 
         if missing_ratio is None:
@@ -129,6 +150,7 @@ class AgentAdapter:
             default=0.0
         )
 
+        # If quality is missing, infer it
         if quality is None:
             quality = 1.0 - missing_ratio
 
@@ -137,19 +159,30 @@ class AgentAdapter:
             default=1.0 - missing_ratio
         )
 
+        # ---------------------------------------------------------
+        # Feature importance
+        # ---------------------------------------------------------
         feature_importance = result.get(
             "feature_importance",
             {}
         )
 
-        embedding = result.get(
-            "embedding"
-        )
+        if not isinstance(feature_importance, dict):
+            feature_importance = {}
 
-        explanation = result.get(
-            "explanation"
-        )
+        # ---------------------------------------------------------
+        # Embedding
+        # ---------------------------------------------------------
+        embedding = result.get("embedding")
 
+        # ---------------------------------------------------------
+        # Explanation
+        # ---------------------------------------------------------
+        explanation = result.get("explanation")
+
+        # ---------------------------------------------------------
+        # Latency
+        # ---------------------------------------------------------
         latency = result.get("latency_ms")
 
         if latency is None:
@@ -158,24 +191,36 @@ class AgentAdapter:
         try:
             latency = float(latency)
 
-            # Some agents report inference_time in seconds.
-            if "inference_time" in result and "latency_ms" not in result:
+            # inference_time is assumed to be seconds
+            if (
+                "inference_time" in result
+                and "latency_ms" not in result
+            ):
                 latency *= 1000.0
 
         except (TypeError, ValueError):
             latency = 0.0
 
+        # ---------------------------------------------------------
+        # Task type
+        # ---------------------------------------------------------
         task_type = result.get(
             "task_type",
             "unknown"
         )
 
+        # ---------------------------------------------------------
+        # Model version
+        # ---------------------------------------------------------
         model_version = result.get(
             "model_version",
             result.get("model", "unknown")
         )
 
-        return {
+        # ---------------------------------------------------------
+        # Unified message
+        # ---------------------------------------------------------
+        unified_result = {
             "agent_id": str(
                 result.get(
                     "agent_id",
@@ -206,14 +251,7 @@ class AgentAdapter:
 
             "missing_data_ratio": missing_ratio,
 
-            "feature_importance": (
-                feature_importance
-                if isinstance(
-                    feature_importance,
-                    dict
-                )
-                else {}
-            ),
+            "feature_importance": feature_importance,
 
             "embedding": embedding,
 
@@ -226,8 +264,11 @@ class AgentAdapter:
             "error": result.get("error"),
         }
 
+        return unified_result
+
     @classmethod
     def validate(cls, result):
+
         missing = [
             field
             for field in cls.REQUIRED_FIELDS
