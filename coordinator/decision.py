@@ -1,3 +1,7 @@
+# ============================================================================
+# LIVERAI — DECISION ENGINE
+# ============================================================================
+
 class DecisionEngine:
 
     def __init__(
@@ -34,6 +38,10 @@ class DecisionEngine:
             minimum_quality
         )
 
+    # ========================================================================
+    # DECIDE
+    # ========================================================================
+
     def decide(
         self,
         results,
@@ -45,6 +53,10 @@ class DecisionEngine:
         reasoning = reasoning or {}
 
         valid_results = []
+
+        # ====================================================================
+        # VALIDATE RESULTS
+        # ====================================================================
 
         for result in results:
 
@@ -62,14 +74,67 @@ class DecisionEngine:
             ):
                 continue
 
-            if result.get(
+            task_type = result.get(
+                "task_type",
+                ""
+            )
+
+            prediction = result.get(
                 "prediction"
-            ) is None:
-                continue
+            )
+
+            # ---------------------------------------------------------------
+            # CLASSIFICATION / REASONING
+            # ---------------------------------------------------------------
+
+            if task_type != "liver_segmentation":
+
+                if prediction is None:
+                    continue
+
+            # ---------------------------------------------------------------
+            # SEGMENTATION
+            # ---------------------------------------------------------------
+
+            else:
+
+                # A segmentation does not require a class prediction.
+                # Its valid evidence is represented by its mask,
+                # confidence and quality.
+
+                details = result.get(
+                    "details",
+                    {}
+                )
+
+                has_mask = (
+                    isinstance(details, dict)
+                    and
+                    details.get("liver_mask") is not None
+                )
+
+                has_probability_map = (
+                    isinstance(details, dict)
+                    and
+                    details.get("probability_map") is not None
+                )
+
+                valid_segmentation = (
+                    has_mask
+                    or
+                    has_probability_map
+                )
+
+                if not valid_segmentation:
+                    continue
 
             valid_results.append(
                 result
             )
+
+        # ====================================================================
+        # COVERAGE
+        # ====================================================================
 
         total_agents = len(results)
 
@@ -84,9 +149,9 @@ class DecisionEngine:
             else 0.0
         )
 
-        # ========================================================
-        # MEAN CONFIDENCE
-        # ========================================================
+        # ====================================================================
+        # MEAN CONFIDENCE / TRUST / QUALITY
+        # ====================================================================
 
         if valid_results:
 
@@ -126,9 +191,9 @@ class DecisionEngine:
             mean_trust = 0.0
             mean_quality = 0.0
 
-        # ========================================================
+        # ====================================================================
         # CONFLICT SCORE
-        # ========================================================
+        # ====================================================================
 
         conflict_values = []
 
@@ -167,9 +232,9 @@ class DecisionEngine:
             else 0.0
         )
 
-        # ========================================================
+        # ====================================================================
         # PREDICTION
-        # ========================================================
+        # ====================================================================
 
         prediction = None
 
@@ -182,33 +247,50 @@ class DecisionEngine:
                 "prediction"
             )
 
-        if prediction is None and valid_results:
+        # Only classification-like agents can provide
+        # a meaningful final class prediction.
 
-            best = max(
-                valid_results,
-                key=lambda x:
-                    float(
-                        x.get(
-                            "trust",
-                            0.0
+        if prediction is None:
+
+            classification_results = [
+                r
+                for r in valid_results
+                if r.get(
+                    "task_type"
+                ) != "liver_segmentation"
+                and
+                r.get(
+                    "prediction"
+                ) is not None
+            ]
+
+            if classification_results:
+
+                best = max(
+                    classification_results,
+                    key=lambda x:
+                        float(
+                            x.get(
+                                "trust",
+                                0.0
+                            )
                         )
-                    )
-                    *
-                    float(
-                        x.get(
-                            "confidence",
-                            0.0
+                        *
+                        float(
+                            x.get(
+                                "confidence",
+                                0.0
+                            )
                         )
-                    )
-            )
+                )
 
-            prediction = best.get(
-                "prediction"
-            )
+                prediction = best.get(
+                    "prediction"
+                )
 
-        # ========================================================
+        # ====================================================================
         # DECISION LEVEL
-        # ========================================================
+        # ====================================================================
 
         insufficient_data = (
             coverage <
@@ -231,9 +313,7 @@ class DecisionEngine:
                self.moderate_confidence
         ):
 
-            decision_level = (
-                "UNCERTAIN"
-            )
+            decision_level = "UNCERTAIN"
 
         elif (
             mean_confidence >=
@@ -251,9 +331,9 @@ class DecisionEngine:
 
             decision_level = "MODERATE"
 
-        # ========================================================
+        # ====================================================================
         # RISK
-        # ========================================================
+        # ====================================================================
 
         risk_score = (
 
@@ -284,9 +364,9 @@ class DecisionEngine:
             )
         )
 
-        # ========================================================
+        # ====================================================================
         # FINAL RESULT
-        # ========================================================
+        # ====================================================================
 
         return {
 
