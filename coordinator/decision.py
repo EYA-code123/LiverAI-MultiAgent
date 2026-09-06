@@ -9,7 +9,6 @@ class DecisionEngine:
         minimum_coverage=0.50,
         minimum_quality=0.50,
     ):
-
         self.high_confidence = high_confidence
         self.moderate_confidence = moderate_confidence
         self.high_trust = high_trust
@@ -52,13 +51,11 @@ class DecisionEngine:
                 return False
 
             has_mask = (
-                details.get("liver_mask")
-                is not None
+                details.get("liver_mask") is not None
             )
 
             has_probability_map = (
-                details.get("probability_map")
-                is not None
+                details.get("probability_map") is not None
             )
 
             return (
@@ -68,12 +65,11 @@ class DecisionEngine:
             )
 
         # --------------------------------------------------------
-        # CLASSIFICATION / REASONING
+        # OTHER TASKS
         # --------------------------------------------------------
 
         return (
-            result.get("prediction")
-            is not None
+            result.get("prediction") is not None
         )
 
     # ============================================================
@@ -108,8 +104,7 @@ class DecisionEngine:
         )
 
         coverage = (
-            valid_agents /
-            total_agents
+            valid_agents / total_agents
             if total_agents > 0
             else 0.0
         )
@@ -213,12 +208,7 @@ class DecisionEngine:
                 "prediction"
             )
 
-        # --------------------------------------------------------
-        # Only classification/reasoning agents can provide a
-        # global task prediction.
-        # Segmentation intentionally keeps prediction=None.
-        # --------------------------------------------------------
-
+        # Segmentation must NOT become a class prediction.
         prediction_candidates = [
             r
             for r in valid_results
@@ -282,9 +272,7 @@ class DecisionEngine:
                self.moderate_confidence
         ):
 
-            decision_level = (
-                "UNCERTAIN"
-            )
+            decision_level = "UNCERTAIN"
 
         elif (
             mean_confidence >=
@@ -347,8 +335,6 @@ class DecisionEngine:
             "decision":
                 decision_level,
 
-            # Important:
-            # segmentation keeps prediction=None
             "prediction":
                 prediction,
 
