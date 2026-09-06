@@ -636,23 +636,27 @@ class LiverAIOrchestrator:
         # 2. CLINICAL REASONING
         # ============================================================
 
+               # ============================================================
+        # 2. CLINICAL REASONING
+        # ============================================================
+
         clinical_result = self.run_clinical_reasoning(
             patient_data,
             specialized_results,
         )
 
-      if clinical_result is None:
-        clinical_result = {
-            "status": "error",
-            "error": "Clinical reasoning failed",
-        }
+        if clinical_result is None:
+            clinical_result = {
+                "status": "error",
+                "error": "Clinical reasoning failed",
+            }
 
-    # ============================================================
-    # COMBINE ALL RESULTS
-    # ============================================================
+        # ============================================================
+        # 3. COMBINE ALL RESULTS
+        # ============================================================
 
-    all_results = dict(specialized_results)
-    all_results["clinical_reasoning"] = clinical_result
+        all_results = dict(specialized_results)
+        all_results["clinical_reasoning"] = clinical_result
 
         # ============================================================
         # 4. ADAPTIVE FUSION
@@ -680,7 +684,6 @@ class LiverAIOrchestrator:
             fusion=fusion,
             clinical_result=clinical_result,
         )
-
         # ============================================================
         # 7. AGENT STATUS
         # ============================================================
