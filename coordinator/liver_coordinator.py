@@ -1,5 +1,27 @@
 # =============================================================================
-# LIVER AI — TASK-AWARE MULTI-AGENT COORDINATOR
+# LIVER AI — LIVER COORDINATOR
+# =============================================================================
+#
+# Task-aware multi-agent coordinator for heterogeneous liver AI agents.
+#
+# Supported modalities:
+#   - clinical_tabular
+#   - 2D_image
+#   - 3D_CT
+#
+# The coordinator:
+#   1. Executes registered agents
+#   2. Normalizes heterogeneous outputs
+#   3. Computes trust
+#   4. Detects conflicts within the same task
+#   5. Resolves task-specific conflicts
+#   6. Builds task-aware evidence
+#   7. Performs heterogeneous evidence fusion
+#   8. Produces task-specific decisions and actions
+#
+# IMPORTANT:
+# Different medical tasks are NOT merged into one global prediction.
+#
 # =============================================================================
 
 from collections import defaultdict
@@ -16,18 +38,9 @@ from coordinator.feedback import FeedbackEngine
 
 
 class LiverCoordinator:
-    """
-    Task-aware coordinator for the LiverAI multi-agent system.
-
-    Important:
-    - Different medical tasks are NOT merged into one global prediction.
-    - Each agent keeps its own task-specific prediction.
-    - Evidence is fused for coordination metrics only.
-    - Conflicts are detected only between agents solving the same task.
-    """
 
     # =========================================================================
-    # INIT
+    # INITIALIZATION
     # =========================================================================
 
     def __init__(self, agents=None):
@@ -68,7 +81,6 @@ class LiverCoordinator:
         # ---------------------------------------------------------------------
 
         if agents:
-
             self._load_agents(agents)
 
     # =========================================================================
@@ -98,39 +110,31 @@ class LiverCoordinator:
                 else:
 
                     agent = agent_info
-                    task_type = getattr(
-                        agent,
-                        "task_type",
-                        "unknown"
-                    )
+                    task_type = "unknown"
+                    modality = "unknown"
 
-                    modality = getattr(
-                        agent,
-                        "modality",
-                        "unknown"
-                    )
+                if agent is not None:
 
-                self.register_agent(
-                    agent_id=agent_id,
-                    agent=agent,
-                    task_type=task_type,
-                    modality=modality
-                )
+                    self.register_agent(
+                        agent_id=agent_id,
+                        agent=agent,
+                        task_type=task_type,
+                        modality=modality
+                    )
 
     # =========================================================================
-    # REGISTER
+    # REGISTER AGENT
     # =========================================================================
 
     def register_agent(
         self,
         agent_id,
         agent,
-        task_type="unknown",
+        task_type,
         modality="unknown"
     ):
 
         if agent is None:
-
             raise ValueError(
                 f"Agent '{agent_id}' cannot be None."
             )
@@ -138,31 +142,23 @@ class LiverCoordinator:
         self.agents[agent_id] = agent
 
         self.agent_metadata[agent_id] = {
-
             "task_type": task_type,
-
             "modality": modality
         }
 
-        # Register agent in trust manager
-
+        # Register initial trust
         try:
 
             self.trust_manager.register_agent(
-                agent_id
+                agent_id=agent_id,
+                performance=0.5
             )
 
-        except TypeError:
+        except Exception:
 
-            try:
-
-                self.trust_manager.register_agent(
-                    agent_id=agent_id
-                )
-
-            except Exception:
-
-                pass
+            # Avoid breaking registration if the trust manager
+            # already contains this agent.
+            pass
 
         return {
             "status": "registered",
@@ -172,20 +168,16 @@ class LiverCoordinator:
         }
 
     # =========================================================================
-    # UNREGISTER
+    # UNREGISTER AGENT
     # =========================================================================
 
     def unregister_agent(self, agent_id):
 
-        self.agents.pop(
-            agent_id,
-            None
-        )
+        if agent_id in self.agents:
+            del self.agents[agent_id]
 
-        self.agent_metadata.pop(
-            agent_id,
-            None
-        )
+        if agent_id in self.agent_metadata:
+            del self.agent_metadata[agent_id]
 
         return {
             "status": "unregistered",
@@ -198,31 +190,7 @@ class LiverCoordinator:
 
     def list_agents(self):
 
-        output = []
-
-        for agent_id in self.agents:
-
-            metadata = self.agent_metadata.get(
-                agent_id,
-                {}
-            )
-
-            output.append({
-
-                "agent_id": agent_id,
-
-                "task_type": metadata.get(
-                    "task_type",
-                    "unknown"
-                ),
-
-                "modality": metadata.get(
-                    "modality",
-                    "unknown"
-                )
-            })
-
-        return output
+        return list(self.agents.keys())
 
     # =========================================================================
     # GET AGENT
@@ -230,9 +198,7 @@ class LiverCoordinator:
 
     def get_agent(self, agent_id):
 
-        return self.agents.get(
-            agent_id
-        )
+        return self.agents.get(agent_id)
 
     # =========================================================================
     # NORMALIZE RESULT
@@ -248,73 +214,114 @@ class LiverCoordinator:
 
         if result is None:
 
-            result = {}
+            return {
+                "agent_id": agent_id,
+                "agent": agent_id,
+                "task_type": task_type,
+                "modality": modality,
+                "prediction": None,
+                "probability": None,
+                "confidence": 0.0,
+                "uncertainty": 1.0,
+                "quality": 0.0,
+                "missing_data_ratio": 1.0,
+                "status": "failed",
+                "error": "Agent returned None.",
+                "details": {}
+            }
 
-        normalized = dict(result)
+        if not isinstance(result, dict):
 
-        normalized["agent_id"] = agent_id
+            result = {
+                "prediction": result
+            }
 
-        normalized["agent"] = normalized.get(
-            "agent",
-            agent_id
+        prediction = result.get(
+            "prediction"
         )
 
-        normalized["task_type"] = normalized.get(
-            "task_type",
-            task_type
+        probability = result.get(
+            "probability"
         )
 
-        normalized["modality"] = normalized.get(
-            "modality",
-            modality
+        confidence = result.get(
+            "confidence",
+            probability if probability is not None else 0.0
         )
 
-        normalized["status"] = normalized.get(
+        uncertainty = result.get(
+            "uncertainty",
+            1.0 - float(confidence)
+        )
+
+        quality = result.get(
+            "quality",
+            1.0
+        )
+
+        missing_ratio = result.get(
+            "missing_data_ratio",
+            result.get(
+                "missing_ratio",
+                0.0
+            )
+        )
+
+        status = result.get(
             "status",
             "success"
         )
 
-        normalized["prediction"] = normalized.get(
-            "prediction"
-        )
+        normalized = {
+            "agent_id": agent_id,
 
-        normalized["probability"] = normalized.get(
-            "probability",
-            normalized.get(
-                "confidence"
-            )
-        )
+            "agent": result.get(
+                "agent",
+                agent_id
+            ),
 
-        normalized["confidence"] = float(
-            normalized.get(
-                "confidence",
-                0.0
-            ) or 0.0
-        )
+            "task_type": result.get(
+                "task_type",
+                task_type
+            ),
 
-        normalized["uncertainty"] = float(
-            normalized.get(
-                "uncertainty",
-                1.0 - normalized["confidence"]
-            ) or 0.0
-        )
+            "modality": result.get(
+                "modality",
+                modality
+            ),
 
-        normalized["quality"] = float(
-            normalized.get(
-                "quality",
-                1.0
-            ) or 0.0
-        )
+            "prediction": (
+                str(prediction)
+                if prediction is not None
+                else None
+            ),
 
-        normalized["missing_data_ratio"] = float(
-            normalized.get(
-                "missing_data_ratio",
-                normalized.get(
-                    "missing_ratio",
-                    0.0
-                )
-            ) or 0.0
-        )
+            "probability": probability,
+
+            "confidence": float(
+                confidence
+            ),
+
+            "uncertainty": float(
+                uncertainty
+            ),
+
+            "quality": float(
+                quality
+            ),
+
+            "missing_data_ratio": float(
+                missing_ratio
+            ),
+
+            "status": status,
+
+            "error": result.get(
+                "error"
+            ),
+
+            "details": result
+        }
 
         return normalized
 
@@ -328,19 +335,19 @@ class LiverCoordinator:
 
         for result in results:
 
-            task_type = result.get(
+            task = result.get(
                 "task_type",
                 "unknown"
             )
 
-            grouped[task_type].append(
+            grouped[task].append(
                 result
             )
 
         return dict(grouped)
 
     # =========================================================================
-    # TRUST
+    # COMPUTE TRUST
     # =========================================================================
 
     def _compute_trust(
@@ -349,105 +356,34 @@ class LiverCoordinator:
         task_results
     ):
 
-        agent_id = result.get(
-            "agent_id"
-        )
-
         confidence = float(
             result.get(
                 "confidence",
                 0.0
-            ) or 0.0
+            )
         )
 
         quality = float(
             result.get(
                 "quality",
                 0.0
-            ) or 0.0
+            )
         )
 
         uncertainty = float(
             result.get(
                 "uncertainty",
                 1.0
-            ) or 1.0
-        )
-
-        # Agreement with other agents solving the same task
-
-        valid_predictions = [
-
-            r.get("prediction")
-
-            for r in task_results
-
-            if r.get("status") == "success"
-            and r.get("prediction") is not None
-        ]
-
-        if len(valid_predictions) <= 1:
-
-            agreement = 1.0
-
-        else:
-
-            prediction = result.get(
-                "prediction"
-            )
-
-            matches = sum(
-
-                1
-
-                for p in valid_predictions
-
-                if p == prediction
-            )
-
-            agreement = (
-                matches /
-                len(valid_predictions)
-            )
-
-        result["agreement"] = float(
-            agreement
-        )
-
-        # ---------------------------------------------------------------------
-        # Compute reliability
-        # ---------------------------------------------------------------------
-
-        try:
-
-            reliability = (
-                0.40 * confidence
-                + 0.30 * quality
-                + 0.20 * agreement
-                + 0.10 * (1.0 - uncertainty)
-            )
-
-        except Exception:
-
-            reliability = 0.0
-
-        reliability = max(
-            0.0,
-            min(
-                1.0,
-                reliability
             )
         )
-
-        # ---------------------------------------------------------------------
-        # Trust manager
-        # ---------------------------------------------------------------------
 
         try:
 
             trust = self.trust_manager.compute_trust(
-                agent_id=agent_id,
-                current_reliability=reliability
+                agent_id=result["agent_id"],
+                confidence=confidence,
+                quality=quality,
+                uncertainty=uncertainty
             )
 
         except TypeError:
@@ -455,30 +391,69 @@ class LiverCoordinator:
             try:
 
                 trust = self.trust_manager.compute_trust(
-                    agent_id,
-                    reliability
+                    result["agent_id"],
+                    confidence,
+                    quality,
+                    uncertainty
                 )
 
             except Exception:
 
-                trust = 0.5
+                trust = (
+                    0.5 * confidence
+                    + 0.3 * quality
+                    + 0.2 * (1.0 - uncertainty)
+                )
 
         except Exception:
 
-            trust = 0.5
+            trust = (
+                0.5 * confidence
+                + 0.3 * quality
+                + 0.2 * (1.0 - uncertainty)
+            )
 
         result["trust"] = float(
-            trust
+            max(
+                0.0,
+                min(
+                    1.0,
+                    trust
+                )
+            )
         )
 
-        result["reliability"] = float(
-            reliability
-        )
+        # ---------------------------------------------------------------------
+        # Agreement with other agents of the SAME task
+        # ---------------------------------------------------------------------
 
-        return result
+        same_task = [
+            r for r in task_results
+            if r.get("agent_id") != result.get("agent_id")
+            and r.get("status") == "success"
+            and r.get("prediction") is not None
+        ]
+
+        if not same_task:
+
+            result["agreement"] = 0.5
+
+        else:
+
+            agreements = [
+                1.0
+                if r.get("prediction") == result.get("prediction")
+                else 0.0
+                for r in same_task
+            ]
+
+            result["agreement"] = (
+                sum(agreements)
+                / len(agreements)
+            )
 
     # =========================================================================
-    # CONFLICT DETECTION
+    # DETECT CONFLICTS
     # =========================================================================
 
     def _detect_conflicts(self, results):
@@ -491,10 +466,60 @@ class LiverCoordinator:
 
         except Exception:
 
-            return []
+            conflicts = []
+
+            grouped = self._group_by_task(
+                results
+            )
+
+            for task_type, task_results in grouped.items():
+
+                valid = [
+                    r for r in task_results
+                    if r.get("status") == "success"
+                    and r.get("prediction") is not None
+                ]
+
+                for i in range(len(valid)):
+
+                    for j in range(i + 1, len(valid)):
+
+                        r1 = valid[i]
+                        r2 = valid[j]
+
+                        if (
+                            r1["prediction"]
+                            !=
+                            r2["prediction"]
+                        ):
+
+                            conflicts.append({
+
+                                "task_type": task_type,
+
+                                "agent_1":
+                                    r1["agent_id"],
+
+                                "prediction_1":
+                                    r1["prediction"],
+
+                                "confidence_1":
+                                    r1["confidence"],
+
+                                "agent_2":
+                                    r2["agent_id"],
+
+                                "prediction_2":
+                                    r2["prediction"],
+
+                                "confidence_2":
+                                    r2["confidence"]
+                            })
+
+            return conflicts
 
     # =========================================================================
-    # CONFLICT RESOLUTION
+    # RESOLVE CONFLICTS
     # =========================================================================
 
     def _resolve_conflicts(
@@ -512,14 +537,8 @@ class LiverCoordinator:
         for task_type, task_results in grouped.items():
 
             task_conflicts = [
-
-                conflict
-
-                for conflict in conflicts
-
-                if conflict.get(
-                    "task_type"
-                ) == task_type
+                c for c in conflicts
+                if c.get("task_type") == task_type
             ]
 
             try:
@@ -535,17 +554,11 @@ class LiverCoordinator:
             except Exception as exc:
 
                 resolution = {
-
-                    "status": "failed",
-
+                    "status": "error",
                     "consensus": False,
-
                     "prediction": None,
-
                     "consensus_strength": 0.0,
-
                     "scores": {},
-
                     "reason": str(exc)
                 }
 
@@ -554,53 +567,56 @@ class LiverCoordinator:
         return resolutions
 
     # =========================================================================
-    # EVIDENCE GRAPH
+    # TASK-AWARE EVIDENCE GRAPH
     # =========================================================================
 
     def _build_evidence_graph(self, results):
 
         graph = []
 
-        for i in range(
-            len(results)
-        ):
+        valid_results = [
+            r for r in results
+            if r.get("status") == "success"
+        ]
 
-            for j in range(
-                i + 1,
-                len(results)
-            ):
+        for i in range(len(valid_results)):
 
-                first = results[i]
+            for j in range(i + 1, len(valid_results)):
 
-                second = results[j]
+                r1 = valid_results[i]
+                r2 = valid_results[j]
 
-                first_task = first.get(
+                task1 = r1.get(
                     "task_type"
                 )
 
-                second_task = second.get(
+                task2 = r2.get(
                     "task_type"
                 )
 
                 # -------------------------------------------------------------
-                # Different medical tasks
+                # Different tasks = complementary evidence
                 # -------------------------------------------------------------
 
-                if first_task != second_task:
+                if task1 != task2:
 
                     relation = "complements"
 
                 # -------------------------------------------------------------
-                # Same task
+                # Same task / same prediction = support
                 # -------------------------------------------------------------
 
                 elif (
-                    first.get("prediction")
+                    r1.get("prediction")
                     ==
-                    second.get("prediction")
+                    r2.get("prediction")
                 ):
 
                     relation = "supports"
+
+                # -------------------------------------------------------------
+                # Same task / different prediction = conflict
+                # -------------------------------------------------------------
 
                 else:
 
@@ -608,19 +624,26 @@ class LiverCoordinator:
 
                 graph.append({
 
-                    "agent_1": first.get(
-                        "agent_id"
-                    ),
+                    "agent_1":
+                        r1.get("agent_id"),
 
-                    "agent_2": second.get(
-                        "agent_id"
-                    ),
+                    "agent_2":
+                        r2.get("agent_id"),
 
-                    "task_1": first_task,
+                    "task_1":
+                        task1,
 
-                    "task_2": second_task,
+                    "task_2":
+                        task2,
 
-                    "relation": relation
+                    "prediction_1":
+                        r1.get("prediction"),
+
+                    "prediction_2":
+                        r2.get("prediction"),
+
+                    "relation":
+                        relation
                 })
 
         return graph
@@ -641,67 +664,22 @@ class LiverCoordinator:
         )
 
         task_decisions = {}
-
         task_actions = {}
 
         for task_type, task_results in grouped.items():
-
-            valid_results = [
-
-                result
-
-                for result in task_results
-
-                if result.get(
-                    "status"
-                ) == "success"
-            ]
 
             resolution = resolutions.get(
                 task_type,
                 {}
             )
 
-            prediction = resolution.get(
-                "prediction"
-            )
-
-            if prediction is None and valid_results:
-
-                prediction = valid_results[0].get(
-                    "prediction"
-                )
+            valid_results = [
+                r for r in task_results
+                if r.get("status") == "success"
+            ]
 
             # -------------------------------------------------------------
-            # Aggregate confidence
-            # -------------------------------------------------------------
-
-            if valid_results:
-
-                confidence_values = [
-
-                    float(
-                        result.get(
-                            "confidence",
-                            0.0
-                        ) or 0.0
-                    )
-
-                    for result in valid_results
-                ]
-
-                confidence = sum(
-                    confidence_values
-                ) / len(
-                    confidence_values
-                )
-
-            else:
-
-                confidence = 0.0
-
-            # -------------------------------------------------------------
-            # Decision engine
+            # Decision Engine
             # -------------------------------------------------------------
 
             try:
@@ -720,69 +698,52 @@ class LiverCoordinator:
 
                 except Exception:
 
-                    decision = {
-
-                        "status": (
-                            "insufficient_evidence"
-                            if not valid_results
-                            else "completed"
-                        ),
-
-                        "decision": (
-                            "UNCERTAIN"
-                            if confidence < 0.60
-                            else "MODERATE"
-                        ),
-
-                        "prediction": prediction,
-
-                        "confidence": confidence
-                    }
+                    decision = {}
 
             except Exception:
 
-                decision = {
+                decision = {}
 
-                    "status": (
-                        "insufficient_evidence"
-                        if not valid_results
-                        else "completed"
-                    ),
+            if not isinstance(decision, dict):
 
-                    "decision": (
-                        "UNCERTAIN"
-                        if confidence < 0.60
-                        else "MODERATE"
-                    ),
+                decision = {}
 
-                    "prediction": prediction,
-
-                    "confidence": confidence
-                }
-
-            decision = dict(
-                decision
-            )
-
-            # Normalize naming used by ActionEngine
+            # DecisionEngine currently uses "decision".
+            # Normalize it to "decision_level" for ActionEngine.
 
             if "decision_level" not in decision:
 
                 decision["decision_level"] = decision.get(
                     "decision",
-                    "UNCERTAIN"
+                    "uncertain"
                 )
 
-            decision["prediction"] = prediction
+            # Use task-specific consensus when available.
 
-            decision["confidence"] = confidence
+            task_prediction = resolution.get(
+                "prediction"
+            )
 
-            decision["task_type"] = task_type
+            if task_prediction is not None:
 
-            task_decisions[task_type] = decision
+                decision["prediction"] = (
+                    task_prediction
+                )
+
+            else:
+
+                decision.setdefault(
+                    "prediction",
+                    None
+                )
+
+            decision.setdefault(
+                "status",
+                "completed"
+            )
 
             # -------------------------------------------------------------
-            # Actions
+            # Action Engine
             # -------------------------------------------------------------
 
             try:
@@ -791,28 +752,21 @@ class LiverCoordinator:
                     decision
                 )
 
-            except Exception:
+            except Exception as exc:
 
                 action = {
-
-                    "status": "cautious",
-
-                    "actions": [
-
-                        "Clinical review recommended.",
-
-                        "Consider additional evidence.",
-
-                        "Do not use this automated output "
-                        "as a standalone diagnosis."
-                    ],
-
-                    "referral": True,
-
-                    "follow_up": True,
-
-                    "additional_tests": True
+                    "status": "error",
+                    "error": str(exc)
                 }
+
+            task_decisions[task_type] = {
+                "decision": decision,
+                "resolution": resolution,
+                "num_agents": len(task_results),
+                "num_valid_agents": len(
+                    valid_results
+                )
+            }
 
             task_actions[task_type] = action
 
@@ -831,121 +785,85 @@ class LiverCoordinator:
         conflicts
     ):
 
-        valid_results = [
-
-            result
-
-            for result in results
-
-            if result.get(
-                "status"
-            ) == "success"
+        successful = [
+            r for r in results
+            if r.get("status") == "success"
         ]
 
-        if valid_results:
+        failed = [
+            r for r in results
+            if r.get("status") == "failed"
+        ]
 
-            confidence_values = [
+        confidences = [
+            float(r.get("confidence", 0.0))
+            for r in successful
+        ]
 
-                float(
-                    result.get(
-                        "confidence",
-                        0.0
-                    ) or 0.0
-                )
+        trusts = [
+            float(r.get("trust", 0.0))
+            for r in successful
+        ]
 
-                for result in valid_results
-            ]
+        qualities = [
+            float(r.get("quality", 0.0))
+            for r in successful
+        ]
 
-            trust_values = [
-
-                float(
-                    result.get(
-                        "trust",
-                        0.0
-                    ) or 0.0
-                )
-
-                for result in valid_results
-            ]
-
-            quality_values = [
-
-                float(
-                    result.get(
-                        "quality",
-                        0.0
-                    ) or 0.0
-                )
-
-                for result in valid_results
-            ]
-
-            mean_confidence = (
-                sum(confidence_values)
-                /
-                len(confidence_values)
-            )
-
-            mean_trust = (
-                sum(trust_values)
-                /
-                len(trust_values)
-            )
-
-            mean_quality = (
-                sum(quality_values)
-                /
-                len(quality_values)
-            )
-
-        else:
-
-            mean_confidence = 0.0
-
-            mean_trust = 0.0
-
-            mean_quality = 0.0
+        coverage = (
+            len(successful) / len(results)
+            if results
+            else 0.0
+        )
 
         return {
 
-            "num_agents": len(results),
+            "total_agents":
+                len(results),
 
-            "num_valid_agents": len(
-                valid_results
-            ),
+            "successful_agents":
+                len(successful),
 
-            "coverage": (
-                len(valid_results)
-                /
-                len(results)
-                if results
-                else 0.0
-            ),
+            "failed_agents":
+                len(failed),
 
-            "mean_confidence": (
-                mean_confidence
-            ),
+            "coverage":
+                coverage,
 
-            "mean_trust": (
-                mean_trust
-            ),
+            "mean_confidence":
+                (
+                    sum(confidences)
+                    / len(confidences)
+                    if confidences
+                    else 0.0
+                ),
 
-            "mean_quality": (
-                mean_quality
-            ),
+            "mean_trust":
+                (
+                    sum(trusts)
+                    / len(trusts)
+                    if trusts
+                    else 0.0
+                ),
 
-            "num_conflicts": len(
-                conflicts
-            ),
+            "mean_quality":
+                (
+                    sum(qualities)
+                    / len(qualities)
+                    if qualities
+                    else 0.0
+                ),
 
-            "conflict_score": (
-                len(conflicts)
-                /
-                max(
-                    1,
-                    len(results)
+            "num_conflicts":
+                len(conflicts),
+
+            "conflict_rate":
+                (
+                    len(conflicts)
+                    / len(successful)
+                    if successful
+                    else 0.0
                 )
-            )
         }
 
     # =========================================================================
@@ -960,34 +878,17 @@ class LiverCoordinator:
         **kwargs
     ):
 
-        # ---------------------------------------------------------------------
-        # No agents
-        # ---------------------------------------------------------------------
-
         if not self.agents:
 
             return {
-
                 "status": "insufficient_evidence",
-
                 "patient_id": patient_id,
-
                 "agents": [],
-
                 "error": "No agents registered."
             }
 
-        inputs = (
-            inputs
-            if inputs is not None
-            else {}
-        )
-
-        images = (
-            images
-            if images is not None
-            else {}
-        )
+        inputs = inputs or {}
+        images = images or {}
 
         results = []
 
@@ -1013,7 +914,7 @@ class LiverCoordinator:
             )
 
             # -----------------------------------------------------------------
-            # Agent-specific input
+            # Get agent-specific tabular / volume input
             # -----------------------------------------------------------------
 
             if isinstance(inputs, dict):
@@ -1027,7 +928,7 @@ class LiverCoordinator:
                 agent_input = inputs
 
             # -----------------------------------------------------------------
-            # Image-specific input
+            # Get agent-specific image input
             # -----------------------------------------------------------------
 
             if isinstance(images, dict):
@@ -1043,91 +944,102 @@ class LiverCoordinator:
             try:
 
                 # =============================================================
-                # FALLBACK
+                # IMAGE AGENTS
                 # =============================================================
 
-                if agent_input is None:
+                if modality == "2D_image":
 
-                    agent_input = kwargs.get(
-                        "patient_data"
+                    if agent_image is None:
+
+                        raise ValueError(
+                            f"No image provided for "
+                            f"agent '{agent_id}'."
+                        )
+
+                    if not hasattr(
+                        agent,
+                        "predict"
+                    ):
+
+                        raise AttributeError(
+                            f"Agent '{agent_id}' "
+                            "does not have a predict method."
+                        )
+
+                    # IMPORTANT:
+                    # TumorClassificationAgent expects:
+                    #
+                    #     predict(image)
+                    #
+                    # NOT:
+                    #
+                    #     predict(data, image=image)
+
+                    raw_result = agent.predict(
+                        agent_image
                     )
 
                 # =============================================================
-                # PREDICT
+                # STANDARD / TABULAR / 3D AGENTS
                 # =============================================================
 
-                if hasattr(
-                    agent,
-                    "predict"
-                ):
+                else:
 
-                    # ---------------------------------------------------------
-                    # 2D IMAGE AGENT
-                    # ---------------------------------------------------------
+                    if agent_input is None:
 
-                    if modality == "2D_image":
+                        # Backward-compatible fallback
+                        agent_input = kwargs.get(
+                            "patient_data"
+                        )
 
-                        if agent_image is None:
+                    if agent_input is None:
 
-                            raise ValueError(
-                                f"No image provided for "
-                                f"agent '{agent_id}'."
-                            )
-
-                        raw_result = agent.predict(
-                            agent_image
+                        raise ValueError(
+                            f"No input provided for "
+                            f"agent '{agent_id}'."
                         )
 
                     # ---------------------------------------------------------
-                    # ALL NON-IMAGE AGENTS
+                    # Prediction
                     # ---------------------------------------------------------
 
-                    else:
-
-                        if agent_input is None:
-
-                            raise ValueError(
-                                f"No input provided for "
-                                f"agent '{agent_id}'."
-                            )
+                    if hasattr(
+                        agent,
+                        "predict"
+                    ):
 
                         raw_result = agent.predict(
                             agent_input
                         )
 
-                # =============================================================
-                # ANALYZE
-                # =============================================================
+                    # ---------------------------------------------------------
+                    # Analyze
+                    # ---------------------------------------------------------
 
-                elif hasattr(
-                    agent,
-                    "analyze"
-                ):
+                    elif hasattr(
+                        agent,
+                        "analyze"
+                    ):
 
-                    raw_result = agent.analyze(
-                        agent_input
-                    )
+                        raw_result = agent.analyze(
+                            agent_input
+                        )
 
-                else:
+                    else:
 
-                    raise AttributeError(
-
-                        f"Agent '{agent_id}' has neither "
-                        "'predict' nor 'analyze'."
-                    )
+                        raise AttributeError(
+                            f"Agent '{agent_id}' has neither "
+                            "'predict' nor 'analyze'."
+                        )
 
                 # =============================================================
                 # NORMALIZE
                 # =============================================================
 
                 normalized = self._normalize_result(
-
                     agent_id=agent_id,
-
                     result=raw_result,
-
                     task_type=task_type,
-
                     modality=modality
                 )
 
@@ -1135,31 +1047,44 @@ class LiverCoordinator:
 
                 normalized = {
 
-                    "agent_id": agent_id,
+                    "agent_id":
+                        agent_id,
 
-                    "agent": agent_id,
+                    "agent":
+                        agent_id,
 
-                    "task_type": task_type,
+                    "task_type":
+                        task_type,
 
-                    "modality": modality,
+                    "modality":
+                        modality,
 
-                    "prediction": None,
+                    "prediction":
+                        None,
 
-                    "probability": None,
+                    "probability":
+                        None,
 
-                    "confidence": 0.0,
+                    "confidence":
+                        0.0,
 
-                    "uncertainty": 1.0,
+                    "uncertainty":
+                        1.0,
 
-                    "quality": 0.0,
+                    "quality":
+                        0.0,
 
-                    "missing_data_ratio": 1.0,
+                    "missing_data_ratio":
+                        1.0,
 
-                    "status": "failed",
+                    "status":
+                        "failed",
 
-                    "error": str(exc),
+                    "error":
+                        str(exc),
 
-                    "details": {}
+                    "details":
+                        {}
                 }
 
             results.append(
@@ -1177,47 +1102,29 @@ class LiverCoordinator:
         for result in results:
 
             task_results = grouped.get(
-                result.get(
-                    "task_type"
-                ),
+                result.get("task_type"),
                 []
             )
 
-            if result.get(
-                "status"
-            ) == "success":
+            if result.get("status") == "success":
 
                 self._compute_trust(
-
                     result,
-
                     task_results
                 )
 
             else:
 
                 result["trust"] = 0.0
-
                 result["agreement"] = 0.0
 
         # =====================================================================
         # ADAPTIVE FUSION
         # =====================================================================
 
-        try:
-
-            fusion_result = self.fusion.fuse(
-                results
-            )
-
-        except Exception as exc:
-
-            fusion_result = {
-
-                "status": "failed",
-
-                "error": str(exc)
-            }
+        fusion_result = self.fusion.fuse(
+            results
+        )
 
         # =====================================================================
         # CONFLICTS
@@ -1228,14 +1135,12 @@ class LiverCoordinator:
         )
 
         resolutions = self._resolve_conflicts(
-
             results,
-
             conflicts
         )
 
         # =====================================================================
-        # EVIDENCE GRAPH
+        # TASK-AWARE EVIDENCE GRAPH
         # =====================================================================
 
         evidence_graph = self._build_evidence_graph(
@@ -1246,16 +1151,12 @@ class LiverCoordinator:
         # TASK DECISIONS + ACTIONS
         # =====================================================================
 
-        (
-            task_decisions,
-            task_actions
-        ) = self._build_task_decisions(
-
-            results,
-
-            conflicts,
-
-            resolutions
+        task_decisions, task_actions = (
+            self._build_task_decisions(
+                results,
+                conflicts,
+                resolutions
+            )
         )
 
         # =====================================================================
@@ -1264,88 +1165,93 @@ class LiverCoordinator:
 
         reasoning_result = {
 
-            "status": (
+            "status":
                 "completed"
                 if results
-                else "insufficient_evidence"
-            ),
+                else "insufficient_evidence",
 
             "task_assessments": {
 
                 task: {
 
-                    "prediction": resolutions.get(
-                        task,
-                        {}
-                    ).get(
-                        "prediction"
-                    ),
+                    "prediction":
+                        resolutions.get(
+                            task,
+                            {}
+                        ).get(
+                            "prediction"
+                        ),
 
-                    "confidence": resolutions.get(
-                        task,
-                        {}
-                    ).get(
-                        "consensus_strength",
-                        0.0
-                    ),
+                    "confidence":
+                        resolutions.get(
+                            task,
+                            {}
+                        ).get(
+                            "consensus_strength",
+                            0.0
+                        ),
 
-                    "resolution": resolutions.get(
-                        task,
-                        {}
-                    )
+                    "resolution":
+                        resolutions.get(
+                            task,
+                            {}
+                        )
+
                 }
 
                 for task in grouped
             },
 
-            "evidence_graph": evidence_graph,
+            "evidence_graph":
+                evidence_graph,
 
-            "explanation": (
-
-                "Evidence was evaluated separately "
-                "for each medical task. "
-                "Different tasks are complementary "
-                "and are not merged into one prediction."
-            )
+            "explanation":
+                (
+                    "Evidence was evaluated separately "
+                    "for each medical task. "
+                    "Different tasks are complementary "
+                    "and are not merged into one prediction."
+                )
         }
 
         # =====================================================================
-        # GLOBAL DECISION
+        # GLOBAL DECISION SUMMARY
         # =====================================================================
 
         coordination = (
             self._build_coordination_summary(
-
                 results,
-
                 conflicts
             )
         )
 
         decision_result = {
 
-            "status": (
-
+            "status":
                 "completed"
                 if results
-                else "insufficient_evidence"
-            ),
+                else "insufficient_evidence",
 
-            "task_decisions": task_decisions,
+            "task_decisions":
+                task_decisions,
 
-            "coordination": coordination,
+            "coordination":
+                coordination,
 
+            # -------------------------------------------------------------
             # IMPORTANT:
-            # No global medical prediction.
+            # No artificial global medical prediction.
+            # -------------------------------------------------------------
 
-            "prediction": None,
+            "prediction":
+                None,
 
-            "explanation": (
-
-                "Decisions are task-specific. "
-                "No global medical class is inferred "
-                "from heterogeneous agents."
-            )
+            "explanation":
+                (
+                    "Decisions are task-specific. "
+                    "No global medical class is inferred "
+                    "from heterogeneous agents."
+                )
         }
 
         # =====================================================================
@@ -1354,57 +1260,63 @@ class LiverCoordinator:
 
         return {
 
-            "status": "completed",
+            "status":
+                "completed",
 
-            "patient_id": patient_id,
+            "patient_id":
+                patient_id,
 
-            "agents": results,
+            "agents":
+                results,
 
             "task_summary": {
 
                 task: {
 
-                    "num_agents": len(
-                        task_results
-                    ),
+                    "num_agents":
+                        len(task_results),
 
-                    "prediction": resolutions.get(
-                        task,
-                        {}
-                    ).get(
-                        "prediction"
-                    ),
+                    "prediction":
+                        resolutions.get(
+                            task,
+                            {}
+                        ).get(
+                            "prediction"
+                        ),
 
-                    "conflict": any(
-
-                        c.get(
-                            "task_type"
-                        ) == task
-
-                        for c in conflicts
-                    )
+                    "conflict":
+                        any(
+                            c.get("task_type") == task
+                            for c in conflicts
+                        )
                 }
 
                 for task, task_results
                 in grouped.items()
             },
 
-            "conflicts": conflicts,
+            "conflicts":
+                conflicts,
 
-            "conflict_resolution": resolutions,
+            "conflict_resolution":
+                resolutions,
 
-            "fusion": fusion_result,
+            "fusion":
+                fusion_result,
 
-            "reasoning": reasoning_result,
+            "reasoning":
+                reasoning_result,
 
-            "decision": decision_result,
+            "decision":
+                decision_result,
 
             "action": {
-
-                "task_actions": task_actions
+                "task_actions":
+                    task_actions
             },
 
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp":
+                datetime.utcnow().isoformat()
         }
 
     # =========================================================================
@@ -1424,8 +1336,18 @@ class LiverCoordinator:
             }
 
         # ---------------------------------------------------------------------
-        # Group by task
+        # Group ground truth by task
         # ---------------------------------------------------------------------
+
+        if not isinstance(
+            ground_truths,
+            dict
+        ):
+
+            raise ValueError(
+                "ground_truths must be a dictionary "
+                "indexed by task_type."
+            )
 
         grouped = self._group_by_task(
             agent_results
@@ -1433,71 +1355,49 @@ class LiverCoordinator:
 
         feedback_results = {}
 
-        for task_type, results in grouped.items():
+        for task_type, task_results in grouped.items():
 
-            # Ground truth may be:
-            # {
-            #     "cirrhosis_classification": 1,
-            #     "fibrosis_classification": 0
-            # }
+            truth = ground_truths.get(
+                task_type
+            )
 
-            if isinstance(
-                ground_truths,
-                dict
-            ):
-
-                ground_truth = ground_truths.get(
-                    task_type
-                )
-
-            else:
-
-                ground_truth = ground_truths
-
-            if ground_truth is None:
-
+            if truth is None:
                 continue
 
             try:
 
-                feedback = (
+                feedback_results[task_type] = (
                     self.feedback_engine.update(
-                        results,
-                        ground_truth
+                        agent_results=task_results,
+                        ground_truth=truth
                     )
                 )
 
             except Exception as exc:
 
-                feedback = {
-
-                    "status": "failed",
-
+                feedback_results[task_type] = {
+                    "status": "error",
                     "error": str(exc)
                 }
 
-            feedback_results[task_type] = feedback
-
         return {
-
             "status": "completed",
-
-            "feedback": feedback_results
+            "tasks": feedback_results
         }
 
     # =========================================================================
-    # FEEDBACK ALIAS
+    # BACKWARD COMPATIBILITY FEEDBACK ALIAS
     # =========================================================================
 
     def feedback(
         self,
         agent_results,
-        ground_truths
+        ground_truth
     ):
 
-        return self.update_feedback(
-            agent_results,
-            ground_truths
+        return self.feedback_engine.update(
+            agent_results=agent_results,
+            ground_truth=ground_truth
         )
 
     # =========================================================================
@@ -1506,7 +1406,7 @@ class LiverCoordinator:
 
     def health_check(self):
 
-        agents_status = []
+        agent_status = {}
 
         for agent_id, agent in self.agents.items():
 
@@ -1515,51 +1415,59 @@ class LiverCoordinator:
                 {}
             )
 
-            agents_status.append({
+            agent_status[agent_id] = {
 
-                "agent_id": agent_id,
+                "registered":
+                    True,
 
-                "loaded": agent is not None,
+                "task_type":
+                    metadata.get(
+                        "task_type",
+                        "unknown"
+                    ),
 
-                "has_predict": hasattr(
-                    agent,
-                    "predict"
-                ),
+                "modality":
+                    metadata.get(
+                        "modality",
+                        "unknown"
+                    ),
 
-                "has_analyze": hasattr(
-                    agent,
-                    "analyze"
-                ),
+                "has_predict":
+                    hasattr(
+                        agent,
+                        "predict"
+                    ),
 
-                "task_type": metadata.get(
-                    "task_type",
-                    "unknown"
-                ),
-
-                "modality": metadata.get(
-                    "modality",
-                    "unknown"
-                )
-            })
+                "has_analyze":
+                    hasattr(
+                        agent,
+                        "analyze"
+                    )
+            }
 
         return {
 
-            "status": (
-                "healthy"
-                if agents_status
-                else "empty"
-            ),
+            "status":
+                "healthy",
 
-            "num_agents": len(
-                self.agents
-            ),
+            "num_agents":
+                len(self.agents),
 
-            "agents": agents_status
+            "agents":
+                agent_status
         }
 
 
 # =============================================================================
 # BACKWARD-COMPATIBILITY ALIAS
+# =============================================================================
+#
+# Some existing project files may import:
+#
+#     from coordinator.liver_coordinator import LiverAICoordinator
+#
+# Keep this alias so those imports continue to work.
+#
 # =============================================================================
 
 LiverAICoordinator = LiverCoordinator
