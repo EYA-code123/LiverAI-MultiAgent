@@ -1,115 +1,99 @@
-# =============================================================================
-# LiverAI-MultiAgent
-# FILE: orchestrator/liver_orchestrator.py
-# COMPLETE ADAPTIVE MULTI-AGENT ORCHESTRATOR
-# =============================================================================
+# ============================================================
+# LiverAI Multi-Agent Orchestrator
+# ============================================================
+#
+# Coordinates:
+#   1. Fatty Liver Agent
+#   2. Fibrosis Agent
+#   3. Cirrhosis Agent
+#   4. Tumor Classification Agent
+#   5. Liver Segmentation Agent
+#   6. Clinical Reasoning Agent
+#
+# ============================================================
 
 from typing import Dict, Any, Optional
-from datetime import datetime
-import time
+import os
 import traceback
-import joblib
 
 
-# =============================================================================
-# AGENT IMPORTS
-# =============================================================================
+# ============================================================
+# AGENTS
+# ============================================================
 
 try:
     from agents.fatty_liver_agent import FattyLiverAgent
-except Exception as e:
+except Exception:
     FattyLiverAgent = None
-    print("WARNING: FattyLiverAgent import failed:", repr(e))
-
 
 try:
     from agents.fibrosis_agent import FibrosisAgent
-except Exception as e:
+except Exception:
     FibrosisAgent = None
-    print("WARNING: FibrosisAgent import failed:", repr(e))
-
 
 try:
     from agents.cirrhosis_agent import CirrhosisAgent
-except Exception as e:
+except Exception:
     CirrhosisAgent = None
-    print("WARNING: CirrhosisAgent import failed:", repr(e))
-
 
 try:
     from agents.tumor_classification_agent import TumorClassificationAgent
-except Exception as e:
+except Exception:
     TumorClassificationAgent = None
-    print("WARNING: TumorClassificationAgent import failed:", repr(e))
-
 
 try:
     from agents.liver_segmentation_agent import LiverSegmentationAgent
-except Exception as e:
+except Exception:
     LiverSegmentationAgent = None
-    print("WARNING: LiverSegmentationAgent import failed:", repr(e))
-
 
 try:
     from agents.clinical_reasoning_agent import ClinicalReasoningAgent
-except Exception as e:
+except Exception:
     ClinicalReasoningAgent = None
-    print("WARNING: ClinicalReasoningAgent import failed:", repr(e))
 
 
-# =============================================================================
-# COORDINATION IMPORTS
-# =============================================================================
+# ============================================================
+# COORDINATION MODULES
+# ============================================================
 
 try:
-    from orchestrator.schemas import AgentResult
-except Exception as e:
+    from communication.agent_result import AgentResult
+except Exception:
     AgentResult = None
-    print("WARNING: AgentResult import failed:", repr(e))
-
 
 try:
-    from coordinator.trust import TrustManager
-except Exception as e:
+    from coordinator.trust_manager import TrustManager
+except Exception:
     TrustManager = None
-    print("WARNING: TrustManager import failed:", repr(e))
-
 
 try:
     from coordinator.adaptive_fusion import AdaptiveFusion
-except Exception as e:
+except Exception:
     AdaptiveFusion = None
-    print("WARNING: AdaptiveFusion import failed:", repr(e))
-
 
 try:
-    from coordinator.conflict import ConflictDetector
-except Exception as e:
+    from coordinator.conflict_detector import ConflictDetector
+except Exception:
     ConflictDetector = None
-    print("WARNING: ConflictDetector import failed:", repr(e))
-
 
 try:
-    from coordinator.decision import DecisionEngine
-except Exception as e:
+    from coordinator.decision_engine import DecisionEngine
+except Exception:
     DecisionEngine = None
-    print("WARNING: DecisionEngine import failed:", repr(e))
 
 
-# =============================================================================
+# ============================================================
 # MODEL PATHS
-# =============================================================================
+# ============================================================
 
 FATTY_MODEL_PATH = (
     "/content/drive/MyDrive/"
-    "Fatty_Liver_Dataset/models/"
-    "FattyLiver_LightGBM.pkl"
+    "Fatty_Liver_Dataset/models/FattyLiver_LightGBM.pkl"
 )
 
 FIBROSIS_MODEL_PATH = (
     "/content/drive/MyDrive/"
-    "Fibrosis Agent/XGBoost_model/"
-    "xgboost_nafld.pkl"
+    "Fibrosis Agent/XGBoost_model/xgboost_nafld.pkl"
 )
 
 CIRRHOSIS_MODEL_PATH = (
@@ -120,8 +104,7 @@ CIRRHOSIS_MODEL_PATH = (
 
 TUMOR_MODEL_PATH = (
     "/content/drive/MyDrive/"
-    "models/tumor/"
-    "efficientnet_b0_best.pth"
+    "models/tumor/efficientnet_b0_best.pth"
 )
 
 SEGMENTATION_MODEL_PATH = (
@@ -132,52 +115,19 @@ SEGMENTATION_MODEL_PATH = (
 
 CLINICAL_MODEL_PATH = (
     "/content/drive/MyDrive/"
-    "Clinical Reasoning Agent/"
-    "tabtransformer_bupa"
+    "Clinical Reasoning Agent/tabtransformer_bupa"
 )
 
 
-# =============================================================================
+# ============================================================
 # ORCHESTRATOR
-# =============================================================================
+# ============================================================
 
 class LiverAIOrchestrator:
-    """
-    Central coordination layer for the six LiverAI agents.
 
-    Agents
-    ------
-    1. Fatty Liver
-    2. Fibrosis
-    3. Cirrhosis
-    4. Tumor Classification
-    5. Liver Segmentation
-    6. Clinical Reasoning
-
-    Pipeline
-    --------
-    Patient Data
-        ↓
-    Specialized Agents
-        ↓
-    Standardization
-        ↓
-    Trust Evaluation
-        ↓
-    Adaptive Evidence Fusion
-        ↓
-    Conflict Detection
-        ↓
-    Clinical Reasoning
-        ↓
-    Decision Intelligence
-        ↓
-    Final Coordinated Assessment
-    """
-
-    # =========================================================================
+    # ========================================================
     # INITIALIZATION
-    # =========================================================================
+    # ========================================================
 
     def __init__(
         self,
@@ -187,48 +137,19 @@ class LiverAIOrchestrator:
         tumor_agent=None,
         segmentation_agent=None,
         clinical_reasoning_agent=None,
-
-        # Compatibility aliases
         fatty_liver_agent=None,
         tumor_classification_agent=None,
         liver_segmentation_agent=None,
         clinical_agent=None,
-
         auto_initialize=True,
         device=None,
     ):
 
-        self.name = "LiverAI Adaptive Multi-Agent Orchestrator"
+        self.device = device
 
-        # ---------------------------------------------------------------------
-        # DEVICE
-        # ---------------------------------------------------------------------
-
-        if device is None:
-            try:
-                import torch
-
-                self.device = (
-                    "cuda"
-                    if torch.cuda.is_available()
-                    else "cpu"
-                )
-
-            except Exception:
-                self.device = "cpu"
-
-        else:
-            self.device = device
-
-        # ---------------------------------------------------------------------
-        # INITIALIZATION ERRORS
-        # ---------------------------------------------------------------------
-
-        self.initialization_errors = {}
-
-        # ---------------------------------------------------------------------
-        # AGENTS
-        # ---------------------------------------------------------------------
+        # ----------------------------------------------------
+        # Accept both naming conventions
+        # ----------------------------------------------------
 
         self.fatty_agent = (
             fatty_agent
@@ -258,188 +179,132 @@ class LiverAIOrchestrator:
             else clinical_agent
         )
 
-        # ---------------------------------------------------------------------
-        # COORDINATION MODULES
-        # ---------------------------------------------------------------------
+        # ----------------------------------------------------
+        # Coordination modules
+        # ----------------------------------------------------
 
-        self.trust_manager = (
-            TrustManager()
-            if TrustManager is not None
-            else None
-        )
+        self.trust_manager = None
+        self.adaptive_fusion = None
+        self.conflict_detector = None
+        self.decision_engine = None
 
-        self.adaptive_fusion = (
-            AdaptiveFusion()
-            if AdaptiveFusion is not None
-            else None
-        )
+        self.initialization_errors = {}
 
-        self.conflict_detector = (
-            ConflictDetector()
-            if ConflictDetector is not None
-            else None
-        )
-
-        self.decision_engine = (
-            DecisionEngine()
-            if DecisionEngine is not None
-            else None
-        )
-
-        # ---------------------------------------------------------------------
-        # AUTOMATIC INITIALIZATION
-        # ---------------------------------------------------------------------
+        # ----------------------------------------------------
+        # Initialize agents if requested
+        # ----------------------------------------------------
 
         if auto_initialize:
             self._initialize_agents()
 
-        # ---------------------------------------------------------------------
-        # REGISTRY
-        # ---------------------------------------------------------------------
+        # ----------------------------------------------------
+        # Initialize coordination components
+        # ----------------------------------------------------
 
-        self.agent_registry = {
-            "fatty_liver": self.fatty_agent,
-            "fibrosis": self.fibrosis_agent,
-            "cirrhosis": self.cirrhosis_agent,
-            "tumor_classification": self.tumor_agent,
-            "liver_segmentation": self.segmentation_agent,
-            "clinical_reasoning": self.clinical_reasoning_agent,
-        }
+        self._initialize_coordination_modules()
 
-        # ---------------------------------------------------------------------
-        # STATE
-        # ---------------------------------------------------------------------
-
-        self.last_results = {}
-        self.last_assessment = None
-        self.last_final_decision = None
-        self.execution_log = []
-
-    # =========================================================================
+    # ========================================================
     # INITIALIZE AGENTS
-    # =========================================================================
+    # ========================================================
 
     def _initialize_agents(self):
 
-        print("=" * 70)
-        print("LIVER AI AGENTS INITIALIZATION")
-        print("=" * 70)
-
-        # ---------------------------------------------------------------------
-        # 1. FATTY LIVER
-        # ---------------------------------------------------------------------
+        # ----------------------------------------------------
+        # FATty liver
+        # ----------------------------------------------------
 
         if self.fatty_agent is None:
 
             try:
-
                 if FattyLiverAgent is None:
                     raise ImportError(
                         "FattyLiverAgent could not be imported."
                     )
 
-                fatty_model_package = joblib.load(
-                    FATTY_MODEL_PATH
-                )
+                import joblib
+
+                model = joblib.load(FATTY_MODEL_PATH)
 
                 self.fatty_agent = FattyLiverAgent(
-                    fatty_model_package
+                    model=model
                 )
 
                 print("✓ Fatty Liver Agent initialized")
 
             except Exception as e:
 
-                self.initialization_errors[
-                    "fatty_liver"
-                ] = repr(e)
+                self.initialization_errors["fatty_liver"] = str(e)
 
                 print(
-                    "❌ Fatty Liver Agent:",
-                    repr(e)
+                    "✗ Fatty Liver Agent initialization failed:",
+                    e
                 )
 
-        else:
-            print("✓ Fatty Liver Agent supplied externally")
-
-        # ---------------------------------------------------------------------
-        # 2. FIBROSIS
-        # ---------------------------------------------------------------------
+        # ----------------------------------------------------
+        # FIBROSIS
+        # ----------------------------------------------------
 
         if self.fibrosis_agent is None:
 
             try:
-
                 if FibrosisAgent is None:
                     raise ImportError(
                         "FibrosisAgent could not be imported."
                     )
 
-                fibrosis_model = joblib.load(
-                    FIBROSIS_MODEL_PATH
-                )
+                import joblib
+
+                model = joblib.load(FIBROSIS_MODEL_PATH)
 
                 self.fibrosis_agent = FibrosisAgent(
-                    fibrosis_model
+                    model=model
                 )
 
                 print("✓ Fibrosis Agent initialized")
 
             except Exception as e:
 
-                self.initialization_errors[
-                    "fibrosis"
-                ] = repr(e)
+                self.initialization_errors["fibrosis"] = str(e)
 
                 print(
-                    "❌ Fibrosis Agent:",
-                    repr(e)
+                    "✗ Fibrosis Agent initialization failed:",
+                    e
                 )
 
-        else:
-            print("✓ Fibrosis Agent supplied externally")
-
-        # ---------------------------------------------------------------------
-        # 3. CIRRHOSIS
-        # ---------------------------------------------------------------------
+        # ----------------------------------------------------
+        # CIRRHOSIS
+        # ----------------------------------------------------
 
         if self.cirrhosis_agent is None:
 
             try:
-
                 if CirrhosisAgent is None:
                     raise ImportError(
                         "CirrhosisAgent could not be imported."
                     )
 
                 self.cirrhosis_agent = CirrhosisAgent(
-                    CIRRHOSIS_MODEL_PATH
+                    model_path=CIRRHOSIS_MODEL_PATH
                 )
 
                 print("✓ Cirrhosis Agent initialized")
 
             except Exception as e:
 
-                self.initialization_errors[
-                    "cirrhosis"
-                ] = repr(e)
+                self.initialization_errors["cirrhosis"] = str(e)
 
                 print(
-                    "❌ Cirrhosis Agent:",
-                    repr(e)
+                    "✗ Cirrhosis Agent initialization failed:",
+                    e
                 )
 
-        else:
-            print("✓ Cirrhosis Agent supplied externally")
-
-        # ---------------------------------------------------------------------
-        # 4. TUMOR CLASSIFICATION
-        # ---------------------------------------------------------------------
+        # ----------------------------------------------------
+        # TUMOR CLASSIFICATION
+        # ----------------------------------------------------
 
         if self.tumor_agent is None:
 
             try:
-
                 if TumorClassificationAgent is None:
                     raise ImportError(
                         "TumorClassificationAgent "
@@ -447,7 +312,7 @@ class LiverAIOrchestrator:
                     )
 
                 self.tumor_agent = TumorClassificationAgent(
-                    TUMOR_MODEL_PATH
+                    model_path=TUMOR_MODEL_PATH
                 )
 
                 print(
@@ -458,26 +323,21 @@ class LiverAIOrchestrator:
 
                 self.initialization_errors[
                     "tumor_classification"
-                ] = repr(e)
+                ] = str(e)
 
                 print(
-                    "❌ Tumor Classification Agent:",
-                    repr(e)
+                    "✗ Tumor Classification Agent "
+                    "initialization failed:",
+                    e
                 )
 
-        else:
-            print(
-                "✓ Tumor Classification Agent supplied externally"
-            )
-
-        # ---------------------------------------------------------------------
-        # 5. LIVER SEGMENTATION
-        # ---------------------------------------------------------------------
+        # ----------------------------------------------------
+        # LIVER SEGMENTATION
+        # ----------------------------------------------------
 
         if self.segmentation_agent is None:
 
             try:
-
                 if LiverSegmentationAgent is None:
                     raise ImportError(
                         "LiverSegmentationAgent "
@@ -486,10 +346,7 @@ class LiverAIOrchestrator:
 
                 self.segmentation_agent = (
                     LiverSegmentationAgent(
-                        model_path=SEGMENTATION_MODEL_PATH,
-                        device=self.device,
-                        target_size=(128, 128, 64),
-                        threshold=0.5,
+                        model_path=SEGMENTATION_MODEL_PATH
                     )
                 )
 
@@ -501,26 +358,21 @@ class LiverAIOrchestrator:
 
                 self.initialization_errors[
                     "liver_segmentation"
-                ] = repr(e)
+                ] = str(e)
 
                 print(
-                    "❌ Liver Segmentation Agent:",
-                    repr(e)
+                    "✗ Liver Segmentation Agent "
+                    "initialization failed:",
+                    e
                 )
 
-        else:
-            print(
-                "✓ Liver Segmentation Agent supplied externally"
-            )
-
-        # ---------------------------------------------------------------------
-        # 6. CLINICAL REASONING
-        # ---------------------------------------------------------------------
+        # ----------------------------------------------------
+        # CLINICAL REASONING
+        # ----------------------------------------------------
 
         if self.clinical_reasoning_agent is None:
 
             try:
-
                 if ClinicalReasoningAgent is None:
                     raise ImportError(
                         "ClinicalReasoningAgent "
@@ -541,74 +393,79 @@ class LiverAIOrchestrator:
 
                 self.initialization_errors[
                     "clinical_reasoning"
-                ] = repr(e)
+                ] = str(e)
 
                 print(
-                    "❌ Clinical Reasoning Agent:",
-                    repr(e)
+                    "✗ Clinical Reasoning Agent "
+                    "initialization failed:",
+                    e
                 )
 
-        else:
-            print(
-                "✓ Clinical Reasoning Agent supplied externally"
-            )
+    # ========================================================
+    # INITIALIZE COORDINATION MODULES
+    # ========================================================
 
-        # ---------------------------------------------------------------------
-        # UPDATE REGISTRY
-        # ---------------------------------------------------------------------
+    def _initialize_coordination_modules(self):
 
-        self.agent_registry = {
-            "fatty_liver": self.fatty_agent,
-            "fibrosis": self.fibrosis_agent,
-            "cirrhosis": self.cirrhosis_agent,
-            "tumor_classification": self.tumor_agent,
-            "liver_segmentation": self.segmentation_agent,
-            "clinical_reasoning": self.clinical_reasoning_agent,
-        }
+        # ----------------------------------------------------
+        # TRUST MANAGER
+        # ----------------------------------------------------
 
-        # ---------------------------------------------------------------------
-        # SUMMARY
-        # ---------------------------------------------------------------------
+        if TrustManager is not None:
 
-        initialized = sum(
-            agent is not None
-            for agent in [
-                self.fatty_agent,
-                self.fibrosis_agent,
-                self.cirrhosis_agent,
-                self.tumor_agent,
-                self.segmentation_agent,
-                self.clinical_reasoning_agent,
-            ]
-        )
+            try:
+                self.trust_manager = TrustManager()
+            except Exception:
+                try:
+                    self.trust_manager = TrustManager
+                except Exception:
+                    self.trust_manager = None
 
-        print("=" * 70)
-        print(
-            f"INITIALIZED AGENTS: {initialized}/6"
-        )
+        # ----------------------------------------------------
+        # ADAPTIVE FUSION
+        # ----------------------------------------------------
 
-        if initialized == 6:
-            print(
-                "✓ ALL SIX AGENTS INITIALIZED SUCCESSFULLY"
-            )
+        if AdaptiveFusion is not None:
 
-        else:
-            print(
-                "⚠ SOME AGENTS FAILED TO INITIALIZE"
-            )
+            try:
+                self.adaptive_fusion = AdaptiveFusion()
+            except Exception:
+                try:
+                    self.adaptive_fusion = AdaptiveFusion
+                except Exception:
+                    self.adaptive_fusion = None
 
-            for name, error in (
-                self.initialization_errors.items()
-            ):
-                print(
-                    f"  - {name}: {error}"
-                )
+        # ----------------------------------------------------
+        # CONFLICT DETECTOR
+        # ----------------------------------------------------
 
-        print("=" * 70)
+        if ConflictDetector is not None:
 
-    # =========================================================================
-    # MAIN RUN
-    # =========================================================================
+            try:
+                self.conflict_detector = ConflictDetector()
+            except Exception:
+                try:
+                    self.conflict_detector = ConflictDetector
+                except Exception:
+                    self.conflict_detector = None
+
+        # ----------------------------------------------------
+        # DECISION ENGINE
+        # ----------------------------------------------------
+
+        if DecisionEngine is not None:
+
+            try:
+                self.decision_engine = DecisionEngine()
+            except Exception:
+                try:
+                    self.decision_engine = DecisionEngine
+                except Exception:
+                    self.decision_engine = None
+
+    # ========================================================
+    # MAIN RUN METHOD
+    # ========================================================
 
     def run(
         self,
@@ -616,29 +473,24 @@ class LiverAIOrchestrator:
         patient_data: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
 
-        start_time = time.perf_counter()
+        # ----------------------------------------------------
+        # Validate patient data
+        # ----------------------------------------------------
 
         if patient_data is None:
             patient_data = {}
 
-        # ============================================================
+        # ----------------------------------------------------
         # 1. SPECIALIZED AGENTS
-        # ============================================================
+        # ----------------------------------------------------
 
         specialized_results = self.run_specialized_agents(
             patient_data
         )
 
-        if specialized_results is None:
-            specialized_results = {}
-
-        # ============================================================
+        # ----------------------------------------------------
         # 2. CLINICAL REASONING
-        # ============================================================
-
-               # ============================================================
-        # 2. CLINICAL REASONING
-        # ============================================================
+        # ----------------------------------------------------
 
         clinical_result = self.run_clinical_reasoning(
             patient_data,
@@ -646,37 +498,39 @@ class LiverAIOrchestrator:
         )
 
         if clinical_result is None:
+
             clinical_result = {
                 "status": "error",
                 "error": "Clinical reasoning failed",
             }
 
-        # ============================================================
+        # ----------------------------------------------------
         # 3. COMBINE ALL RESULTS
-        # ============================================================
+        # ----------------------------------------------------
 
         all_results = dict(specialized_results)
+
         all_results["clinical_reasoning"] = clinical_result
 
-        # ============================================================
+        # ----------------------------------------------------
         # 4. ADAPTIVE FUSION
-        # ============================================================
+        # ----------------------------------------------------
 
         fusion = self._run_adaptive_fusion(
             all_results
         )
 
-        # ============================================================
+        # ----------------------------------------------------
         # 5. CONFLICT DETECTION
-        # ============================================================
+        # ----------------------------------------------------
 
         conflicts = self._run_conflict_detection(
             all_results
         )
 
-        # ============================================================
+        # ----------------------------------------------------
         # 6. DECISION ENGINE
-        # ============================================================
+        # ----------------------------------------------------
 
         decision = self._run_decision_engine(
             results=all_results,
@@ -684,178 +538,67 @@ class LiverAIOrchestrator:
             fusion=fusion,
             clinical_result=clinical_result,
         )
-        # ============================================================
-        # 7. AGENT STATUS
-        # ============================================================
 
-        total_agents = 6
+        # ----------------------------------------------------
+        # 7. FINAL STATUS
+        # ----------------------------------------------------
 
-        successful_agents = sum(
-            1
-            for result in all_results.values()
-            if isinstance(result, dict)
-            and result.get("status") == "success"
-        )
+        successful_agents = 0
+        total_agents = len(all_results)
 
-        failed_agents = [
-            name
-            for name, result in all_results.items()
-            if isinstance(result, dict)
-            and result.get("status") == "error"
-        ]
+        for result in all_results.values():
 
-        not_run_agents = [
-            name
-            for name, result in all_results.items()
-            if isinstance(result, dict)
-            and result.get("status") == "not_run"
-        ]
+            if isinstance(result, dict):
 
-        coverage = (
-            successful_agents / total_agents
-            if total_agents > 0
-            else 0.0
-        )
+                if result.get("status") == "success":
+                    successful_agents += 1
 
-        if successful_agents == 0:
-            overall_status = "failed"
+        if total_agents == 0:
+
+            overall_status = "error"
 
         elif successful_agents == total_agents:
+
             overall_status = "success"
 
-        else:
+        elif successful_agents > 0:
+
             overall_status = "partial"
 
-        # ============================================================
-        # 8. FINAL DECISION
-        # ============================================================
-
-        if isinstance(decision, dict):
-
-            final_decision = decision.get(
-                "decision",
-                decision.get(
-                    "decision_level",
-                    "UNCERTAIN",
-                ),
-            )
-
         else:
 
-            final_decision = str(
-                decision
-            )
+            overall_status = "error"
 
-        # ============================================================
-        # 9. CLINICAL CONTEXT
-        # ============================================================
-
-        try:
-
-            clinical_context = (
-                self._build_clinical_context(
-                    all_results
-                )
-            )
-
-        except Exception as exc:
-
-            clinical_context = {
-                "status": "error",
-                "error": repr(exc),
-            }
-
-        # ============================================================
-        # 10. LATENCY
-        # ============================================================
-
-        latency_ms = (
-            time.perf_counter()
-            - start_time
-        ) * 1000.0
-
-        # ============================================================
-        # 11. SAVE STATE
-        # ============================================================
-
-        self.last_results = all_results
-        self.last_final_decision = final_decision
-
-        # ============================================================
-        # 12. FINAL OUTPUT
-        # ============================================================
+        # ----------------------------------------------------
+        # 8. FINAL OUTPUT
+        # ----------------------------------------------------
 
         return {
-
             "status": overall_status,
-
             "patient_id": patient_id,
-
-            "timestamp":
-                datetime.now().isoformat(),
-
-            "agent_results":
-                all_results,
-
-            "specialized_results":
-                specialized_results,
-
-            "clinical_reasoning":
-                clinical_result,
-
-            "coordination": {
-
-                "total_agents":
-                    total_agents,
-
-                "successful_agents":
-                    successful_agents,
-
-                "failed_agents":
-                    failed_agents,
-
-                "not_run_agents":
-                    not_run_agents,
-
-                "coverage":
-                    round(
-                        coverage,
-                        4,
-                    ),
-
-                "latency_ms":
-                    round(
-                        latency_ms,
-                        3,
-                    ),
+            "agents": all_results,
+            "fusion": fusion,
+            "conflicts": conflicts,
+            "decision": decision,
+            "summary": {
+                "total_agents": total_agents,
+                "successful_agents": successful_agents,
+                "failed_agents": (
+                    total_agents - successful_agents
+                ),
             },
-
-            "fusion":
-                fusion,
-
-            "conflicts":
-                conflicts,
-
-            "decision":
-                decision,
-
-            "final_decision":
-                final_decision,
-
-            "clinical_context":
-                clinical_context,
         }
 
-
-    # =========================================================================
+    # ========================================================
     # ALIASES
-    # =========================================================================
+    # ========================================================
 
     def analyze(
         self,
-        patient_id="UNKNOWN",
-        patient_data=None,
+        patient_id: str = "UNKNOWN",
+        patient_data: Optional[Dict[str, Any]] = None,
     ):
+
         return self.run(
             patient_id=patient_id,
             patient_data=patient_data,
@@ -863,17 +606,18 @@ class LiverAIOrchestrator:
 
     def predict(
         self,
-        patient_id="UNKNOWN",
-        patient_data=None,
+        patient_id: str = "UNKNOWN",
+        patient_data: Optional[Dict[str, Any]] = None,
     ):
+
         return self.run(
             patient_id=patient_id,
             patient_data=patient_data,
         )
 
-    # =========================================================================
+    # ========================================================
     # SPECIALIZED AGENTS
-    # =========================================================================
+    # ========================================================
 
     def run_specialized_agents(
         self,
@@ -882,156 +626,90 @@ class LiverAIOrchestrator:
 
         results = {}
 
-        # ---------------------------------------------------------------------
-        # FATTY LIVER
-        # ---------------------------------------------------------------------
+        # ----------------------------------------------------
+        # FATty liver
+        # ----------------------------------------------------
 
-        fatty_input = patient_data.get(
-            "fatty_liver"
+        fatty_data = patient_data.get(
+            "fatty_liver",
+            patient_data.get("fatty", {})
         )
 
-        if fatty_input is not None:
+        results["fatty_liver"] = self._execute_agent(
+            agent=self.fatty_agent,
+            data=fatty_data,
+            agent_name="fatty_liver",
+        )
 
-            results["fatty_liver"] = (
-                self._execute_agent(
-                    agent_name="fatty_liver",
-                    agent=self.fatty_agent,
-                    input_data=fatty_input,
-                )
-            )
-
-        else:
-
-            results["fatty_liver"] = (
-                self._not_run_result(
-                    "fatty_liver",
-                    "No fatty liver input provided.",
-                )
-            )
-
-        # ---------------------------------------------------------------------
+        # ----------------------------------------------------
         # FIBROSIS
-        # ---------------------------------------------------------------------
+        # ----------------------------------------------------
 
-        fibrosis_input = patient_data.get(
-            "fibrosis"
+        fibrosis_data = patient_data.get(
+            "fibrosis",
+            {}
         )
 
-        if fibrosis_input is not None:
+        results["fibrosis"] = self._execute_agent(
+            agent=self.fibrosis_agent,
+            data=fibrosis_data,
+            agent_name="fibrosis",
+        )
 
-            results["fibrosis"] = (
-                self._execute_agent(
-                    agent_name="fibrosis",
-                    agent=self.fibrosis_agent,
-                    input_data=fibrosis_input,
-                )
-            )
-
-        else:
-
-            results["fibrosis"] = (
-                self._not_run_result(
-                    "fibrosis",
-                    "No fibrosis input provided.",
-                )
-            )
-
-        # ---------------------------------------------------------------------
+        # ----------------------------------------------------
         # CIRRHOSIS
-        # ---------------------------------------------------------------------
+        # ----------------------------------------------------
 
-        cirrhosis_input = patient_data.get(
-            "cirrhosis"
+        cirrhosis_data = patient_data.get(
+            "cirrhosis",
+            {}
         )
 
-        if cirrhosis_input is not None:
+        results["cirrhosis"] = self._execute_agent(
+            agent=self.cirrhosis_agent,
+            data=cirrhosis_data,
+            agent_name="cirrhosis",
+        )
 
-            results["cirrhosis"] = (
-                self._execute_agent(
-                    agent_name="cirrhosis",
-                    agent=self.cirrhosis_agent,
-                    input_data=cirrhosis_input,
-                )
-            )
-
-        else:
-
-            results["cirrhosis"] = (
-                self._not_run_result(
-                    "cirrhosis",
-                    "No cirrhosis input provided.",
-                )
-            )
-
-        # ---------------------------------------------------------------------
+        # ----------------------------------------------------
         # TUMOR
-        # ---------------------------------------------------------------------
+        # ----------------------------------------------------
 
-        tumor_input = patient_data.get(
-            "tumor"
+        tumor_data = patient_data.get(
+            "tumor_classification",
+            patient_data.get("tumor", None)
         )
 
-        if tumor_input is None:
-            tumor_input = patient_data.get(
-                "tumor_classification"
+        results["tumor_classification"] = (
+            self._execute_agent(
+                agent=self.tumor_agent,
+                data=tumor_data,
+                agent_name="tumor_classification",
             )
-
-        if tumor_input is not None:
-
-            results["tumor_classification"] = (
-                self._execute_agent(
-                    agent_name="tumor_classification",
-                    agent=self.tumor_agent,
-                    input_data=tumor_input,
-                )
-            )
-
-        else:
-
-            results["tumor_classification"] = (
-                self._not_run_result(
-                    "tumor_classification",
-                    "No tumor image provided.",
-                )
-            )
-
-        # ---------------------------------------------------------------------
-        # LIVER SEGMENTATION
-        # ---------------------------------------------------------------------
-
-        segmentation_input = patient_data.get(
-            "segmentation"
         )
 
-        if segmentation_input is None:
-            segmentation_input = patient_data.get(
-                "liver_segmentation"
+        # ----------------------------------------------------
+        # SEGMENTATION
+        # ----------------------------------------------------
+
+        segmentation_data = patient_data.get(
+            "liver_segmentation",
+            patient_data.get("segmentation", None)
+        )
+
+        results["liver_segmentation"] = (
+            self._execute_agent(
+                agent=self.segmentation_agent,
+                data=segmentation_data,
+                agent_name="liver_segmentation",
             )
-
-        if segmentation_input is not None:
-
-            results["liver_segmentation"] = (
-                self._execute_agent(
-                    agent_name="liver_segmentation",
-                    agent=self.segmentation_agent,
-                    input_data=segmentation_input,
-                )
-            )
-
-        else:
-
-            results["liver_segmentation"] = (
-                self._not_run_result(
-                    "liver_segmentation",
-                    "No liver volume provided.",
-                )
-            )
+        )
 
         return results
 
-    # =========================================================================
+    # ========================================================
     # CLINICAL REASONING
-    # =========================================================================
+    # ========================================================
 
     def run_clinical_reasoning(
         self,
@@ -1041,422 +719,342 @@ class LiverAIOrchestrator:
 
         if self.clinical_reasoning_agent is None:
 
-            return self._not_run_result(
-                "clinical_reasoning",
-                "Clinical reasoning agent not initialized.",
-            )
+            return {
+                "status": "error",
+                "error": (
+                    "Clinical reasoning agent "
+                    "is not initialized"
+                ),
+            }
 
-        # ---------------------------------------------------------------------
-        # CLINICAL MODEL INPUT
-        # ---------------------------------------------------------------------
+        # ----------------------------------------------------
+        # Prepare clinical input
+        # ----------------------------------------------------
 
-        clinical_input = patient_data.get(
-            "clinical_reasoning"
+        clinical_data = patient_data.get(
+            "clinical_reasoning",
+            {}
         )
 
-        if clinical_input is None:
-            clinical_input = patient_data.get(
-                "fatty_liver"
+        # ----------------------------------------------------
+        # If clinical data is empty, try fatty-liver data
+        # ----------------------------------------------------
+
+        if not clinical_data:
+
+            clinical_data = patient_data.get(
+                "fatty_liver",
+                {}
             )
 
-        if clinical_input is None:
+        # ----------------------------------------------------
+        # Add specialized results
+        # ----------------------------------------------------
 
-            return self._not_run_result(
-                "clinical_reasoning",
-                "No clinical reasoning input provided.",
-            )
-
-        # ---------------------------------------------------------------------
-        # EXECUTION
-        # ---------------------------------------------------------------------
-
-        result = self._execute_agent(
-            agent_name="clinical_reasoning",
-            agent=self.clinical_reasoning_agent,
-            input_data=clinical_input,
+        clinical_context = self._build_clinical_context(
+            clinical_data=clinical_data,
+            specialized_results=specialized_results,
         )
 
-        # ---------------------------------------------------------------------
-        # SPECIALIZED EVIDENCE
-        # ---------------------------------------------------------------------
-
-        result["specialized_evidence"] = {}
-
-        for name, agent_result in (
-            specialized_results.items()
-        ):
-
-            if agent_result.get("status") == "success":
-
-                result[
-                    "specialized_evidence"
-                ][name] = {
-                    "prediction": agent_result.get(
-                        "prediction"
-                    ),
-                    "confidence": agent_result.get(
-                        "confidence"
-                    ),
-                    "trust": agent_result.get(
-                        "trust"
-                    ),
-                    "probability": agent_result.get(
-                        "probability"
-                    ),
-                }
-
-        return result
-
-    # =========================================================================
-    # EXECUTE AGENT
-    # =========================================================================
-
-    def _execute_agent(
-        self,
-        agent_name: str,
-        agent,
-        input_data: Any,
-    ) -> Dict[str, Any]:
-
-        if agent is None:
-
-            return self._not_run_result(
-                agent_name,
-                "Agent not initialized.",
-            )
-
-        start = time.perf_counter()
+        # ----------------------------------------------------
+        # Execute
+        # ----------------------------------------------------
 
         try:
 
-            # -----------------------------------------------------------------
-            # FIND EXECUTION METHOD
-            # -----------------------------------------------------------------
-
-            if hasattr(agent, "predict"):
-
-                raw_result = agent.predict(
-                    input_data
-                )
-
-            elif hasattr(agent, "run"):
-
-                raw_result = agent.run(
-                    input_data
-                )
-
-            elif hasattr(agent, "analyze"):
-
-                raw_result = agent.analyze(
-                    input_data
-                )
-
-            else:
-
-                raise AttributeError(
-                    f"{type(agent).__name__} "
-                    "has no predict(), run(), "
-                    "or analyze() method."
-                )
-
-            latency_ms = (
-                time.perf_counter() - start
-            ) * 1000.0
+            result = self._call_agent(
+                self.clinical_reasoning_agent,
+                clinical_context,
+            )
 
             return self._normalize_result(
-                agent_name=agent_name,
-                result=raw_result,
-                latency_ms=latency_ms,
+                result,
+                agent_name="clinical_reasoning",
             )
 
         except Exception as e:
 
-            latency_ms = (
-                time.perf_counter() - start
-            ) * 1000.0
-
             return {
-                "agent_id": agent_name,
-                "agent": agent_name,
-                "task_type": agent_name,
                 "status": "error",
-                "prediction": None,
-                "probability": None,
-                "confidence": 0.0,
-                "uncertainty": 1.0,
-                "quality": 0.0,
-                "trust": 0.0,
-                "latency_ms": round(
-                    latency_ms,
-                    3,
-                ),
-                "missing_data_ratio": 0.0,
-                "error": repr(e),
+                "agent": "clinical_reasoning",
+                "error": str(e),
                 "traceback": traceback.format_exc(),
             }
 
-    # =========================================================================
+    # ========================================================
+    # EXECUTE AGENT
+    # ========================================================
+
+    def _execute_agent(
+        self,
+        agent,
+        data,
+        agent_name: str,
+    ) -> Dict[str, Any]:
+
+        if agent is None:
+
+            return {
+                "status": "error",
+                "agent": agent_name,
+                "error": "Agent is not initialized",
+            }
+
+        if data is None:
+
+            return {
+                "status": "not_run",
+                "agent": agent_name,
+                "error": "No input data provided",
+            }
+
+        try:
+
+            result = self._call_agent(
+                agent,
+                data,
+            )
+
+            return self._normalize_result(
+                result,
+                agent_name=agent_name,
+            )
+
+        except Exception as e:
+
+            return {
+                "status": "error",
+                "agent": agent_name,
+                "error": str(e),
+                "traceback": traceback.format_exc(),
+            }
+
+    # ========================================================
+    # CALL AGENT
+    # ========================================================
+
+    def _call_agent(
+        self,
+        agent,
+        data,
+    ):
+
+        # ----------------------------------------------------
+        # predict()
+        # ----------------------------------------------------
+
+        if hasattr(agent, "predict"):
+
+            try:
+                return agent.predict(data)
+            except TypeError:
+
+                try:
+                    return agent.predict(
+                        patient_data=data
+                    )
+                except TypeError:
+                    pass
+
+        # ----------------------------------------------------
+        # run()
+        # ----------------------------------------------------
+
+        if hasattr(agent, "run"):
+
+            try:
+                return agent.run(data)
+            except TypeError:
+
+                try:
+                    return agent.run(
+                        patient_data=data
+                    )
+                except TypeError:
+                    pass
+
+        # ----------------------------------------------------
+        # analyze()
+        # ----------------------------------------------------
+
+        if hasattr(agent, "analyze"):
+
+            try:
+                return agent.analyze(data)
+            except TypeError:
+
+                try:
+                    return agent.analyze(
+                        patient_data=data
+                    )
+                except TypeError:
+                    pass
+
+        raise AttributeError(
+            f"Agent {type(agent).__name__} has no "
+            "compatible predict/run/analyze method"
+        )
+
+    # ========================================================
     # NORMALIZE RESULT
-    # =========================================================================
+    # ========================================================
 
     def _normalize_result(
         self,
+        result,
         agent_name: str,
-        result: Any,
-        latency_ms: float = 0.0,
     ) -> Dict[str, Any]:
+
+        # ----------------------------------------------------
+        # AgentResult object
+        # ----------------------------------------------------
+
+        if AgentResult is not None:
+
+            if isinstance(result, AgentResult):
+
+                try:
+
+                    if hasattr(result, "to_dict"):
+                        result = result.to_dict()
+
+                except Exception:
+                    pass
+
+        # ----------------------------------------------------
+        # None
+        # ----------------------------------------------------
 
         if result is None:
 
             return {
-                "agent_id": agent_name,
+                "status": "success",
                 "agent": agent_name,
-                "task_type": agent_name,
-                "status": "error",
                 "prediction": None,
-                "probability": None,
-                "confidence": 0.0,
-                "uncertainty": 1.0,
-                "quality": 0.0,
-                "trust": 0.0,
-                "latency_ms": round(
-                    latency_ms,
-                    3,
-                ),
-                "missing_data_ratio": 1.0,
-                "error": "Agent returned None.",
+                "confidence": None,
+                "uncertainty": None,
             }
 
-        # ---------------------------------------------------------------------
-        # DICTIONARY RESULT
-        # ---------------------------------------------------------------------
+        # ----------------------------------------------------
+        # Dictionary
+        # ----------------------------------------------------
 
         if isinstance(result, dict):
 
             normalized = dict(result)
 
-            normalized.setdefault(
-                "agent_id",
-                agent_name,
-            )
+        else:
 
-            normalized.setdefault(
-                "agent",
-                agent_name,
-            )
+            # ------------------------------------------------
+            # Scalar / object prediction
+            # ------------------------------------------------
 
-            normalized.setdefault(
-                "task_type",
-                agent_name,
-            )
+            normalized = {
+                "prediction": result
+            }
 
-            normalized.setdefault(
-                "status",
-                "success",
-            )
+        # ----------------------------------------------------
+        # Default status
+        # ----------------------------------------------------
 
-            normalized.setdefault(
-                "latency_ms",
-                round(
-                    latency_ms,
-                    3,
-                ),
-            )
+        if "status" not in normalized:
 
-            normalized.setdefault(
-                "missing_data_ratio",
-                0.0,
-            )
+            normalized["status"] = "success"
 
-            normalized.setdefault(
-                "prediction",
-                None,
-            )
+        normalized["agent"] = agent_name
 
-            # -----------------------------------------------------------------
-            # CONFIDENCE
-            # -----------------------------------------------------------------
+        # ----------------------------------------------------
+        # Confidence
+        # ----------------------------------------------------
+
+        if normalized.get("confidence") is None:
 
             confidence = self._extract_confidence(
                 normalized
             )
 
-            normalized[
+            if confidence is not None:
+                normalized["confidence"] = confidence
+
+        # ----------------------------------------------------
+        # Uncertainty
+        # ----------------------------------------------------
+
+        if normalized.get("uncertainty") is None:
+
+            confidence = normalized.get(
                 "confidence"
-            ] = confidence
-
-            # -----------------------------------------------------------------
-            # UNCERTAINTY
-            # -----------------------------------------------------------------
-
-            uncertainty = normalized.get(
-                "uncertainty"
             )
 
-            if uncertainty is None:
+            if confidence is not None:
 
-                uncertainty = (
-                    1.0 - confidence
-                )
+                try:
 
-            normalized[
-                "uncertainty"
-            ] = self._clip(
-                uncertainty
+                    normalized["uncertainty"] = (
+                        1.0 - float(confidence)
+                    )
+
+                except Exception:
+                    pass
+
+        # ----------------------------------------------------
+        # Quality
+        # ----------------------------------------------------
+
+        if "quality" not in normalized:
+
+            normalized["quality"] = None
+
+        # ----------------------------------------------------
+        # Trust
+        # ----------------------------------------------------
+
+        if "trust" not in normalized:
+
+            normalized["trust"] = self._compute_trust(
+                agent_name=agent_name,
+                result=normalized,
             )
-
-            # -----------------------------------------------------------------
-            # QUALITY
-            # -----------------------------------------------------------------
-
-            quality = normalized.get(
-                "quality"
-            )
-
-            if quality is None:
-                quality = 1.0
-
-            normalized[
-                "quality"
-            ] = self._clip(
-                quality
-            )
-
-            # -----------------------------------------------------------------
-            # TRUST
-            # -----------------------------------------------------------------
-
-            if normalized.get("status") == "success":
-
-                normalized[
-                    "trust"
-                ] = self._compute_trust(
-                    agent_name,
-                    normalized,
-                )
-
-            else:
-
-                normalized[
-                    "trust"
-                ] = 0.0
-
-            # -----------------------------------------------------------------
-            # MODALITY
-            # -----------------------------------------------------------------
-
-            if "modality" not in normalized:
-
-                if agent_name in [
-                    "fatty_liver",
-                    "fibrosis",
-                    "cirrhosis",
-                    "clinical_reasoning",
-                ]:
-
-                    normalized[
-                        "modality"
-                    ] = "tabular"
-
-                elif agent_name == (
-                    "tumor_classification"
-                ):
-
-                    normalized[
-                        "modality"
-                    ] = "2D_image"
-
-                elif agent_name == (
-                    "liver_segmentation"
-                ):
-
-                    normalized[
-                        "modality"
-                    ] = "3D_volume"
-
-            return normalized
-
-        # ---------------------------------------------------------------------
-        # NON-DICTIONARY RESULT
-        # ---------------------------------------------------------------------
-
-        confidence = 0.5
-
-        normalized = {
-            "agent_id": agent_name,
-            "agent": agent_name,
-            "task_type": agent_name,
-            "status": "success",
-            "prediction": result,
-            "probability": None,
-            "confidence": confidence,
-            "uncertainty": 1.0 - confidence,
-            "quality": 1.0,
-            "latency_ms": round(
-                latency_ms,
-                3,
-            ),
-            "missing_data_ratio": 0.0,
-            "modality": "unknown",
-        }
-
-        normalized[
-            "trust"
-        ] = self._compute_trust(
-            agent_name,
-            normalized,
-        )
 
         return normalized
 
-    # =========================================================================
-    # CONFIDENCE EXTRACTION
-    # =========================================================================
+    # ========================================================
+    # EXTRACT CONFIDENCE
+    # ========================================================
 
     def _extract_confidence(
         self,
         result: Dict[str, Any],
-    ) -> float:
+    ) -> Optional[float]:
 
-        confidence = result.get(
-            "confidence"
-        )
+        possible_keys = [
+            "confidence",
+            "probability",
+            "score",
+            "prob",
+            "max_probability",
+        ]
 
-        if confidence is not None:
+        for key in possible_keys:
 
-            value = self._safe_float(
-                confidence,
-                default=None,
-            )
+            if key in result:
 
-            if value is not None:
-                return self._clip(value)
+                value = result[key]
 
-        probability = result.get(
-            "probability"
-        )
+                try:
 
-        if probability is not None:
+                    return self._clip(
+                        float(value),
+                        0.0,
+                        1.0,
+                    )
 
-            value = self._probability_confidence(
-                probability
-            )
+                except Exception:
+                    pass
 
-            if value is not None:
-                return self._clip(value)
-
-        class_probabilities = result.get(
-            "class_probabilities"
-        )
-
-        if class_probabilities is not None:
-
-            value = self._probability_confidence(
-                class_probabilities
-            )
-
-            if value is not None:
-                return self._clip(value)
+        # ----------------------------------------------------
+        # probabilities
+        # ----------------------------------------------------
 
         probabilities = result.get(
             "probabilities"
@@ -1464,80 +1062,73 @@ class LiverAIOrchestrator:
 
         if probabilities is not None:
 
-            value = self._probability_confidence(
+            return self._probability_confidence(
                 probabilities
             )
 
-            if value is not None:
-                return self._clip(value)
+        # ----------------------------------------------------
+        # probs
+        # ----------------------------------------------------
 
-        return 0.5
+        probabilities = result.get(
+            "probs"
+        )
 
-    # =========================================================================
+        if probabilities is not None:
+
+            return self._probability_confidence(
+                probabilities
+            )
+
+        return None
+
+    # ========================================================
     # PROBABILITY CONFIDENCE
-    # =========================================================================
+    # ========================================================
 
     def _probability_confidence(
         self,
         probabilities,
-    ):
+    ) -> Optional[float]:
 
         try:
 
             if isinstance(
                 probabilities,
-                dict,
+                dict
             ):
 
-                values = []
+                values = probabilities.values()
 
-                for value in probabilities.values():
-
-                    try:
-                        values.append(
-                            float(value)
-                        )
-
-                    except (
-                        ValueError,
-                        TypeError,
-                    ):
-                        continue
+                values = [
+                    float(v)
+                    for v in values
+                ]
 
                 if values:
                     return max(values)
-
-                return None
 
             if isinstance(
                 probabilities,
                 (list, tuple)
             ):
 
-                if len(probabilities) == 0:
-                    return None
-
                 values = [
-                    float(x)
-                    for x in probabilities
+                    float(v)
+                    for v in probabilities
                 ]
 
-                return max(values)
+                if values:
+                    return max(values)
 
-            return float(
-                probabilities
-            )
-
-        except (
-            ValueError,
-            TypeError,
-        ):
-
+        except Exception:
             return None
 
-    # =========================================================================
-    # TRUST
-    # =========================================================================
+        return None
+
+    # ========================================================
+    # COMPUTE TRUST
+    # ========================================================
 
     def _compute_trust(
         self,
@@ -1545,622 +1136,621 @@ class LiverAIOrchestrator:
         result: Dict[str, Any],
     ) -> float:
 
-        if self.trust_manager is None:
-            return 0.0
-
-        confidence = self._clip(
-            result.get(
-                "confidence",
-                0.0,
-            )
+        confidence = result.get(
+            "confidence"
         )
 
-        quality = self._clip(
-            result.get(
-                "quality",
-                0.0,
-            )
+        quality = result.get(
+            "quality"
         )
 
-        uncertainty = self._clip(
-            result.get(
-                "uncertainty",
-                1.0,
-            )
-        )
+        # ----------------------------------------------------
+        # Default trust
+        # ----------------------------------------------------
 
-        missing_ratio = self._clip(
-            result.get(
-                "missing_data_ratio",
-                0.0,
-            )
-        )
+        if confidence is None:
+            confidence = 0.5
+
+        if quality is None:
+            quality = 1.0
 
         try:
 
-            trust = self.trust_manager.compute_trust(
-                agent_id=agent_name,
-                confidence=confidence,
-                quality=quality,
-                uncertainty=uncertainty,
-                missing_data_ratio=missing_ratio,
-            )
+            confidence = float(confidence)
 
-            return self._clip(trust)
+        except Exception:
 
-        except TypeError:
+            confidence = 0.5
+
+        try:
+
+            quality = float(quality)
+
+        except Exception:
+
+            quality = 1.0
+
+        confidence = self._clip(
+            confidence,
+            0.0,
+            1.0,
+        )
+
+        quality = self._clip(
+            quality,
+            0.0,
+            1.0,
+        )
+
+        # ----------------------------------------------------
+        # TrustManager
+        # ----------------------------------------------------
+
+        if self.trust_manager is not None:
 
             try:
 
-                trust = self.trust_manager.compute_trust(
-                    agent_name,
-                    confidence,
-                    quality,
-                    uncertainty,
-                    missing_ratio,
-                )
+                if hasattr(
+                    self.trust_manager,
+                    "compute_trust",
+                ):
 
-                return self._clip(trust)
+                    trust = (
+                        self.trust_manager.compute_trust(
+                            agent_name=agent_name,
+                            confidence=confidence,
+                            quality=quality,
+                            result=result,
+                        )
+                    )
+
+                    return self._clip(
+                        float(trust),
+                        0.0,
+                        1.0,
+                    )
 
             except Exception:
-                return 0.0
+                pass
 
-        except Exception:
-            return 0.0
+            try:
 
-    # =========================================================================
+                if hasattr(
+                    self.trust_manager,
+                    "get_trust",
+                ):
+
+                    trust = (
+                        self.trust_manager.get_trust(
+                            agent_name
+                        )
+                    )
+
+                    return self._clip(
+                        float(trust),
+                        0.0,
+                        1.0,
+                    )
+
+            except Exception:
+                pass
+
+        # ----------------------------------------------------
+        # Simple fallback
+        # ----------------------------------------------------
+
+        return self._clip(
+            0.7 * confidence
+            + 0.3 * quality,
+            0.0,
+            1.0,
+        )
+
+    # ========================================================
     # ADAPTIVE FUSION
-    # =========================================================================
+    # ========================================================
 
     def _run_adaptive_fusion(
         self,
         results: Dict[str, Dict[str, Any]],
     ) -> Dict[str, Any]:
 
-        if self.adaptive_fusion is None:
+        successful_results = {}
+
+        for name, result in results.items():
+
+            if not isinstance(result, dict):
+                continue
+
+            if result.get("status") != "success":
+                continue
+
+            if result.get("prediction") is None:
+                continue
+
+            successful_results[name] = result
+
+        # ----------------------------------------------------
+        # Nothing to fuse
+        # ----------------------------------------------------
+
+        if not successful_results:
 
             return {
-                "status": "unavailable",
-                "evidence": [],
+                "status": "not_available",
+                "prediction": None,
+                "confidence": None,
                 "weights": {},
-                "task_groups": {},
             }
 
-        valid_results = [
-            result
-            for result in results.values()
-            if result.get("status") == "success"
-        ]
+        # ----------------------------------------------------
+        # AdaptiveFusion
+        # ----------------------------------------------------
 
-        if not valid_results:
-
-            return {
-                "status": "no_valid_results",
-                "evidence": [],
-                "weights": {},
-                "task_groups": {},
-                "same_task_fusion": {},
-            }
-
-        try:
-
-            fusion = self.adaptive_fusion.fuse(
-                valid_results
-            )
-
-            if isinstance(
-                fusion,
-                dict,
-            ):
-                return fusion
-
-            return {
-                "status": "success",
-                "result": fusion,
-            }
-
-        except Exception as e:
-
-            return {
-                "status": "error",
-                "error": repr(e),
-                "evidence": valid_results,
-            }
-
-    # =========================================================================
-    # CONFLICT DETECTION
-    # =========================================================================
-
-    def _run_conflict_detection(
-        self,
-        results: Dict[str, Dict[str, Any]],
-    ) -> list:
-
-        if self.conflict_detector is None:
-            return []
-
-        valid_results = [
-            result
-            for result in results.values()
-            if result.get("status") == "success"
-            and result.get("prediction") is not None
-        ]
-
-        if len(valid_results) < 2:
-            return []
-
-        if AgentResult is None:
-            return []
-
-        agent_objects = []
-
-        for result in valid_results:
+        if self.adaptive_fusion is not None:
 
             try:
 
-                agent_objects.append(
-                    AgentResult.from_dict(
-                        result
+                if hasattr(
+                    self.adaptive_fusion,
+                    "fuse",
+                ):
+
+                    fusion = (
+                        self.adaptive_fusion.fuse(
+                            successful_results
+                        )
                     )
+
+                    if isinstance(
+                        fusion,
+                        dict,
+                    ):
+
+                        return fusion
+
+                    return {
+                        "status": "success",
+                        "prediction": fusion,
+                    }
+
+            except Exception:
+                pass
+
+            try:
+
+                if hasattr(
+                    self.adaptive_fusion,
+                    "combine",
+                ):
+
+                    fusion = (
+                        self.adaptive_fusion.combine(
+                            successful_results
+                        )
+                    )
+
+                    if isinstance(
+                        fusion,
+                        dict,
+                    ):
+
+                        return fusion
+
+                    return {
+                        "status": "success",
+                        "prediction": fusion,
+                    }
+
+            except Exception:
+                pass
+
+        # ----------------------------------------------------
+        # Weighted fallback
+        # ----------------------------------------------------
+
+        weighted_scores = {}
+        total_weight = 0.0
+
+        for name, result in successful_results.items():
+
+            prediction = result.get(
+                "prediction"
+            )
+
+            confidence = result.get(
+                "confidence"
+            )
+
+            trust = result.get(
+                "trust",
+                1.0,
+            )
+
+            try:
+
+                weight = float(
+                    confidence
+                    if confidence is not None
+                    else 0.5
                 )
 
             except Exception:
 
-                try:
+                weight = 0.5
 
-                    agent_objects.append(
-                        AgentResult(
-                            agent_id=result.get(
-                                "agent_id",
-                                "unknown",
-                            ),
-                            task_type=result.get(
-                                "task_type",
-                                "unknown",
-                            ),
-                            prediction=result.get(
-                                "prediction"
-                            ),
-                            probability=result.get(
-                                "probability"
-                            ),
-                            confidence=result.get(
-                                "confidence",
-                                0.0,
-                            ),
-                            uncertainty=result.get(
-                                "uncertainty",
-                                1.0,
-                            ),
-                            quality=result.get(
-                                "quality",
-                                0.0,
-                            ),
-                            latency_ms=result.get(
-                                "latency_ms",
-                                0.0,
-                            ),
-                            missing_data_ratio=result.get(
-                                "missing_data_ratio",
-                                0.0,
-                            ),
-                            trust=result.get(
-                                "trust",
-                                0.0,
-                            ),
-                            status=result.get(
-                                "status",
-                                "success",
-                            ),
-                            details=result.get(
-                                "details",
-                                {},
-                            ),
-                            explanation=result.get(
-                                "explanation"
-                            ),
-                            error=result.get(
-                                "error"
-                            ),
+            try:
+
+                trust = float(trust)
+
+            except Exception:
+
+                trust = 1.0
+
+            weight *= self._clip(
+                trust,
+                0.0,
+                1.0,
+            )
+
+            try:
+
+                numeric_prediction = float(
+                    prediction
+                )
+
+            except Exception:
+
+                continue
+
+            weighted_scores[name] = {
+                "prediction": numeric_prediction,
+                "weight": weight,
+            }
+
+            total_weight += weight
+
+        if total_weight <= 0:
+
+            return {
+                "status": "success",
+                "prediction": None,
+                "confidence": None,
+                "weights": {},
+            }
+
+        weighted_prediction = sum(
+            item["prediction"] * item["weight"]
+            for item in weighted_scores.values()
+        ) / total_weight
+
+        return {
+            "status": "success",
+            "prediction": weighted_prediction,
+            "confidence": self._clip(
+                total_weight
+                / max(
+                    len(weighted_scores),
+                    1,
+                ),
+                0.0,
+                1.0,
+            ),
+            "weights": {
+                name: item["weight"]
+                for name, item
+                in weighted_scores.items()
+            },
+        }
+
+    # ========================================================
+    # CONFLICT DETECTION
+    # ========================================================
+
+    def _run_conflict_detection(
+        self,
+        results: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, Any]:
+
+        valid_results = {}
+
+        for name, result in results.items():
+
+            if not isinstance(result, dict):
+                continue
+
+            if result.get("status") != "success":
+                continue
+
+            if result.get("prediction") is None:
+                continue
+
+            valid_results[name] = result
+
+        # ----------------------------------------------------
+        # ConflictDetector
+        # ----------------------------------------------------
+
+        if self.conflict_detector is not None:
+
+            try:
+
+                if hasattr(
+                    self.conflict_detector,
+                    "detect",
+                ):
+
+                    conflicts = (
+                        self.conflict_detector.detect(
+                            valid_results
                         )
                     )
 
-                except Exception:
-                    continue
+                    if isinstance(
+                        conflicts,
+                        dict,
+                    ):
 
-        if len(agent_objects) < 2:
-            return []
+                        return conflicts
 
-        try:
+                    return {
+                        "status": "success",
+                        "has_conflict": bool(
+                            conflicts
+                        ),
+                        "conflicts": conflicts,
+                    }
 
-            conflicts = (
-                self.conflict_detector.detect(
-                    agent_objects
+            except Exception:
+                pass
+
+            try:
+
+                if hasattr(
+                    self.conflict_detector,
+                    "check_conflicts",
+                ):
+
+                    conflicts = (
+                        self.conflict_detector.check_conflicts(
+                            valid_results
+                        )
+                    )
+
+                    if isinstance(
+                        conflicts,
+                        dict,
+                    ):
+
+                        return conflicts
+
+                    return {
+                        "status": "success",
+                        "has_conflict": bool(
+                            conflicts
+                        ),
+                        "conflicts": conflicts,
+                    }
+
+            except Exception:
+                pass
+
+        # ----------------------------------------------------
+        # Fallback conflict detection
+        # ----------------------------------------------------
+
+        predictions = []
+
+        for name, result in valid_results.items():
+
+            predictions.append(
+                (
+                    name,
+                    result.get("prediction"),
                 )
             )
 
-            if conflicts is None:
-                return []
+        if len(predictions) < 2:
 
-            return conflicts
+            return {
+                "status": "success",
+                "has_conflict": False,
+                "conflicts": [],
+            }
 
-        except Exception as e:
+        numeric_predictions = []
 
-            return [
-                {
-                    "type": "conflict_detection_error",
-                    "error": repr(e),
-                }
-            ]
+        for name, prediction in predictions:
 
-    # =========================================================================
+            try:
+
+                numeric_predictions.append(
+                    (
+                        name,
+                        float(prediction),
+                    )
+                )
+
+            except Exception:
+                pass
+
+        if len(numeric_predictions) < 2:
+
+            return {
+                "status": "success",
+                "has_conflict": False,
+                "conflicts": [],
+            }
+
+        values = [
+            value
+            for _, value
+            in numeric_predictions
+        ]
+
+        min_value = min(values)
+        max_value = max(values)
+
+        # Difference greater than 1 means
+        # potentially different clinical outputs.
+        has_conflict = (
+            abs(max_value - min_value) > 1.0
+        )
+
+        return {
+            "status": "success",
+            "has_conflict": has_conflict,
+            "conflicts": (
+                numeric_predictions
+                if has_conflict
+                else []
+            ),
+        }
+
+    # ========================================================
     # DECISION ENGINE
-    # =========================================================================
-
-    # =========================================================================
-    # DECISION ENGINE
-    # =========================================================================
+    # ========================================================
 
     def _run_decision_engine(
         self,
         results: Dict[str, Dict[str, Any]],
-        conflicts,
+        conflicts: Dict[str, Any],
         fusion: Dict[str, Any],
         clinical_result: Dict[str, Any],
     ) -> Dict[str, Any]:
 
-        if self.decision_engine is None:
+        # ----------------------------------------------------
+        # DecisionEngine
+        # ----------------------------------------------------
 
-            return {
-                "status": "unavailable",
-                "decision": "insufficient_evidence",
-                "confidence": 0.0,
-                "risk_score": 1.0,
-                "coverage": 0.0,
-                "error": "DecisionEngine unavailable.",
-            }
-
-        all_results = list(
-            results.values()
-        )
-
-        # ============================================================
-        # CURRENT DecisionEngine API
-        # ============================================================
-
-        try:
-
-            decision = self.decision_engine.decide(
-                results=all_results,
-                conflicts=conflicts,
-                reasoning=clinical_result,
-            )
-
-            if isinstance(decision, dict):
-
-                return decision
-
-            return {
-                "status": "completed",
-                "decision": str(decision),
-                "confidence": 0.0,
-                "risk_score": None,
-            }
-
-        except TypeError:
-
-            # ========================================================
-            # COMPATIBILITY WITH OTHER DECISION ENGINE VERSIONS
-            # ========================================================
+        if self.decision_engine is not None:
 
             try:
 
-                decision = self.decision_engine.decide(
-                    all_results,
-                    conflicts,
-                    clinical_result,
-                )
+                if hasattr(
+                    self.decision_engine,
+                    "decide",
+                ):
 
-                if isinstance(decision, dict):
+                    result_list = list(
+                        results.values()
+                    )
 
-                    return decision
+                    decision = (
+                        self.decision_engine.decide(
+                            results=result_list,
+                            conflicts=conflicts,
+                            reasoning=clinical_result,
+                        )
+                    )
 
-                return {
-                    "status": "completed",
-                    "decision": str(decision),
-                    "confidence": 0.0,
-                    "risk_score": None,
-                }
+                    if isinstance(
+                        decision,
+                        dict,
+                    ):
 
-            except Exception as exc:
+                        return decision
 
-                return {
-                    "status": "error",
-                    "decision": "insufficient_evidence",
-                    "confidence": 0.0,
-                    "risk_score": 1.0,
-                    "coverage": 0.0,
-                    "error": repr(exc),
-                    "traceback":
-                        traceback.format_exc(),
-                }
+                    return {
+                        "status": "success",
+                        "decision": decision,
+                    }
 
-        except Exception as exc:
+            except Exception:
+                pass
 
-            return {
-                "status": "error",
-                "decision": "insufficient_evidence",
-                "confidence": 0.0,
-                "risk_score": 1.0,
-                "coverage": 0.0,
-                "error": repr(exc),
-                "traceback":
-                    traceback.format_exc(),
-            }
+        # ----------------------------------------------------
+        # Fallback decision
+        # ----------------------------------------------------
 
-    # =========================================================================
-    # BUILD FINAL DECISION
-    # =========================================================================
-
-    def _build_final_decision(
-        self,
-        decision: Dict[str, Any],
-        fusion: Dict[str, Any],
-        conflicts,
-        clinical_reasoning: Dict[str, Any],
-        all_results: Dict[str, Dict[str, Any]],
-    ) -> Dict[str, Any]:
-
-        if not isinstance(
-            decision,
-            dict,
-        ):
-            decision = {}
-
-        # ---------------------------------------------------------------------
-        # DECISION LABEL
-        # ---------------------------------------------------------------------
-
-        decision_label = decision.get(
-            "decision"
-        )
-
-        if decision_label is None:
-
-            decision_label = decision.get(
-                "status",
-                "insufficient_evidence"
+        clinical_prediction = (
+            clinical_result.get(
+                "prediction"
             )
-
-        # ---------------------------------------------------------------------
-        # CONFIDENCE
-        # ---------------------------------------------------------------------
-
-        confidence = decision.get(
-            "confidence"
-        )
-
-        if confidence is None:
-
-            confidence = decision.get(
-                "decision_confidence",
-                decision.get(
-                    "clinical_confidence",
-                    0.0,
-                ),
+            if isinstance(
+                clinical_result,
+                dict,
             )
-
-        confidence = self._clip(
-            confidence
+            else None
         )
 
-        # ---------------------------------------------------------------------
-        # RISK
-        # ---------------------------------------------------------------------
-
-        risk_score = decision.get(
-            "risk_score"
-        )
-
-        if risk_score is None:
-
-            risk_score = (
-                1.0 - confidence
+        fusion_prediction = (
+            fusion.get(
+                "prediction"
             )
-
-        risk_score = self._clip(
-            risk_score
+            if isinstance(
+                fusion,
+                dict,
+            )
+            else None
         )
 
-        # ---------------------------------------------------------------------
-        # COVERAGE
-        # ---------------------------------------------------------------------
-
-        coverage = decision.get(
-            "coverage"
+        has_conflict = (
+            conflicts.get(
+                "has_conflict",
+                False,
+            )
+            if isinstance(
+                conflicts,
+                dict,
+            )
+            else False
         )
 
-        if coverage is None:
+        # ----------------------------------------------------
+        # Clinical reasoning has priority
+        # ----------------------------------------------------
 
-            coverage = decision.get(
-                "agent_coverage"
-            )
+        if clinical_prediction is not None:
 
-        if coverage is None:
+            final_prediction = clinical_prediction
 
-            successful = sum(
-                1
-                for result in all_results.values()
-                if result.get("status") == "success"
-            )
+            source = "clinical_reasoning"
 
-            coverage = (
-                successful / 6.0
-            )
+        elif fusion_prediction is not None:
 
-        coverage = self._clip(
-            coverage
-        )
+            final_prediction = fusion_prediction
 
-        # ---------------------------------------------------------------------
-        # CLINICAL PREDICTION
-        # ---------------------------------------------------------------------
+            source = "adaptive_fusion"
 
-        clinical_prediction = None
+        else:
 
-        if isinstance(
-            clinical_reasoning,
-            dict,
-        ):
+            final_prediction = None
 
-            clinical_prediction = (
-                clinical_reasoning.get(
-                    "prediction"
-                )
-            )
-
-        if clinical_prediction is None:
-
-            clinical_prediction = decision.get(
-                "clinical_prediction"
-            )
-
-        # ---------------------------------------------------------------------
-        # CONFLICT SCORE
-        # ---------------------------------------------------------------------
-
-        conflict_score = decision.get(
-            "conflict_score",
-            0.0,
-        )
-
-        conflict_score = self._clip(
-            conflict_score
-        )
-
-        # ---------------------------------------------------------------------
-        # AGENT SUMMARY
-        # ---------------------------------------------------------------------
-
-        agent_summary = {}
-
-        for name, result in all_results.items():
-
-            agent_summary[name] = {
-                "status": result.get(
-                    "status"
-                ),
-                "prediction": result.get(
-                    "prediction"
-                ),
-                "confidence": result.get(
-                    "confidence"
-                ),
-                "uncertainty": result.get(
-                    "uncertainty"
-                ),
-                "trust": result.get(
-                    "trust"
-                ),
-                "quality": result.get(
-                    "quality"
-                ),
-                "task_type": result.get(
-                    "task_type"
-                ),
-            }
-
-        # ---------------------------------------------------------------------
-        # FINAL OBJECT
-        # ---------------------------------------------------------------------
+            source = "none"
 
         return {
             "status": "success",
-
-            "decision": decision_label,
-
-            "confidence": confidence,
-
-            "risk_score": risk_score,
-
-            "coverage": coverage,
-
-            "successful_agents": decision.get(
-                "successful_agents",
-                sum(
-                    1
-                    for result in all_results.values()
-                    if result.get("status") == "success"
-                ),
-            ),
-
-            "total_agents": decision.get(
-                "num_agents",
-                6,
-            ),
-
-            "mean_confidence": decision.get(
-                "mean_confidence",
-                decision.get(
-                    "average_confidence",
-                    0.0,
-                ),
-            ),
-
-            "mean_trust": decision.get(
-                "mean_trust",
-                decision.get(
-                    "average_trust",
-                    0.0,
-                ),
-            ),
-
-            "mean_uncertainty": decision.get(
-                "mean_uncertainty",
-                decision.get(
-                    "average_uncertainty",
-                    0.0,
-                ),
-            ),
-
-            "conflict_score": conflict_score,
-
-            "num_conflicts": len(
-                conflicts
-            ),
-
-            "clinical_prediction": clinical_prediction,
-
-            "clinical_reasoning": clinical_reasoning,
-
-            "agent_summary": agent_summary,
-
-            "weighted_evidence": fusion.get(
-                "weighted_evidence",
-                fusion.get(
-                    "evidence",
-                    [],
-                ),
-            ),
-
-            "fusion": fusion,
-
-            "conflicts": conflicts,
-
-            "decision_engine": decision,
-
-            "explanation": decision.get(
-                "explanation"
-            ),
-
-            "warning": decision.get(
-                "warning"
+            "prediction": final_prediction,
+            "source": source,
+            "has_conflict": has_conflict,
+            "confidence": self._extract_confidence(
+                clinical_result
             ),
         }
 
-    # =========================================================================
+    # ========================================================
+    # BUILD FINAL DECISION
+    # ========================================================
+
+    def _build_final_decision(
+        self,
+        results: Dict[str, Dict[str, Any]],
+        fusion: Dict[str, Any],
+        conflicts: Dict[str, Any],
+        clinical_result: Dict[str, Any],
+    ) -> Dict[str, Any]:
+
+        return self._run_decision_engine(
+            results=results,
+            conflicts=conflicts,
+            fusion=fusion,
+            clinical_result=clinical_result,
+        )
+
+    # ========================================================
     # NOT RUN RESULT
-    # =========================================================================
+    # ========================================================
 
     def _not_run_result(
         self,
@@ -2169,191 +1759,204 @@ class LiverAIOrchestrator:
     ) -> Dict[str, Any]:
 
         return {
-            "agent_id": agent_name,
-            "agent": agent_name,
-            "task_type": agent_name,
             "status": "not_run",
+            "agent": agent_name,
             "prediction": None,
-            "probability": None,
-            "confidence": 0.0,
-            "uncertainty": 1.0,
-            "quality": 0.0,
+            "confidence": None,
+            "uncertainty": None,
+            "quality": None,
             "trust": 0.0,
-            "latency_ms": 0.0,
-            "missing_data_ratio": 1.0,
             "error": reason,
         }
 
-    # =========================================================================
-    # CLINICAL CONTEXT
-    # =========================================================================
+    # ========================================================
+    # BUILD CLINICAL CONTEXT
+    # ========================================================
 
     def _build_clinical_context(
         self,
-        results: Dict[str, Dict[str, Any]],
+        clinical_data: Dict[str, Any],
+        specialized_results: Dict[str, Dict[str, Any]],
     ) -> Dict[str, Any]:
 
         context = {}
 
-        for agent_name, result in results.items():
+        if isinstance(
+            clinical_data,
+            dict,
+        ):
 
-            if result.get(
-                "status"
-            ) != "success":
+            context.update(
+                clinical_data
+            )
+
+        # ----------------------------------------------------
+        # Add predictions
+        # ----------------------------------------------------
+
+        for agent_name, result in (
+            specialized_results.items()
+        ):
+
+            if not isinstance(
+                result,
+                dict,
+            ):
                 continue
 
-            context[agent_name] = {
-                "prediction": result.get(
-                    "prediction"
-                ),
-                "probability": result.get(
-                    "probability"
-                ),
-                "confidence": result.get(
-                    "confidence"
-                ),
-                "trust": result.get(
-                    "trust"
-                ),
-                "uncertainty": result.get(
-                    "uncertainty"
-                ),
-                "quality": result.get(
-                    "quality"
-                ),
-            }
+            prediction = result.get(
+                "prediction"
+            )
+
+            confidence = result.get(
+                "confidence"
+            )
+
+            context[
+                f"{agent_name}_prediction"
+            ] = prediction
+
+            context[
+                f"{agent_name}_confidence"
+            ] = confidence
 
         return context
 
-    # =========================================================================
+    # ========================================================
     # SAFE FLOAT
-    # =========================================================================
+    # ========================================================
 
     def _safe_float(
         self,
         value,
-        default=0.0,
-    ):
+        default: float = 0.0,
+    ) -> float:
 
         try:
             return float(value)
 
-        except (
-            ValueError,
-            TypeError,
-        ):
-
+        except Exception:
             return default
 
-    # =========================================================================
+    # ========================================================
     # CLIP
-    # =========================================================================
+    # ========================================================
 
     def _clip(
         self,
-        value,
-    ):
-
-        value = self._safe_float(
-            value,
-            default=0.0,
-        )
+        value: float,
+        minimum: float,
+        maximum: float,
+    ) -> float:
 
         return max(
-            0.0,
+            minimum,
             min(
-                1.0,
+                maximum,
                 value,
             ),
         )
 
-    # =========================================================================
+    # ========================================================
     # HEALTH CHECK
-    # =========================================================================
+    # ========================================================
 
-    def health_check(self):
+    def health_check(self) -> Dict[str, Any]:
 
         agents = {
-            "fatty_liver":
-                self.fatty_agent is not None,
-
-            "fibrosis":
-                self.fibrosis_agent is not None,
-
-            "cirrhosis":
-                self.cirrhosis_agent is not None,
-
-            "tumor_classification":
-                self.tumor_agent is not None,
-
-            "liver_segmentation":
-                self.segmentation_agent is not None,
-
-            "clinical_reasoning":
-                self.clinical_reasoning_agent is not None,
+            "fatty_liver": self.fatty_agent,
+            "fibrosis": self.fibrosis_agent,
+            "cirrhosis": self.cirrhosis_agent,
+            "tumor_classification": self.tumor_agent,
+            "liver_segmentation": self.segmentation_agent,
+            "clinical_reasoning": (
+                self.clinical_reasoning_agent
+            ),
         }
+
+        agent_status = {}
+
+        for name, agent in agents.items():
+
+            agent_status[name] = (
+                agent is not None
+            )
+
+        ready_agents = sum(
+            1
+            for value in agent_status.values()
+            if value
+        )
 
         coordinators = {
-            "trust_manager":
-                self.trust_manager is not None,
-
-            "adaptive_fusion":
-                self.adaptive_fusion is not None,
-
-            "conflict_detector":
-                self.conflict_detector is not None,
-
-            "decision_engine":
-                self.decision_engine is not None,
+            "trust_manager": self.trust_manager,
+            "adaptive_fusion": self.adaptive_fusion,
+            "conflict_detector": self.conflict_detector,
+            "decision_engine": self.decision_engine,
         }
 
-        initialized_agents = sum(
-            agents.values()
+        coordinator_status = {}
+
+        for name, module in coordinators.items():
+
+            coordinator_status[name] = (
+                module is not None
+            )
+
+        ready_coordinators = sum(
+            1
+            for value in coordinator_status.values()
+            if value
         )
-
-        initialized_coordinators = sum(
-            coordinators.values()
-        )
-
-        if initialized_agents == 6:
-            status = "ok"
-
-        elif initialized_agents > 0:
-            status = "partial"
-
-        else:
-            status = "error"
 
         return {
-            "status": status,
-
-            "agents": agents,
-
-            "coordinators": coordinators,
-
-            "initialized_agents":
-                initialized_agents,
-
-            "total_agents": 6,
-
-            "initialized_coordinators":
-                initialized_coordinators,
-
-            "total_coordinators": 4,
-
-            "initialization_errors":
-                self.initialization_errors,
+            "status": (
+                "healthy"
+                if ready_agents == 6
+                else "partial"
+            ),
+            "agents": agent_status,
+            "agents_ready": ready_agents,
+            "agents_total": 6,
+            "coordinators": coordinator_status,
+            "coordinators_ready": ready_coordinators,
+            "coordinators_total": 4,
+            "initialization_errors": (
+                self.initialization_errors
+            ),
         }
 
-    # =========================================================================
+    # ========================================================
     # GETTERS
-    # =========================================================================
+    # ========================================================
 
-    def get_last_results(self):
-        return self.last_results
+    def get_agents(self) -> Dict[str, Any]:
 
-    def get_last_assessment(self):
-        return self.last_final_decision
+        return {
+            "fatty_liver": self.fatty_agent,
+            "fibrosis": self.fibrosis_agent,
+            "cirrhosis": self.cirrhosis_agent,
+            "tumor_classification": self.tumor_agent,
+            "liver_segmentation": (
+                self.segmentation_agent
+            ),
+            "clinical_reasoning": (
+                self.clinical_reasoning_agent
+            ),
+        }
 
-    def get_execution_log(self):
-        return self.execution_log
+    def get_coordination_modules(
+        self,
+    ) -> Dict[str, Any]:
+
+        return {
+            "trust_manager": self.trust_manager,
+            "adaptive_fusion": self.adaptive_fusion,
+            "conflict_detector": self.conflict_detector,
+            "decision_engine": self.decision_engine,
+        }
+
+
+# ============================================================
+# END OF FILE
+# ============================================================
