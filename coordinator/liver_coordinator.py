@@ -871,117 +871,115 @@ class LiverCoordinator:
     # =========================================================================
 
     def run(
-        self,
-        patient_id=None,
-        inputs=None,
-        images=None,
-        **kwargs
-    ):
+    self,
+    patient_id=None,
+    inputs=None,
+    images=None,
+    **kwargs
+):
+    """
+    Execute all registered agents with modality-aware input routing.
 
-        if not self.agents:
+    Clinical/tabular agents receive their input from `inputs`.
+    2D image agents receive their image from `images`.
+    3D agents receive their volume from `inputs`.
+    """
 
-            return {
-                "status": "insufficient_evidence",
-                "patient_id": patient_id,
-                "agents": [],
-                "error": "No agents registered."
-            }
+    # =========================================================
+    # NO AGENTS
+    # =========================================================
 
-        inputs = inputs or {}
-        images = images or {}
+    if not self.agents:
 
-        results = []
+        return {
+            "status": "insufficient_evidence",
+            "patient_id": patient_id,
+            "agents": [],
+            "error": "No agents registered."
+        }
 
-        # =====================================================================
-        # EXECUTE AGENTS
-        # =====================================================================
+    inputs = inputs or {}
+    images = images or {}
 
-        for agent_id, agent in self.agents.items():
+    results = []
 
-            metadata = self.agent_metadata.get(
-                agent_id,
-                {}
+    # =========================================================
+    # EXECUTE AGENTS
+    # =========================================================
+
+    for agent_id, agent in self.agents.items():
+
+        metadata = self.agent_metadata.get(
+            agent_id,
+            {}
+        )
+
+        task_type = metadata.get(
+            "task_type",
+            "unknown"
+        )
+
+        modality = metadata.get(
+            "modality",
+            "unknown"
+        )
+
+        # -----------------------------------------------------
+        # INPUT ROUTING
+        # -----------------------------------------------------
+
+        if isinstance(inputs, dict):
+
+            agent_input = inputs.get(
+                agent_id
             )
 
-            task_type = metadata.get(
-                "task_type",
-                "unknown"
+        else:
+
+            agent_input = inputs
+
+        # -----------------------------------------------------
+        # IMAGE ROUTING
+        # -----------------------------------------------------
+
+        if isinstance(images, dict):
+
+            agent_image = images.get(
+                agent_id
             )
 
-            modality = metadata.get(
-                "modality",
-                "unknown"
-            )
+        else:
 
-            # -----------------------------------------------------------------
-            # Get agent-specific tabular / volume input
-            # -----------------------------------------------------------------
+            agent_image = images
 
-            if isinstance(inputs, dict):
+        try:
 
-                agent_input = inputs.get(
-                    agent_id
-                )
+            # =================================================
+            # MODALITY-AWARE PREDICTION
+            # =================================================
 
-            else:
+            if hasattr(agent, "predict"):
 
-                agent_input = inputs
-
-            # -----------------------------------------------------------------
-            # Get agent-specific image input
-            # -----------------------------------------------------------------
-
-            if isinstance(images, dict):
-
-                agent_image = images.get(
-                    agent_id
-                )
-
-            else:
-
-                agent_image = images
-
-            try:
-
-                # =============================================================
-                # IMAGE AGENTS
-                # =============================================================
+                # -------------------------------------------------
+                # 2D IMAGE AGENT
+                # -------------------------------------------------
 
                 if modality == "2D_image":
 
                     if agent_image is None:
 
                         raise ValueError(
-                            f"No image provided for "
-                            f"agent '{agent_id}'."
+                            f"No image provided for image agent "
+                            f"'{agent_id}'."
                         )
-
-                    if not hasattr(
-                        agent,
-                        "predict"
-                    ):
-
-                        raise AttributeError(
-                            f"Agent '{agent_id}' "
-                            "does not have a predict method."
-                        )
-
-                    # IMPORTANT:
-                    # TumorClassificationAgent expects:
-                    #
-                    #     predict(image)
-                    #
-                    # NOT:
-                    #
-                    #     predict(data, image=image)
 
                     raw_result = agent.predict(
                         agent_image
                     )
 
-                # =============================================================
-                # STANDARD / TABULAR / 3D AGENTS
-                # =============================================================
+                # -------------------------------------------------
+                # ALL NON-IMAGE AGENTS
+                # -------------------------------------------------
 
                 else:
 
@@ -995,330 +993,314 @@ class LiverCoordinator:
                     if agent_input is None:
 
                         raise ValueError(
-                            f"No input provided for "
-                            f"agent '{agent_id}'."
+                            f"No input provided for agent "
+                            f"'{agent_id}'."
                         )
 
-                    # ---------------------------------------------------------
-                    # Prediction
-                    # ---------------------------------------------------------
+                    raw_result = agent.predict(
+                        agent_input
+                    )
 
-                    if hasattr(
-                        agent,
-                        "predict"
-                    ):
+            # =================================================
+            # ANALYZE-BASED AGENT
+            # =================================================
 
-                        raw_result = agent.predict(
-                            agent_input
-                        )
+            elif hasattr(agent, "analyze"):
 
-                    # ---------------------------------------------------------
-                    # Analyze
-                    # ---------------------------------------------------------
+                if agent_input is None:
 
-                    elif hasattr(
-                        agent,
-                        "analyze"
-                    ):
+                    agent_input = kwargs.get(
+                        "patient_data"
+                    )
 
-                        raw_result = agent.analyze(
-                            agent_input
-                        )
+                if agent_input is None:
 
-                    else:
+                    raise ValueError(
+                        f"No input provided for agent "
+                        f"'{agent_id}'."
+                    )
 
-                        raise AttributeError(
-                            f"Agent '{agent_id}' has neither "
-                            "'predict' nor 'analyze'."
-                        )
-
-                # =============================================================
-                # NORMALIZE
-                # =============================================================
-
-                normalized = self._normalize_result(
-                    agent_id=agent_id,
-                    result=raw_result,
-                    task_type=task_type,
-                    modality=modality
+                raw_result = agent.analyze(
+                    agent_input
                 )
 
-            except Exception as exc:
-
-                normalized = {
-
-                    "agent_id":
-                        agent_id,
-
-                    "agent":
-                        agent_id,
-
-                    "task_type":
-                        task_type,
-
-                    "modality":
-                        modality,
-
-                    "prediction":
-                        None,
-
-                    "probability":
-                        None,
-
-                    "confidence":
-                        0.0,
-
-                    "uncertainty":
-                        1.0,
-
-                    "quality":
-                        0.0,
-
-                    "missing_data_ratio":
-                        1.0,
-
-                    "status":
-                        "failed",
-
-                    "error":
-                        str(exc),
-
-                    "details":
-                        {}
-                }
-
-            results.append(
-                normalized
-            )
-
-        # =====================================================================
-        # TRUST
-        # =====================================================================
-
-        grouped = self._group_by_task(
-            results
-        )
-
-        for result in results:
-
-            task_results = grouped.get(
-                result.get("task_type"),
-                []
-            )
-
-            if result.get("status") == "success":
-
-                self._compute_trust(
-                    result,
-                    task_results
-                )
+            # =================================================
+            # INVALID AGENT
+            # =================================================
 
             else:
 
-                result["trust"] = 0.0
-                result["agreement"] = 0.0
+                raise AttributeError(
+                    f"Agent '{agent_id}' has neither "
+                    "'predict' nor 'analyze'."
+                )
 
-        # =====================================================================
-        # ADAPTIVE FUSION
-        # =====================================================================
+            # =================================================
+            # NORMALIZATION
+            # =================================================
 
-        fusion_result = self.fusion.fuse(
-            results
+            normalized = self._normalize_result(
+                agent_id=agent_id,
+                result=raw_result,
+                task_type=task_type,
+                modality=modality
+            )
+
+        except Exception as exc:
+
+            normalized = {
+                "agent_id": agent_id,
+                "agent": agent_id,
+                "task_type": task_type,
+                "modality": modality,
+                "prediction": None,
+                "probability": None,
+                "confidence": 0.0,
+                "uncertainty": 1.0,
+                "quality": 0.0,
+                "missing_data_ratio": 1.0,
+                "status": "failed",
+                "error": str(exc),
+                "details": {}
+            }
+
+        results.append(
+            normalized
         )
 
-        # =====================================================================
-        # CONFLICTS
-        # =====================================================================
+    # =========================================================
+    # TRUST
+    # =========================================================
 
-        conflicts = self._detect_conflicts(
-            results
+    grouped = self._group_by_task(
+        results
+    )
+
+    for result in results:
+
+        task_results = grouped.get(
+            result.get("task_type"),
+            []
         )
 
-        resolutions = self._resolve_conflicts(
+        if result.get("status") == "success":
+
+            self._compute_trust(
+                result,
+                task_results
+            )
+
+        else:
+
+            result["trust"] = 0.0
+            result["agreement"] = 0.0
+
+    # =========================================================
+    # ADAPTIVE FUSION
+    # =========================================================
+
+    fusion_result = self.fusion.fuse(
+        results
+    )
+
+    # =========================================================
+    # CONFLICT DETECTION
+    # =========================================================
+
+    conflicts = self._detect_conflicts(
+        results
+    )
+
+    # =========================================================
+    # CONFLICT RESOLUTION
+    # =========================================================
+
+    resolutions = self._resolve_conflicts(
+        results,
+        conflicts
+    )
+
+    # =========================================================
+    # EVIDENCE GRAPH
+    # =========================================================
+
+    evidence_graph = self._build_evidence_graph(
+        results
+    )
+
+    # =========================================================
+    # TASK DECISIONS + ACTIONS
+    # =========================================================
+
+    task_decisions, task_actions = (
+        self._build_task_decisions(
+            results,
+            conflicts,
+            resolutions
+        )
+    )
+
+    # =========================================================
+    # REASONING
+    # =========================================================
+
+    reasoning_result = {
+
+        "status":
+            "completed"
+            if results
+            else "insufficient_evidence",
+
+        "task_assessments": {
+
+            task: {
+
+                "prediction":
+                    resolutions.get(
+                        task,
+                        {}
+                    ).get(
+                        "prediction"
+                    ),
+
+                "confidence":
+                    resolutions.get(
+                        task,
+                        {}
+                    ).get(
+                        "consensus_strength",
+                        0.0
+                    ),
+
+                "resolution":
+                    resolutions.get(
+                        task,
+                        {}
+                    )
+
+            }
+
+            for task in grouped
+        },
+
+        "evidence_graph":
+            evidence_graph,
+
+        "explanation":
+            (
+                "Evidence was evaluated separately "
+                "for each medical task. "
+                "Different tasks are complementary "
+                "and are not merged into one prediction."
+            )
+    }
+
+    # =========================================================
+    # GLOBAL COORDINATION SUMMARY
+    # =========================================================
+
+    coordination = (
+        self._build_coordination_summary(
             results,
             conflicts
         )
+    )
 
-        # =====================================================================
-        # TASK-AWARE EVIDENCE GRAPH
-        # =====================================================================
+    # =========================================================
+    # DECISION
+    # =========================================================
 
-        evidence_graph = self._build_evidence_graph(
-            results
-        )
+    decision_result = {
 
-        # =====================================================================
-        # TASK DECISIONS + ACTIONS
-        # =====================================================================
+        "status":
+            "completed"
+            if results
+            else "insufficient_evidence",
 
-        task_decisions, task_actions = (
-            self._build_task_decisions(
-                results,
-                conflicts,
-                resolutions
+        "task_decisions":
+            task_decisions,
+
+        "coordination":
+            coordination,
+
+        # IMPORTANT:
+        # Heterogeneous medical tasks must not be
+        # collapsed into one global class.
+        "prediction":
+            None,
+
+        "explanation":
+            (
+                "Decisions are task-specific. "
+                "No global medical class is inferred "
+                "from heterogeneous agents."
             )
-        )
+    }
 
-        # =====================================================================
-        # REASONING
-        # =====================================================================
+    # =========================================================
+    # FINAL RESULT
+    # =========================================================
 
-        reasoning_result = {
+    return {
 
-            "status":
-                "completed"
-                if results
-                else "insufficient_evidence",
+        "status":
+            "completed",
 
-            "task_assessments": {
+        "patient_id":
+            patient_id,
 
-                task: {
+        "agents":
+            results,
 
-                    "prediction":
-                        resolutions.get(
-                            task,
-                            {}
-                        ).get(
-                            "prediction"
-                        ),
+        "task_summary": {
 
-                    "confidence":
-                        resolutions.get(
-                            task,
-                            {}
-                        ).get(
-                            "consensus_strength",
-                            0.0
-                        ),
+            task: {
 
-                    "resolution":
-                        resolutions.get(
-                            task,
-                            {}
-                        )
+                "num_agents":
+                    len(task_results),
 
-                }
+                "prediction":
+                    resolutions.get(
+                        task,
+                        {}
+                    ).get(
+                        "prediction"
+                    ),
 
-                for task in grouped
-            },
+                "conflict":
+                    any(
+                        c.get("task_type") == task
+                        for c in conflicts
+                    )
+            }
 
-            "evidence_graph":
-                evidence_graph,
+            for task, task_results
+            in grouped.items()
+        },
 
-            "explanation":
-                (
-                    "Evidence was evaluated separately "
-                    "for each medical task. "
-                    "Different tasks are complementary "
-                    "and are not merged into one prediction."
-                )
-        }
+        "conflicts":
+            conflicts,
 
-        # =====================================================================
-        # GLOBAL DECISION SUMMARY
-        # =====================================================================
+        "conflict_resolution":
+            resolutions,
 
-        coordination = (
-            self._build_coordination_summary(
-                results,
-                conflicts
-            )
-        )
+        "fusion":
+            fusion_result,
 
-        decision_result = {
+        "reasoning":
+            reasoning_result,
 
-            "status":
-                "completed"
-                if results
-                else "insufficient_evidence",
+        "decision":
+            decision_result,
 
-            "task_decisions":
-                task_decisions,
+        "action": {
+            "task_actions":
+                task_actions
+        },
 
-            "coordination":
-                coordination,
-
-            # -------------------------------------------------------------
-            # IMPORTANT:
-            # No artificial global medical prediction.
-            # -------------------------------------------------------------
-
-            "prediction":
-                None,
-
-            "explanation":
-                (
-                    "Decisions are task-specific. "
-                    "No global medical class is inferred "
-                    "from heterogeneous agents."
-                )
-        }
-
-        # =====================================================================
-        # FINAL RESULT
-        # =====================================================================
-
-        return {
-
-            "status":
-                "completed",
-
-            "patient_id":
-                patient_id,
-
-            "agents":
-                results,
-
-            "task_summary": {
-
-                task: {
-
-                    "num_agents":
-                        len(task_results),
-
-                    "prediction":
-                        resolutions.get(
-                            task,
-                            {}
-                        ).get(
-                            "prediction"
-                        ),
-
-                    "conflict":
-                        any(
-                            c.get("task_type") == task
-                            for c in conflicts
-                        )
-                }
-
-                for task, task_results
-                in grouped.items()
-            },
-
-            "conflicts":
-                conflicts,
-
-            "conflict_resolution":
-                resolutions,
-
-            "fusion":
-                fusion_result,
-
-            "reasoning":
-                reasoning_result,
-
-            "decision":
-                decision_result,
-
-            "action": {
-                "task_actions":
-                    task_actions
-            },
-
-            "timestamp":
-                datetime.utcnow().isoformat()
-        }
-
+        "timestamp":
+            datetime.utcnow().isoformat()
+    }
     # =========================================================================
     # FEEDBACK
     # =========================================================================
