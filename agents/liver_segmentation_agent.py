@@ -1,9 +1,6 @@
-# ============================================================
-# Liver Segmentation Agent
-# SegResNet 3D
-# ============================================================
-
 import os
+import time
+
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -13,23 +10,18 @@ from monai.networks.nets import SegResNet
 
 class LiverSegmentationAgent:
     """
-    Liver segmentation agent based on 3D SegResNet.
+    Liver Segmentation Agent
+    Model: 3D SegResNet
 
     Input:
-        - 3D liver CT volume (.npy)
-        - numpy array
-        - torch tensor
-
-    Preprocessing:
-        - float32
-        - NaN/Inf cleaning
-        - min-max normalization
-        - resize to 128 x 128 x 64
+        - .npy volume
+        - numpy.ndarray
+        - torch.Tensor
 
     Output:
-        - binary liver segmentation mask
+        - binary liver mask
+        - probability map
         - segmentation statistics
-        - model confidence/quality indicators
     """
 
     def __init__(
@@ -37,98 +29,121 @@ class LiverSegmentationAgent:
         model_path=None,
         device=None,
         target_size=(128, 128, 64),
-        threshold=0.5
+        threshold=0.5,
     ):
 
-        # ----------------------------------------------------
-        # Device
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # DEVICE
+        # --------------------------------------------------
 
         if device is None:
+
             self.device = torch.device(
-                "cuda" if torch.cuda.is_available() else "cpu"
+                "cuda"
+                if torch.cuda.is_available()
+                else "cpu"
             )
+
         else:
+
             self.device = torch.device(device)
 
-        # ----------------------------------------------------
-        # Target size
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # PARAMETERS
+        # --------------------------------------------------
 
         self.target_size = tuple(target_size)
 
         self.threshold = float(threshold)
 
-        # ----------------------------------------------------
-        # Default model path
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # MODEL PATH
+        # --------------------------------------------------
 
         if model_path is None:
 
             model_path = (
                 "/content/drive/MyDrive/"
-                "Liver Segmentation Agent/models/"
+                "Liver Segmentation Agent/"
+                "models/"
                 "SegResNet3D_Liver_best.pth"
             )
 
         self.model_path = model_path
 
-        # ----------------------------------------------------
-        # Check model
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # CHECK MODEL
+        # --------------------------------------------------
 
-        if not os.path.exists(self.model_path):
+        if not os.path.isfile(self.model_path):
 
             raise FileNotFoundError(
-                f"SegResNet model not found:\n"
+                "SegResNet model not found:\n"
                 f"{self.model_path}"
             )
 
-        # ----------------------------------------------------
-        # Build model
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # BUILD MODEL
+        # --------------------------------------------------
 
         self.model = SegResNet(
             spatial_dims=3,
             in_channels=1,
             out_channels=1,
             init_filters=16,
-            dropout_prob=0.2
+            dropout_prob=0.2,
         ).to(self.device)
 
-        # ----------------------------------------------------
-        # Load checkpoint
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # LOAD CHECKPOINT
+        # --------------------------------------------------
 
         checkpoint = torch.load(
             self.model_path,
-            map_location=self.device
+            map_location=self.device,
+            weights_only=False,
         )
 
-        # Support both:
-        # 1. state_dict directly
-        # 2. checkpoint dictionaries
+        # --------------------------------------------------
+        # EXTRACT STATE DICT
+        # --------------------------------------------------
 
         if isinstance(checkpoint, dict):
 
             if "state_dict" in checkpoint:
+
                 state_dict = checkpoint["state_dict"]
 
             elif "model_state_dict" in checkpoint:
+
                 state_dict = checkpoint["model_state_dict"]
 
-            elif "model" in checkpoint:
+            elif (
+                "model" in checkpoint
+                and isinstance(checkpoint["model"], dict)
+            ):
+
                 state_dict = checkpoint["model"]
 
             else:
+
                 state_dict = checkpoint
 
         else:
-            state_dict = checkpoint
 
-        # ----------------------------------------------------
-        # Remove possible prefixes
-        # ----------------------------------------------------
+            if hasattr(checkpoint, "state_dict"):
+
+                state_dict = checkpoint.state_dict()
+
+            else:
+
+                raise TypeError(
+                    "Unsupported SegResNet checkpoint format."
+                )
+
+        # --------------------------------------------------
+        # CLEAN PREFIXES
+        # --------------------------------------------------
 
         cleaned_state_dict = {}
 
@@ -136,117 +151,183 @@ class LiverSegmentationAgent:
 
             new_key = key
 
-            if new_key.startswith("module."):
-                new_key = new_key[7:]
+            prefixes = (
+                "module.",
+                "model.",
+                "net.",
+            )
 
-            if new_key.startswith("model."):
-                new_key = new_key[6:]
+            changed = True
+
+            while changed:
+
+                changed = False
+
+                for prefix in prefixes:
+
+                    if new_key.startswith(prefix):
+
+                        new_key = new_key[
+                            len(prefix):
+                        ]
+
+                        changed = True
+                        break
 
             cleaned_state_dict[new_key] = value
 
-        # ----------------------------------------------------
-        # Load model
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # LOAD WEIGHTS
+        # --------------------------------------------------
 
-        self.model.load_state_dict(
-            cleaned_state_dict,
-            strict=True
+        missing, unexpected = (
+            self.model.load_state_dict(
+                cleaned_state_dict,
+                strict=False,
+            )
         )
-
-        self.model.eval()
-
-        # ----------------------------------------------------
-        # Information
-        # ----------------------------------------------------
-
-        self.loaded = True
 
         print("=" * 70)
         print("LIVER SEGMENTATION AGENT")
         print("=" * 70)
-        print("Model        :", self.model_path)
-        print("Device       :", self.device)
-        print("Target size  :", self.target_size)
-        print("Threshold    :", self.threshold)
-        print("Model loaded : SUCCESS")
+
+        print(
+            "Model path      :",
+            self.model_path
+        )
+
+        print(
+            "Device          :",
+            self.device
+        )
+
+        print(
+            "Target size     :",
+            self.target_size
+        )
+
+        print(
+            "Threshold       :",
+            self.threshold
+        )
+
+        print(
+            "Missing keys    :",
+            len(missing)
+        )
+
+        print(
+            "Unexpected keys :",
+            len(unexpected)
+        )
+
+        if len(missing) > 0:
+
+            print(
+                "WARNING: missing model parameters."
+            )
+
+        if len(unexpected) > 0:
+
+            print(
+                "WARNING: unexpected checkpoint parameters."
+            )
+
+        self.model.eval()
+
+        self.loaded = True
+
+        print(
+            "Model loaded    : SUCCESS"
+        )
+
         print("=" * 70)
 
-    # ========================================================
-    # Load NPY
-    # ========================================================
+    # ======================================================
+    # LOAD VOLUME
+    # ======================================================
 
     def load_volume(self, input_data):
 
-        # ----------------------------------------------------
-        # File path
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # PATH
+        # --------------------------------------------------
 
-        if isinstance(input_data, str):
+        if isinstance(
+            input_data,
+            (str, os.PathLike)
+        ):
 
-            if not os.path.exists(input_data):
+            input_path = os.fspath(input_data)
+
+            if not os.path.isfile(input_path):
 
                 raise FileNotFoundError(
-                    f"Input volume not found:\n"
-                    f"{input_data}"
+                    "Input volume not found:\n"
+                    f"{input_path}"
                 )
 
-            volume = np.load(input_data)
+            volume = np.load(input_path)
 
-        # ----------------------------------------------------
-        # NumPy array
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # NUMPY
+        # --------------------------------------------------
 
-        elif isinstance(input_data, np.ndarray):
+        elif isinstance(
+            input_data,
+            np.ndarray
+        ):
 
             volume = input_data
 
-        # ----------------------------------------------------
-        # Torch tensor
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # TORCH
+        # --------------------------------------------------
 
         elif torch.is_tensor(input_data):
 
-            volume = input_data.detach().cpu().numpy()
+            volume = (
+                input_data
+                .detach()
+                .cpu()
+                .numpy()
+            )
 
         else:
 
             raise TypeError(
-                "Input must be:\n"
-                "- .npy file path\n"
-                "- numpy.ndarray\n"
-                "- torch.Tensor"
+                "Input must be:"
+                "\n- .npy path"
+                "\n- numpy.ndarray"
+                "\n- torch.Tensor"
             )
 
         return volume
 
-    # ========================================================
-    # Preprocessing
-    # ========================================================
+    # ======================================================
+    # PREPROCESS
+    # ======================================================
 
     def preprocess(self, input_data):
 
-        volume = self.load_volume(input_data)
+        volume = self.load_volume(
+            input_data
+        )
 
-        # ----------------------------------------------------
-        # Convert to float32
-        # ----------------------------------------------------
-
-        volume = volume.astype(np.float32)
-
-        # ----------------------------------------------------
-        # Remove NaN / Inf
-        # ----------------------------------------------------
+        volume = volume.astype(
+            np.float32
+        )
 
         volume = np.nan_to_num(
             volume,
             nan=0.0,
             posinf=1.0,
-            neginf=0.0
+            neginf=0.0,
         )
 
-        # ----------------------------------------------------
-        # Verify 3D
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # VERIFY 3D
+        # --------------------------------------------------
 
         if volume.ndim != 3:
 
@@ -257,12 +338,17 @@ class LiverSegmentationAgent:
 
         original_shape = volume.shape
 
-        # ----------------------------------------------------
-        # Min-max normalization
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # NORMALIZATION
+        # --------------------------------------------------
 
-        volume_min = volume.min()
-        volume_max = volume.max()
+        volume_min = float(
+            volume.min()
+        )
+
+        volume_max = float(
+            volume.max()
+        )
 
         if volume_max > volume_min:
 
@@ -274,88 +360,97 @@ class LiverSegmentationAgent:
 
         else:
 
-            volume = np.zeros_like(volume)
+            volume = np.zeros_like(
+                volume
+            )
 
-        # ----------------------------------------------------
-        # NumPy -> Torch
-        #
-        # Original:
-        # [H, W, D]
-        #
-        # -> [1, 1, H, W, D]
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # NUMPY -> TORCH
+        # --------------------------------------------------
 
-        tensor = torch.from_numpy(volume)
+        tensor = torch.from_numpy(
+            volume
+        )
+
+        # [H,W,D]
+        # ->
+        # [1,1,H,W,D]
 
         tensor = tensor.unsqueeze(0)
         tensor = tensor.unsqueeze(0)
 
         tensor = tensor.to(
             self.device,
-            dtype=torch.float32
+            dtype=torch.float32,
         )
 
-        # ----------------------------------------------------
-        # Resize
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # RESIZE
+        # --------------------------------------------------
 
         tensor = F.interpolate(
             tensor,
             size=self.target_size,
             mode="trilinear",
-            align_corners=False
+            align_corners=False,
         )
 
         return tensor, original_shape
 
-    # ========================================================
-    # Segmentation
-    # ========================================================
+    # ======================================================
+    # PREDICT
+    # ======================================================
 
     @torch.no_grad()
     def predict(self, input_data):
 
-        # ----------------------------------------------------
-        # Preprocess
-        # ----------------------------------------------------
+        start = time.perf_counter()
 
-        image, original_shape = self.preprocess(
-            input_data
+        # --------------------------------------------------
+        # PREPROCESS
+        # --------------------------------------------------
+
+        image, original_shape = (
+            self.preprocess(
+                input_data
+            )
         )
 
-        # ----------------------------------------------------
-        # Model inference
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # MODEL
+        # --------------------------------------------------
 
         logits = self.model(image)
 
-        # ----------------------------------------------------
-        # Probability
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # PROBABILITY
+        # --------------------------------------------------
 
-        probabilities = torch.sigmoid(logits)
+        probabilities = torch.sigmoid(
+            logits
+        )
 
-        # ----------------------------------------------------
-        # Binary mask
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # BINARY MASK
+        # --------------------------------------------------
 
         prediction = (
             probabilities >= self.threshold
         ).float()
 
-        # ----------------------------------------------------
-        # Statistics
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # STATISTICS
+        # --------------------------------------------------
 
-        mean_probability = (
+        mean_probability = float(
             probabilities.mean().item()
         )
 
-        max_probability = (
+        max_probability = float(
             probabilities.max().item()
         )
 
-        min_probability = (
+        min_probability = float(
             probabilities.min().item()
         )
 
@@ -373,13 +468,9 @@ class LiverSegmentationAgent:
             else 0.0
         )
 
-        # ----------------------------------------------------
-        # Convert prediction to NumPy
-        #
-        # [1,1,128,128,64]
-        # ->
-        # [128,128,64]
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # NUMPY OUTPUT
+        # --------------------------------------------------
 
         prediction_numpy = (
             prediction
@@ -399,23 +490,33 @@ class LiverSegmentationAgent:
             .astype(np.float32)
         )
 
-        # ----------------------------------------------------
-        # Result
-        # ----------------------------------------------------
+        latency = (
+            time.perf_counter() - start
+        ) * 1000.0
 
-        result = {
+        # --------------------------------------------------
+        # RESULT
+        # --------------------------------------------------
+
+        return {
 
             "status": "success",
 
             "agent": "liver_segmentation",
 
+            "task_type": "liver_segmentation",
+
             "model": "SegResNet3D",
 
             "model_path": self.model_path,
 
-            "device": str(self.device),
+            "device": str(
+                self.device
+            ),
 
-            "input_shape": list(original_shape),
+            "input_shape": list(
+                original_shape
+            ),
 
             "output_shape": list(
                 prediction_numpy.shape
@@ -439,84 +540,101 @@ class LiverSegmentationAgent:
                 liver_ratio
             ),
 
-            "mean_probability": float(
-                mean_probability
-            ),
+            "mean_probability": mean_probability,
 
-            "min_probability": float(
-                min_probability
-            ),
+            "min_probability": min_probability,
 
-            "max_probability": float(
+            "max_probability": max_probability,
+
+            "confidence": float(
                 max_probability
-            )
+            ),
+
+            "uncertainty": float(
+                1.0 - max_probability
+            ),
+
+            "quality": 1.0,
+
+            "missing_data_ratio": 0.0,
+
+            "modality": "3D_CT",
+
+            "latency_ms": latency,
         }
 
-        return result
-
-    # ========================================================
-    # Run alias
-    # ========================================================
+    # ======================================================
+    # RUN
+    # ======================================================
 
     def run(self, input_data):
 
-        return self.predict(input_data)
+        return self.predict(
+            input_data
+        )
 
-    # ========================================================
-    # Simple test
-    # ========================================================
+    # ======================================================
+    # TEST
+    # ======================================================
 
     def test(self, input_data):
 
-        result = self.predict(input_data)
+        result = self.predict(
+            input_data
+        )
 
         print("=" * 70)
         print("SEGMENTATION TEST")
         print("=" * 70)
 
         print(
-            "Status          :",
+            "Status           :",
             result["status"]
         )
 
         print(
-            "Agent           :",
+            "Agent            :",
             result["agent"]
         )
 
         print(
-            "Model           :",
+            "Model            :",
             result["model"]
         )
 
         print(
-            "Input shape     :",
+            "Input shape      :",
             result["input_shape"]
         )
 
         print(
-            "Output shape    :",
+            "Output shape     :",
             result["output_shape"]
         )
 
         print(
-            "Liver voxels    :",
+            "Liver voxels     :",
             result["liver_voxels"]
         )
 
         print(
-            "Liver ratio     :",
+            "Liver ratio      :",
             f"{result['liver_ratio']:.4f}"
         )
 
         print(
-            "Mean probability:",
+            "Mean probability :",
             f"{result['mean_probability']:.4f}"
         )
 
         print(
-            "Max probability :",
+            "Max probability  :",
             f"{result['max_probability']:.4f}"
+        )
+
+        print(
+            "Latency          :",
+            f"{result['latency_ms']:.2f} ms"
         )
 
         print("=" * 70)
@@ -524,20 +642,22 @@ class LiverSegmentationAgent:
         return result
 
 
-# ============================================================
-# Standalone test
-# ============================================================
+# ==========================================================
+# STANDALONE TEST
+# ==========================================================
 
 if __name__ == "__main__":
 
     MODEL_PATH = (
         "/content/drive/MyDrive/"
-        "Liver Segmentation Agent/models/"
+        "Liver Segmentation Agent/"
+        "models/"
         "SegResNet3D_Liver_best.pth"
     )
 
     TEST_VOLUME = (
-        "/content/task03_liver/extracted/image/"
+        "/content/drive/MyDrive/"
+        "archive (2)/image/"
         "liver_0_img.npy"
     )
 
