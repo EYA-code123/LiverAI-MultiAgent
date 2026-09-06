@@ -196,11 +196,10 @@ class ClinicalReasoningAgent:
 
         # Convert everything to numeric.
         for feature in self.features:
-
             df[feature] = pd.to_numeric(
                 df[feature],
                 errors="coerce"
-            )
+            ).astype(float)
 
         # Check NaN.
         if df.isnull().any().any():
