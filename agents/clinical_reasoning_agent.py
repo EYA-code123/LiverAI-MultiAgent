@@ -1,10 +1,10 @@
-# ============================================================
+# =============================================================================
 # CLINICAL REASONING AGENT
-# CPU-SAFE VERSION
-# ============================================================
+# =============================================================================
 
 import os
-import warnings
+import time
+
 import numpy as np
 import pandas as pd
 import torch
@@ -27,8 +27,7 @@ class ClinicalReasoningAgent:
         gammagt
         drinks
 
-    This implementation is CPU-safe and can load a checkpoint
-    originally saved on CUDA.
+    CPU-safe loading for checkpoints originally saved on CUDA.
     """
 
     AGENT_NAME = "ClinicalReasoningAgent"
@@ -45,17 +44,22 @@ class ClinicalReasoningAgent:
 
     TARGET = "selector"
 
+    # =========================================================================
+    # INIT
+    # =========================================================================
+
     def __init__(self, model_package):
 
         print("=" * 70)
         print("CLINICAL REASONING AGENT")
         print("=" * 70)
 
-        # --------------------------------------------------------
+        # ---------------------------------------------------------------------
         # MODEL PATH
-        # --------------------------------------------------------
+        # ---------------------------------------------------------------------
 
         if not isinstance(model_package, str):
+
             raise TypeError(
                 "ClinicalReasoningAgent expects the path to "
                 "the PyTorch Tabular model directory."
@@ -64,14 +68,15 @@ class ClinicalReasoningAgent:
         self.model_path = model_package
 
         if not os.path.exists(self.model_path):
+
             raise FileNotFoundError(
                 f"Clinical Reasoning model not found:\n"
                 f"{self.model_path}"
             )
 
-        # --------------------------------------------------------
+        # ---------------------------------------------------------------------
         # DEVICE
-        # --------------------------------------------------------
+        # ---------------------------------------------------------------------
 
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
@@ -81,31 +86,37 @@ class ClinicalReasoningAgent:
         print(self.model_path)
         print("Device:", self.device)
 
-        # --------------------------------------------------------
+        # ---------------------------------------------------------------------
         # CPU-SAFE MODEL LOADING
-        # --------------------------------------------------------
+        # ---------------------------------------------------------------------
 
         original_torch_load = torch.load
 
         def cpu_safe_torch_load(*args, **kwargs):
 
-            # Force every serialized tensor to CPU.
             kwargs["map_location"] = torch.device("cpu")
 
-            # PyTorch versions >= 2.6 may default to weights_only=True.
-            # PyTorch Tabular checkpoints may require the complete
-            # serialized object, so preserve the loader behavior when
-            # possible.
             try:
-                return original_torch_load(*args, **kwargs)
+
+                return original_torch_load(
+                    *args,
+                    **kwargs
+                )
+
             except TypeError:
-                kwargs.pop("weights_only", None)
-                return original_torch_load(*args, **kwargs)
+
+                kwargs.pop(
+                    "weights_only",
+                    None
+                )
+
+                return original_torch_load(
+                    *args,
+                    **kwargs
+                )
 
         try:
 
-            # Patch torch.load only while PyTorch Tabular loads
-            # the serialized model.
             torch.load = cpu_safe_torch_load
 
             self.model = TabularModel.load_model(
@@ -126,41 +137,71 @@ class ClinicalReasoningAgent:
 
         finally:
 
-            # ALWAYS restore the original torch.load.
             torch.load = original_torch_load
 
-        # --------------------------------------------------------
+        # ---------------------------------------------------------------------
         # MODEL READY
-        # --------------------------------------------------------
+        # ---------------------------------------------------------------------
 
-        print("✓ Clinical Reasoning model loaded successfully")
+        print(
+            "✓ Clinical Reasoning model loaded successfully"
+        )
 
         self.features = self.FEATURES.copy()
+
         self.target = self.TARGET
 
-        print("Features:", len(self.features))
-        print("Target  :", self.target)
+        print(
+            "Features:",
+            len(self.features)
+        )
 
-    # ============================================================
+        print(
+            "Target  :",
+            self.target
+        )
+
+    # =========================================================================
     # DATAFRAME CREATION
-    # ============================================================
+    # =========================================================================
 
     def _create_dataframe(self, patient_data):
 
-        if isinstance(patient_data, pd.DataFrame):
+        # ---------------------------------------------------------------------
+        # Convert input to DataFrame
+        # ---------------------------------------------------------------------
+
+        if isinstance(
+            patient_data,
+            pd.DataFrame
+        ):
 
             df = patient_data.copy()
 
-        elif isinstance(patient_data, dict):
+        elif isinstance(
+            patient_data,
+            dict
+        ):
 
-            df = pd.DataFrame([patient_data])
+            df = pd.DataFrame(
+                [patient_data]
+            )
 
-        elif isinstance(patient_data, (list, tuple, np.ndarray)):
+        elif isinstance(
+            patient_data,
+            (list, tuple, np.ndarray)
+        ):
 
-            array = np.asarray(patient_data)
+            array = np.asarray(
+                patient_data
+            )
 
             if array.ndim == 1:
-                array = array.reshape(1, -1)
+
+                array = array.reshape(
+                    1,
+                    -1
+                )
 
             df = pd.DataFrame(
                 array,
@@ -174,9 +215,9 @@ class ClinicalReasoningAgent:
                 "list, tuple or numpy array."
             )
 
-        # --------------------------------------------------------
-        # CHECK FEATURES
-        # --------------------------------------------------------
+        # ---------------------------------------------------------------------
+        # Check required features
+        # ---------------------------------------------------------------------
 
         missing_features = [
             feature
@@ -188,20 +229,34 @@ class ClinicalReasoningAgent:
 
             raise ValueError(
                 "Missing Clinical Reasoning features: "
-                + ", ".join(missing_features)
+                + ", ".join(
+                    missing_features
+                )
             )
 
-        # Keep only expected features.
-        df = df[self.features].copy()
+        # ---------------------------------------------------------------------
+        # Keep ONLY expected features
+        # ---------------------------------------------------------------------
 
-        # Convert everything to numeric.
+        df = df[
+            self.features
+        ].copy()
+
+        # ---------------------------------------------------------------------
+        # Convert all features to numeric
+        # ---------------------------------------------------------------------
+
         for feature in self.features:
+
             df[feature] = pd.to_numeric(
                 df[feature],
                 errors="coerce"
-            ).astype(float)
+            )
 
-        # Check NaN.
+        # ---------------------------------------------------------------------
+        # Check invalid values
+        # ---------------------------------------------------------------------
+
         if df.isnull().any().any():
 
             missing = df.columns[
@@ -213,19 +268,64 @@ class ClinicalReasoningAgent:
                 f"input: {missing}"
             )
 
+        # ---------------------------------------------------------------------
+        # IMPORTANT FIX
+        #
+        # PyTorch Tabular may internally assign floating-point
+        # transformed values to these columns.
+        #
+        # If the original columns are int64, recent pandas versions
+        # generate:
+        #
+        # FutureWarning:
+        # Setting an item of incompatible dtype...
+        #
+        # Force every continuous input feature to float64.
+        # ---------------------------------------------------------------------
+
+        df = df.astype(
+            {
+                feature: "float64"
+                for feature in self.features
+            }
+        )
+
+        # ---------------------------------------------------------------------
+        # Final clean DataFrame
+        # ---------------------------------------------------------------------
+
+        df = pd.DataFrame(
+            df,
+            columns=self.features
+        )
+
         return df
 
-    # ============================================================
+    # =========================================================================
     # PREDICTION
-    # ============================================================
+    # =========================================================================
 
     def predict(self, patient_data):
 
-        df = self._create_dataframe(patient_data)
+        start_time = time.time()
 
         try:
 
-            result = self.model.predict(df)
+            # -----------------------------------------------------------------
+            # Prepare input
+            # -----------------------------------------------------------------
+
+            df = self._create_dataframe(
+                patient_data
+            )
+
+            # -----------------------------------------------------------------
+            # Prediction
+            # -----------------------------------------------------------------
+
+            result = self.model.predict(
+                df
+            )
 
         except Exception as e:
 
@@ -234,55 +334,74 @@ class ClinicalReasoningAgent:
                 f"{e}"
             ) from e
 
-        # --------------------------------------------------------
-        # CONVERT RESULT
-        # --------------------------------------------------------
+        # ---------------------------------------------------------------------
+        # Convert result to DataFrame
+        # ---------------------------------------------------------------------
 
-        if isinstance(result, pd.DataFrame):
+        if isinstance(
+            result,
+            pd.DataFrame
+        ):
 
             prediction_df = result
 
         else:
 
-            prediction_df = pd.DataFrame(result)
+            prediction_df = pd.DataFrame(
+                result
+            )
 
         if prediction_df.empty:
 
             raise RuntimeError(
-                "Clinical Reasoning model returned an empty result."
+                "Clinical Reasoning model returned "
+                "an empty result."
             )
 
-        # --------------------------------------------------------
-        # FIND PREDICTION COLUMN
-        # --------------------------------------------------------
+        # ---------------------------------------------------------------------
+        # Find prediction column
+        # ---------------------------------------------------------------------
 
         prediction_column = None
 
         possible_prediction_columns = [
+
             "prediction",
+
             "Prediction",
+
             self.target,
+
             "selector_prediction",
         ]
 
         for column in possible_prediction_columns:
 
             if column in prediction_df.columns:
+
                 prediction_column = column
+
                 break
 
-        # Fallback: search for columns containing prediction.
+        # ---------------------------------------------------------------------
+        # Fallback search
+        # ---------------------------------------------------------------------
+
         if prediction_column is None:
 
             for column in prediction_df.columns:
 
-                name = str(column).lower()
+                name = str(
+                    column
+                ).lower()
 
                 if (
                     "prediction" in name
                     or name == self.target.lower()
                 ):
+
                     prediction_column = column
+
                     break
 
         if prediction_column is None:
@@ -293,30 +412,46 @@ class ClinicalReasoningAgent:
                 f"{list(prediction_df.columns)}"
             )
 
+        # ---------------------------------------------------------------------
+        # Prediction value
+        # ---------------------------------------------------------------------
+
         prediction = prediction_df[
             prediction_column
         ].iloc[0]
 
-        # Convert numpy scalar.
-        if isinstance(prediction, np.generic):
+        if isinstance(
+            prediction,
+            np.generic
+        ):
+
             prediction = prediction.item()
 
-        # Try integer conversion when appropriate.
         try:
-            if float(prediction).is_integer():
-                prediction = int(prediction)
+
+            if float(
+                prediction
+            ).is_integer():
+
+                prediction = int(
+                    prediction
+                )
+
         except Exception:
+
             pass
 
-        # --------------------------------------------------------
-        # PROBABILITIES
-        # --------------------------------------------------------
+        # ---------------------------------------------------------------------
+        # Probabilities
+        # ---------------------------------------------------------------------
 
         probabilities = {}
 
         for column in prediction_df.columns:
 
-            name = str(column)
+            name = str(
+                column
+            )
 
             lower_name = name.lower()
 
@@ -331,15 +466,20 @@ class ClinicalReasoningAgent:
                 ].iloc[0]
 
                 try:
-                    value = float(value)
+
+                    value = float(
+                        value
+                    )
+
                 except Exception:
+
                     continue
 
                 probabilities[name] = value
 
-        # --------------------------------------------------------
-        # CONFIDENCE
-        # --------------------------------------------------------
+        # ---------------------------------------------------------------------
+        # Confidence
+        # ---------------------------------------------------------------------
 
         confidence = None
 
@@ -349,44 +489,78 @@ class ClinicalReasoningAgent:
                 probabilities.values()
             )
 
-        # --------------------------------------------------------
-        # OUTPUT
-        # --------------------------------------------------------
+        # ---------------------------------------------------------------------
+        # Output
+        # ---------------------------------------------------------------------
 
         output = {
-            "agent": self.AGENT_NAME,
-            "model": self.MODEL_NAME,
-            "prediction": prediction,
-            "probabilities": probabilities,
+
             "status": "success",
+
+            "agent": self.AGENT_NAME,
+
+            "model": self.MODEL_NAME,
+
+            "prediction": prediction,
+
+            "probabilities": probabilities,
+
+            "quality": 1.0,
+
+            "missing_ratio": 0.0,
+
+            "features_used": self.features.copy(),
+
+            "inference_time":
+                time.time() - start_time,
         }
 
         if confidence is not None:
 
             output["confidence"] = confidence
-            output["uncertainty"] = 1.0 - confidence
+
+            output["uncertainty"] = (
+                1.0 - confidence
+            )
+
+        else:
+
+            output["confidence"] = None
+
+            output["uncertainty"] = None
 
         return output
 
-    # ============================================================
+    # =========================================================================
     # ANALYZE
-    # ============================================================
+    # =========================================================================
 
     def analyze(self, patient_data):
 
-        return self.predict(patient_data)
+        return self.predict(
+            patient_data
+        )
 
-    # ============================================================
+    # =========================================================================
     # HEALTH CHECK
-    # ============================================================
+    # =========================================================================
 
     def health_check(self):
 
         return {
+
             "agent": self.AGENT_NAME,
+
             "model": self.MODEL_NAME,
+
             "model_path": self.model_path,
-            "device": str(self.device),
-            "loaded": self.model is not None,
+
+            "device": str(
+                self.device
+            ),
+
+            "loaded":
+                self.model is not None,
+
             "status": "healthy",
         }
