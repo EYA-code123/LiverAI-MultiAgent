@@ -610,37 +610,39 @@ class LiverAIOrchestrator:
     # MAIN RUN
     # =========================================================================
 
-   def run(
-    self,
-    patient_id: str = "UNKNOWN",
-    patient_data: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+     # =========================================================================
+    # MAIN RUN
+    # =========================================================================
 
-    start_time = time.perf_counter()
+    def run(
+        self,
+        patient_id: str = "UNKNOWN",
+        patient_data: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
 
-    if patient_data is None:
-        patient_data = {}
+        start_time = time.perf_counter()
 
-    # ============================================================
-    # 1. SPECIALIZED AGENTS
-    # ============================================================
+        if patient_data is None:
+            patient_data = {}
 
-    specialized_results = self.run_specialized_agents(
-        patient_data
-    )
+        # ============================================================
+        # 1. SPECIALIZED AGENTS
+        # ============================================================
 
-    if specialized_results is None:
-        specialized_results = {}
+        specialized_results = self.run_specialized_agents(
+            patient_data
+        )
 
-    # ============================================================
-    # 2. CLINICAL REASONING
-    # ============================================================
+        if specialized_results is None:
+            specialized_results = {}
 
-    clinical_result = self.run_clinical_reasoning(
-        patient_data,
-        specialized_results,
-    )
+        # ============================================================
+        # 2. CLINICAL REASONING
+        # ============================================================
 
+        clinical_result = self.run_clinical_reasoning(
+            patient_data
+        )
     if clinical_result is None:
         clinical_result = self._not_run_result(
             "clinical_reasoning",
