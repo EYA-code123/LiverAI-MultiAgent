@@ -472,7 +472,7 @@ class LiverAIOrchestrator:
         patient_id: str = "UNKNOWN",
         patient_data: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-
+        start_time = time.perf_counter() 
         # ----------------------------------------------------
         # Validate patient data
         # ----------------------------------------------------
