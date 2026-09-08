@@ -30,7 +30,10 @@
 # Different medical tasks are NOT merged into one global prediction.
 #
 # =============================================================================
-
+from coordinator.communication import (
+    CommunicationProtocol,
+    AgentMessage,
+)
 from collections import defaultdict
 from datetime import datetime
 
