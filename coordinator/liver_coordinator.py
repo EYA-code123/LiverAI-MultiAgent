@@ -85,7 +85,13 @@ class LiverCoordinator:
         self.feedback_engine = FeedbackEngine(
             self.trust_manager
         )
+        self.feedback_engine = FeedbackEngine()
 
+        self.communication = CommunicationProtocol()
+
+        self.coordination_trace = []
+
+        self.delegation_history = []
         # ---------------------------------------------------------------------
         # Optional initial agents
         # ---------------------------------------------------------------------
@@ -1588,7 +1594,412 @@ class LiverCoordinator:
                     else 0.0
                 )
         }
+    # ============================================================
+# COMMUNICATION PROTOCOL
+# ============================================================
 
+def _send_request(
+    self,
+    agent_id,
+    request_type,
+    task_type=None,
+    payload=None,
+    patient_id=None,
+):
+    """
+    Send a structured request from Coordinator to an agent.
+    """
+
+    message = self.communication.create_request(
+        receiver=agent_id,
+        request_type=request_type,
+        task_type=task_type,
+        payload=payload,
+        patient_id=patient_id,
+    )
+
+    self.coordination_trace.append(
+        message.to_dict()
+    )
+
+    return message
+
+
+def _record_agent_response(
+    self,
+    agent_id,
+    request_message,
+    result,
+    task_type=None,
+    patient_id=None,
+):
+    """
+    Record an agent response in the communication protocol.
+    """
+
+    message = self.communication.record_agent_response(
+        sender=agent_id,
+        request_message=request_message,
+        payload=result,
+        task_type=task_type,
+        patient_id=patient_id,
+    )
+
+    self.coordination_trace.append(
+        message.to_dict()
+    )
+
+    return message
+
+
+# ============================================================
+# DYNAMIC DELEGATION
+# ============================================================
+
+def _delegate_task(
+    self,
+    agent_id,
+    request_type,
+    agent_input,
+    task_type=None,
+    patient_id=None,
+):
+    """
+    Dynamically delegate a task to a specialist agent.
+    """
+
+    if agent_id not in self.agents:
+
+        return {
+            "status": "error",
+            "error": f"Agent not registered: {agent_id}",
+        }
+
+    request_message = self._send_request(
+        agent_id=agent_id,
+        request_type=request_type,
+        task_type=task_type,
+        payload={
+            "reason": "dynamic_coordination",
+            "request": request_type,
+        },
+        patient_id=patient_id,
+    )
+
+    agent = self.agents[agent_id]
+
+    try:
+
+        raw_result = agent.predict(agent_input)
+
+        normalized_result = self._normalize_result(
+            agent_id,
+            raw_result,
+        )
+
+        self._record_agent_response(
+            agent_id=agent_id,
+            request_message=request_message,
+            result=normalized_result,
+            task_type=task_type,
+            patient_id=patient_id,
+        )
+
+        self.delegation_history.append(
+            {
+                "request_type": request_type,
+                "agent_id": agent_id,
+                "task_type": task_type,
+                "status": "success",
+            }
+        )
+
+        return normalized_result
+
+    except Exception as exc:
+
+        error_result = {
+            "agent_id": agent_id,
+            "agent": agent_id,
+            "task_type": task_type,
+            "status": "failed",
+            "error": str(exc),
+        }
+
+        self._record_agent_response(
+            agent_id=agent_id,
+            request_message=request_message,
+            result=error_result,
+            task_type=task_type,
+            patient_id=patient_id,
+        )
+
+        self.delegation_history.append(
+            {
+                "request_type": request_type,
+                "agent_id": agent_id,
+                "task_type": task_type,
+                "status": "failed",
+                "error": str(exc),
+            }
+        )
+
+        return error_result
+        # ============================================================
+# COORDINATION POLICY
+# ============================================================
+
+def _build_coordination_plan(
+    self,
+    results,
+    inputs=None,
+    images=None,
+    patient_id=None,
+):
+    """
+    Build a dynamic coordination plan from previous
+    agent evidence.
+
+    The Coordinator does not blindly execute every agent.
+    It decides whether additional evidence is required.
+    """
+
+    plan = []
+
+    results_by_task = {
+        r.get("task_type"): r
+        for r in results
+        if r.get("status") == "success"
+    }
+
+    # --------------------------------------------------------
+    # 1. TUMOR -> SEGMENTATION
+    # --------------------------------------------------------
+
+    tumor_result = results_by_task.get(
+        "tumor_classification"
+    )
+
+    segmentation_result = results_by_task.get(
+        "liver_segmentation"
+    )
+
+    if tumor_result is not None:
+
+        prediction = str(
+            tumor_result.get("prediction", "")
+        ).lower()
+
+        confidence = float(
+            tumor_result.get("confidence", 0.0) or 0.0
+        )
+
+        suspicious = (
+            "carcinoma" in prediction
+            or "tumor" in prediction
+            or "cancer" in prediction
+            or "angiosarcoma" in prediction
+            or "cholangiocarcinoma" in prediction
+            or "hemangioma" in prediction
+        )
+
+        if suspicious and segmentation_result is None:
+
+            plan.append(
+                {
+                    "request_type":
+                        AgentMessage.REQUEST_SEGMENTATION,
+
+                    "agent_id":
+                        "LiverSegmentationAgent",
+
+                    "task_type":
+                        "liver_segmentation",
+
+                    "reason":
+                        "Tumor agent produced a suspicious imaging finding.",
+
+                    "trigger_confidence":
+                        confidence,
+                }
+            )
+
+    # --------------------------------------------------------
+    # 2. LOW CONFIDENCE -> REASSESSMENT
+    # --------------------------------------------------------
+
+    for result in results:
+
+        if result.get("status") != "success":
+            continue
+
+        confidence = float(
+            result.get("confidence", 0.0) or 0.0
+        )
+
+        uncertainty = float(
+            result.get("uncertainty", 1.0) or 1.0
+        )
+
+        agent_id = result.get("agent_id")
+
+        task_type = result.get("task_type")
+
+        if confidence < 0.60 or uncertainty > 0.40:
+
+            plan.append(
+                {
+                    "request_type":
+                        AgentMessage.REQUEST_REASSESSMENT,
+
+                    "agent_id":
+                        agent_id,
+
+                    "task_type":
+                        task_type,
+
+                    "reason":
+                        "Low confidence or high uncertainty.",
+
+                    "confidence":
+                        confidence,
+
+                    "uncertainty":
+                        uncertainty,
+                }
+            )
+
+    # --------------------------------------------------------
+    # 3. HIGH RISK TUMOR -> CLINICAL SUPPORT
+    # --------------------------------------------------------
+
+    if tumor_result is not None:
+
+        prediction = str(
+            tumor_result.get("prediction", "")
+        ).lower()
+
+        if (
+            "carcinoma" in prediction
+            or "cancer" in prediction
+        ):
+
+            clinical_result = results_by_task.get(
+                "clinical_reasoning"
+            )
+
+            if clinical_result is None:
+
+                plan.append(
+                    {
+                        "request_type":
+                            AgentMessage.REQUEST_ADDITIONAL_EVIDENCE,
+
+                        "agent_id":
+                            "ClinicalReasoningAgent",
+
+                        "task_type":
+                            "clinical_reasoning",
+
+                        "reason":
+                            "Tumor finding requires additional clinical evidence.",
+                    }
+                )
+
+    return plan
+    # ============================================================
+# EXECUTE COORDINATION PLAN
+# ============================================================
+
+def _execute_coordination_plan(
+    self,
+    plan,
+    inputs=None,
+    images=None,
+    patient_id=None,
+):
+    """
+    Execute dynamically generated delegation requests.
+    """
+
+    additional_results = []
+
+    inputs = inputs or {}
+    images = images or {}
+
+    for request in plan:
+
+        agent_id = request["agent_id"]
+
+        request_type = request["request_type"]
+
+        task_type = request.get("task_type")
+
+        # ----------------------------------------------------
+        # BUILD INPUT
+        # ----------------------------------------------------
+
+        if agent_id in images:
+
+            agent_input = images[agent_id]
+
+        else:
+
+            agent_input = inputs.get(agent_id)
+
+        # ----------------------------------------------------
+        # SPECIAL SEGMENTATION ROUTING
+        # ----------------------------------------------------
+
+        if (
+            task_type == "liver_segmentation"
+            and isinstance(agent_input, dict)
+            and "image" in agent_input
+        ):
+
+            agent_input = agent_input["image"]
+
+        # ----------------------------------------------------
+        # MISSING INPUT
+        # ----------------------------------------------------
+
+        if agent_input is None:
+
+            additional_results.append(
+                {
+                    "agent_id": agent_id,
+                    "task_type": task_type,
+                    "status": "not_run",
+                    "error": "No input available for delegated request.",
+                    "request_type": request_type,
+                }
+            )
+
+            continue
+
+        # ----------------------------------------------------
+        # EXECUTE
+        # ----------------------------------------------------
+
+        result = self._delegate_task(
+            agent_id=agent_id,
+            request_type=request_type,
+            agent_input=agent_input,
+            task_type=task_type,
+            patient_id=patient_id,
+        )
+
+        if isinstance(result, dict):
+
+            result["coordination_request"] = request_type
+
+            result["coordination_reason"] = request.get(
+                "reason"
+            )
+
+        additional_results.append(result)
+
+    return additional_results
     # =========================================================================
     # RUN
     # =========================================================================
