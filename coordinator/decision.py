@@ -8,7 +8,640 @@ class DecisionEngine:
         high_conflict=0.50,
         minimum_coverage=0.50,
         minimum_quality=0.50,
+    ):# =============================================================================
+# LiverAI-MultiAgent
+# DECISION ENGINE
+# =============================================================================
+
+from typing import Any, Dict, List
+
+
+class DecisionEngine:
+    """
+    Converts aggregated task evidence into a structured decision.
+
+    Important:
+        The engine works per medical task.
+
+    It does NOT assume that:
+        cirrhosis,
+        fibrosis,
+        fatty liver,
+        tumor,
+        clinical reasoning,
+        segmentation
+
+    are the same prediction problem.
+    """
+
+    def __init__(
+        self,
+        high_confidence=0.80,
+        moderate_confidence=0.55,
+        high_trust=0.70,
+        high_conflict=0.50,
+        minimum_coverage=0.50,
+        minimum_quality=0.50,
     ):
+
+        self.high_confidence = float(
+            high_confidence
+        )
+
+        self.moderate_confidence = float(
+            moderate_confidence
+        )
+
+        self.high_trust = float(
+            high_trust
+        )
+
+        self.high_conflict = float(
+            high_conflict
+        )
+
+        self.minimum_coverage = float(
+            minimum_coverage
+        )
+
+        self.minimum_quality = float(
+            minimum_quality
+        )
+
+    # =========================================================================
+    # VALID RESULT
+    # =========================================================================
+
+    def _is_valid_result(
+        self,
+        result: Dict[str, Any]
+    ) -> bool:
+
+        if not isinstance(
+            result,
+            dict
+        ):
+            return False
+
+        if result.get(
+            "status"
+        ) not in (
+            "success",
+            "completed",
+        ):
+            return False
+
+        task_type = result.get(
+            "task_type",
+            result.get(
+                "task",
+                ""
+            )
+        )
+
+        # ---------------------------------------------------------------------
+        # Segmentation
+        # ---------------------------------------------------------------------
+
+        if task_type == "liver_segmentation":
+
+            details = result.get(
+                "details",
+                {}
+            )
+
+            if not isinstance(
+                details,
+                dict
+            ):
+                return False
+
+            has_mask = (
+                details.get(
+                    "liver_mask"
+                )
+                is not None
+            )
+
+            has_probability_map = (
+                details.get(
+                    "probability_map"
+                )
+                is not None
+            )
+
+            return (
+                has_mask
+                or
+                has_probability_map
+            )
+
+        # ---------------------------------------------------------------------
+        # Classification / reasoning
+        # ---------------------------------------------------------------------
+
+        return (
+            result.get(
+                "prediction"
+            )
+            is not None
+        )
+
+    # =========================================================================
+    # DECIDE
+    # =========================================================================
+
+    def decide(
+        self,
+        results: List[Dict[str, Any]],
+        conflicts=None,
+        reasoning=None,
+    ) -> Dict[str, Any]:
+
+        if results is None:
+            results = []
+
+        if not isinstance(
+            results,
+            list
+        ):
+            results = list(
+                results
+            )
+
+        conflicts = (
+            conflicts
+            if isinstance(
+                conflicts,
+                list
+            )
+            else []
+        )
+
+        reasoning = (
+            reasoning
+            if isinstance(
+                reasoning,
+                dict
+            )
+            else {}
+        )
+
+        # =====================================================================
+        # VALID RESULTS
+        # =====================================================================
+
+        valid_results = [
+
+            result
+
+            for result in results
+
+            if self._is_valid_result(
+                result
+            )
+        ]
+
+        total_agents = len(
+            results
+        )
+
+        valid_agents = len(
+            valid_results
+        )
+
+        coverage = (
+
+            valid_agents
+            /
+            total_agents
+
+            if total_agents > 0
+            else 0.0
+        )
+
+        # =====================================================================
+        # MEAN VALUES
+        # =====================================================================
+
+        mean_confidence = self._mean(
+            valid_results,
+            "confidence",
+            default=0.0
+        )
+
+        mean_trust = self._mean(
+            valid_results,
+            "trust",
+            default=0.0
+        )
+
+        mean_quality = self._mean(
+            valid_results,
+            "quality",
+            default=0.0
+        )
+
+        # =====================================================================
+        # CONFLICT
+        # =====================================================================
+
+        conflict_score = (
+            self._calculate_conflict_score(
+                conflicts
+            )
+        )
+
+        # =====================================================================
+        # PREDICTION
+        # =====================================================================
+
+        prediction = reasoning.get(
+            "prediction"
+        )
+
+        if prediction is None:
+
+            candidates = [
+
+                result
+
+                for result in valid_results
+
+                if result.get(
+                    "task_type",
+                    result.get(
+                        "task",
+                        ""
+                    )
+                )
+                !=
+                "liver_segmentation"
+
+                and
+                result.get(
+                    "prediction"
+                )
+                is not None
+            ]
+
+            if candidates:
+
+                best = max(
+
+                    candidates,
+
+                    key=lambda result:
+                        (
+                            self._safe_float(
+                                result.get(
+                                    "trust",
+                                    0.0
+                                )
+                            )
+                            *
+                            self._safe_float(
+                                result.get(
+                                    "confidence",
+                                    0.0
+                                )
+                            )
+                        )
+                )
+
+                prediction = best.get(
+                    "prediction"
+                )
+
+        # =====================================================================
+        # DECISION LEVEL
+        # =====================================================================
+
+        insufficient_data = (
+
+            coverage
+            <
+            self.minimum_coverage
+
+            or
+
+            mean_quality
+            <
+            self.minimum_quality
+        )
+
+        unsafe_conflict = (
+
+            conflict_score
+            >=
+            self.high_conflict
+        )
+
+        if (
+
+            not valid_results
+
+            or
+
+            insufficient_data
+
+            or
+
+            unsafe_conflict
+
+            or
+
+            mean_confidence
+            <
+            self.moderate_confidence
+        ):
+
+            decision_level = (
+                "UNCERTAIN"
+            )
+
+        elif (
+
+            mean_confidence
+            >=
+            self.high_confidence
+
+            and
+
+            mean_trust
+            >=
+            self.high_trust
+
+            and
+
+            conflict_score
+            <
+            0.30
+        ):
+
+            decision_level = (
+                "HIGH"
+            )
+
+        else:
+
+            decision_level = (
+                "MODERATE"
+            )
+
+        # =====================================================================
+        # RISK
+        # =====================================================================
+
+        risk_score = (
+
+            0.40
+            *
+            (
+                1.0
+                -
+                mean_confidence
+            )
+
+            +
+
+            0.30
+            *
+            (
+                1.0
+                -
+                mean_trust
+            )
+
+            +
+
+            0.20
+            *
+            conflict_score
+
+            +
+
+            0.10
+            *
+            (
+                1.0
+                -
+                mean_quality
+            )
+        )
+
+        risk_score = max(
+            0.0,
+            min(
+                1.0,
+                risk_score
+            )
+        )
+
+        # =====================================================================
+        # RESULT
+        # =====================================================================
+
+        return {
+
+            "status":
+                "completed",
+
+            # Primary decision name
+            "decision":
+                decision_level,
+
+            # Explicit name required by the architecture/tests
+            "decision_level":
+                decision_level,
+
+            "prediction":
+                prediction,
+
+            "confidence":
+                float(
+                    mean_confidence
+                ),
+
+            "uncertainty":
+                float(
+                    1.0 -
+                    mean_confidence
+                ),
+
+            "trust":
+                float(
+                    mean_trust
+                ),
+
+            "quality":
+                float(
+                    mean_quality
+                ),
+
+            "coverage":
+                float(
+                    coverage
+                ),
+
+            "conflict_score":
+                float(
+                    conflict_score
+                ),
+
+            "risk_score":
+                float(
+                    risk_score
+                ),
+
+            "request_additional_tests":
+                decision_level
+                ==
+                "UNCERTAIN",
+
+            "num_agents":
+                total_agents,
+
+            "num_valid_agents":
+                valid_agents,
+
+            "explanation":
+                (
+                    f"{valid_agents}/"
+                    f"{total_agents} agents "
+                    f"provided valid evidence. "
+                    f"Mean confidence="
+                    f"{mean_confidence:.3f}, "
+                    f"mean trust="
+                    f"{mean_trust:.3f}, "
+                    f"conflict="
+                    f"{conflict_score:.3f}."
+                ),
+        }
+
+    # =========================================================================
+    # CONFLICT SCORE
+    # =========================================================================
+
+    def _calculate_conflict_score(
+        self,
+        conflicts
+    ):
+
+        values = []
+
+        for conflict in conflicts:
+
+            if not isinstance(
+                conflict,
+                dict
+            ):
+                continue
+
+            value = conflict.get(
+                "conflict_strength"
+            )
+
+            if value is None:
+
+                gap = conflict.get(
+                    "confidence_gap",
+                    0.0
+                )
+
+                value = min(
+                    1.0,
+                    self._safe_float(
+                        gap
+                    )
+                )
+
+            values.append(
+                self._safe_float(
+                    value
+                )
+            )
+
+        if not values:
+            return 0.0
+
+        return sum(
+            values
+        ) / len(
+            values
+        )
+
+    # =========================================================================
+    # MEAN
+    # =========================================================================
+
+    @staticmethod
+    def _mean(
+        results,
+        key,
+        default=0.0
+    ):
+
+        if not results:
+            return default
+
+        values = []
+
+        for result in results:
+
+            values.append(
+                DecisionEngine._safe_float(
+                    result.get(
+                        key,
+                        default
+                    )
+                )
+            )
+
+        if not values:
+            return default
+
+        return sum(
+            values
+        ) / len(
+            values
+        )
+
+    # =========================================================================
+    # SAFE FLOAT
+    # =========================================================================
+
+    @staticmethod
+    def _safe_float(
+        value,
+        default=0.0
+    ):
+
+        try:
+
+            value = float(
+                value
+            )
+
+        except (
+            TypeError,
+            ValueError
+        ):
+
+            value = default
+
+        return max(
+            0.0,
+            min(
+                1.0,
+                value
+            )
+        )
+
+
+__all__ = [
+    "DecisionEngine",
+]
         self.high_confidence = high_confidence
         self.moderate_confidence = moderate_confidence
         self.high_trust = high_trust
