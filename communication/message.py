@@ -1,123 +1,100 @@
-# ============================================================
 # communication/message.py
-# AgentMessage - Communication layer for LiverAI Multi-Agent
 # ============================================================
+# Agent Communication Message
+# LiverAI Multi-Agent System
+# ============================================================
+
+from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
+import uuid
 
+
+# ============================================================
+# SUPPORTED MESSAGE TYPES
+# ============================================================
+
+REQUEST_PREDICTION = "REQUEST_PREDICTION"
+REQUEST_REASSESSMENT = "REQUEST_REASSESSMENT"
+REQUEST_EXPLANATION = "REQUEST_EXPLANATION"
+REQUEST_SEGMENTATION = "REQUEST_SEGMENTATION"
+REQUEST_ADDITIONAL_EVIDENCE = "REQUEST_ADDITIONAL_EVIDENCE"
+
+RESPONSE_PREDICTION = "RESPONSE_PREDICTION"
+RESPONSE_REASSESSMENT = "RESPONSE_REASSESSMENT"
+RESPONSE_EXPLANATION = "RESPONSE_EXPLANATION"
+RESPONSE_SEGMENTATION = "RESPONSE_SEGMENTATION"
+RESPONSE_ADDITIONAL_EVIDENCE = "RESPONSE_ADDITIONAL_EVIDENCE"
+
+FEEDBACK = "FEEDBACK"
+
+SUPPORTED_MESSAGE_TYPES = {
+    REQUEST_PREDICTION,
+    REQUEST_REASSESSMENT,
+    REQUEST_EXPLANATION,
+    REQUEST_SEGMENTATION,
+    REQUEST_ADDITIONAL_EVIDENCE,
+    RESPONSE_PREDICTION,
+    RESPONSE_REASSESSMENT,
+    RESPONSE_EXPLANATION,
+    RESPONSE_SEGMENTATION,
+    RESPONSE_ADDITIONAL_EVIDENCE,
+    FEEDBACK,
+}
+
+
+# ============================================================
+# AGENT MESSAGE
+# ============================================================
 
 @dataclass
 class AgentMessage:
-    """
-    Standard message exchanged between an AI agent and the Coordinator.
 
-    The message contains:
-        - patient information
-        - task information
-        - prediction/evidence
-        - confidence and uncertainty
-        - quality and missing-data information
-        - trust information
-        - communication metadata
+    patient_id: Optional[str] = None
 
-    The class is intentionally flexible so it can be used by
-    heterogeneous biomedical agents.
-    """
-
-    # --------------------------------------------------------
-    # IDENTIFICATION
-    # --------------------------------------------------------
-
-    patient_id: str = ""
-
-    agent_id: str = ""
-
-    task_type: str = ""
-
+    agent_id: Optional[str] = None
+    task_type: Optional[str] = None
     modality: str = "unknown"
 
-    # --------------------------------------------------------
-    # PREDICTION / EVIDENCE
-    # --------------------------------------------------------
-
     prediction: Any = None
-
     probability: Any = None
 
-    confidence: Optional[float] = None
+    confidence: float = 0.0
+    uncertainty: float = 1.0
+    quality: float = 1.0
+    missing_data_ratio: float = 0.0
+    trust: float = 0.0
 
-    uncertainty: Optional[float] = None
+    message_type: str = RESPONSE_PREDICTION
 
-    # --------------------------------------------------------
-    # INPUT / QUALITY
-    # --------------------------------------------------------
-
-    quality: Optional[float] = None
-
-    missing_data_ratio: Optional[float] = None
-
-    # --------------------------------------------------------
-    # TRUST
-    # --------------------------------------------------------
-
-    trust: Optional[float] = None
-
-    # --------------------------------------------------------
-    # COMMUNICATION
-    # --------------------------------------------------------
-
-    message_type: str = "PREDICTION"
-
-    request_id: Optional[str] = None
+    request_id: str = field(
+        default_factory=lambda: str(uuid.uuid4())
+    )
 
     parent_request_id: Optional[str] = None
 
     target_agent: Optional[str] = None
 
     sender: Optional[str] = None
-
     receiver: Optional[str] = None
 
-    # --------------------------------------------------------
-    # ADDITIONAL INFORMATION
-    # --------------------------------------------------------
-
-    evidence: Any = None
-
+    evidence: Dict[str, Any] = field(default_factory=dict)
     details: Dict[str, Any] = field(default_factory=dict)
-
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     timestamp: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # VALIDATION
-    # --------------------------------------------------------
+    # ========================================================
 
     def validate(self) -> Dict[str, Any]:
-        """
-        Validate the communication message.
-
-        Returns
-        -------
-        dict
-            {
-                "valid": bool,
-                "errors": list,
-                "warnings": list
-            }
-        """
 
         errors = []
-        warnings = []
-
-        # ----------------------------------------------------
-        # REQUIRED IDENTIFIERS
-        # ----------------------------------------------------
 
         if not self.agent_id:
             errors.append("agent_id is required")
@@ -125,283 +102,176 @@ class AgentMessage:
         if not self.task_type:
             errors.append("task_type is required")
 
-        # patient_id may be optional for some technical tasks,
-        # therefore it generates a warning instead of an error.
-        if not self.patient_id:
-            warnings.append("patient_id is missing")
-
-        # ----------------------------------------------------
-        # CONFIDENCE
-        # ----------------------------------------------------
-
-        if self.confidence is not None:
-
-            try:
-                confidence = float(self.confidence)
-
-                if not 0.0 <= confidence <= 1.0:
-                    errors.append(
-                        "confidence must be between 0 and 1"
-                    )
-
-            except (TypeError, ValueError):
-
-                errors.append(
-                    "confidence must be numeric"
-                )
-
-        # ----------------------------------------------------
-        # UNCERTAINTY
-        # ----------------------------------------------------
-
-        if self.uncertainty is not None:
-
-            try:
-                uncertainty = float(self.uncertainty)
-
-                if not 0.0 <= uncertainty <= 1.0:
-                    errors.append(
-                        "uncertainty must be between 0 and 1"
-                    )
-
-            except (TypeError, ValueError):
-
-                errors.append(
-                    "uncertainty must be numeric"
-                )
-
-        # ----------------------------------------------------
-        # QUALITY
-        # ----------------------------------------------------
-
-        if self.quality is not None:
-
-            try:
-                quality = float(self.quality)
-
-                if not 0.0 <= quality <= 1.0:
-                    errors.append(
-                        "quality must be between 0 and 1"
-                    )
-
-            except (TypeError, ValueError):
-
-                errors.append(
-                    "quality must be numeric"
-                )
-
-        # ----------------------------------------------------
-        # MISSING DATA
-        # ----------------------------------------------------
-
-        if self.missing_data_ratio is not None:
-
-            try:
-                missing_ratio = float(
-                    self.missing_data_ratio
-                )
-
-                if not 0.0 <= missing_ratio <= 1.0:
-                    errors.append(
-                        "missing_data_ratio must be between 0 and 1"
-                    )
-
-            except (TypeError, ValueError):
-
-                errors.append(
-                    "missing_data_ratio must be numeric"
-                )
-
-        # ----------------------------------------------------
-        # TRUST
-        # ----------------------------------------------------
-
-        if self.trust is not None:
-
-            try:
-                trust = float(self.trust)
-
-                if not 0.0 <= trust <= 1.0:
-                    errors.append(
-                        "trust must be between 0 and 1"
-                    )
-
-            except (TypeError, ValueError):
-
-                errors.append(
-                    "trust must be numeric"
-                )
-
-        # ----------------------------------------------------
-        # MESSAGE TYPE
-        # ----------------------------------------------------
-
-        allowed_message_types = {
-            "PREDICTION",
-            "REQUEST_PREDICTION",
-            "REQUEST_REASSESSMENT",
-            "REQUEST_EXPLANATION",
-            "REQUEST_SEGMENTATION",
-            "REQUEST_ADDITIONAL_EVIDENCE",
-            "RESPONSE",
-            "FEEDBACK",
-            "ALERT",
-            "ERROR",
-        }
-
-        if self.message_type not in allowed_message_types:
-
-            warnings.append(
-                f"Unknown message_type: {self.message_type}"
+        if self.message_type not in SUPPORTED_MESSAGE_TYPES:
+            errors.append(
+                f"Unsupported message_type: {self.message_type}"
             )
 
-        # ----------------------------------------------------
-        # FINAL VALIDATION
-        # ----------------------------------------------------
+        try:
+            confidence = float(self.confidence)
+
+            if not 0.0 <= confidence <= 1.0:
+                errors.append(
+                    "confidence must be between 0 and 1"
+                )
+
+        except Exception:
+            errors.append("confidence must be numeric")
+
+        try:
+            uncertainty = float(self.uncertainty)
+
+            if not 0.0 <= uncertainty <= 1.0:
+                errors.append(
+                    "uncertainty must be between 0 and 1"
+                )
+
+        except Exception:
+            errors.append("uncertainty must be numeric")
+
+        try:
+            quality = float(self.quality)
+
+            if not 0.0 <= quality <= 1.0:
+                errors.append(
+                    "quality must be between 0 and 1"
+                )
+
+        except Exception:
+            errors.append("quality must be numeric")
+
+        try:
+            missing_ratio = float(self.missing_data_ratio)
+
+            if not 0.0 <= missing_ratio <= 1.0:
+                errors.append(
+                    "missing_data_ratio must be between 0 and 1"
+                )
+
+        except Exception:
+            errors.append(
+                "missing_data_ratio must be numeric"
+            )
+
+        try:
+            trust = float(self.trust)
+
+            if not 0.0 <= trust <= 1.0:
+                errors.append(
+                    "trust must be between 0 and 1"
+                )
+
+        except Exception:
+            errors.append("trust must be numeric")
 
         return {
             "valid": len(errors) == 0,
             "errors": errors,
-            "warnings": warnings,
         }
 
-    # --------------------------------------------------------
+    # ========================================================
     # SERIALIZATION
-    # --------------------------------------------------------
+    # ========================================================
 
     def to_dict(self) -> Dict[str, Any]:
-        """
-        Convert the message into a dictionary.
-        """
 
-        return asdict(self)
+        data = asdict(self)
 
-    # --------------------------------------------------------
-    # ALIAS
-    # --------------------------------------------------------
+        return data
 
+    # Compatibility alias
     def dict(self) -> Dict[str, Any]:
-        """
-        Compatibility alias for to_dict().
-        """
-
         return self.to_dict()
 
-    # --------------------------------------------------------
-    # FACTORY FROM DICTIONARY
-    # --------------------------------------------------------
+    # ========================================================
+    # DESERIALIZATION
+    # ========================================================
 
     @classmethod
     def from_dict(
         cls,
         data: Dict[str, Any]
     ) -> "AgentMessage":
-        """
-        Create an AgentMessage from a dictionary.
-        """
 
         if not isinstance(data, dict):
             raise TypeError(
                 "AgentMessage.from_dict expects a dictionary"
             )
 
-        # Keep only fields supported by the dataclass.
-        valid_fields = {
-            "patient_id",
-            "agent_id",
-            "task_type",
-            "modality",
-            "prediction",
-            "probability",
-            "confidence",
-            "uncertainty",
-            "quality",
-            "missing_data_ratio",
-            "trust",
-            "message_type",
-            "request_id",
-            "parent_request_id",
-            "target_agent",
-            "sender",
-            "receiver",
-            "evidence",
-            "details",
-            "metadata",
-            "timestamp",
+        allowed_fields = {
+            field_name
+            for field_name in cls.__dataclass_fields__
         }
 
-        filtered_data = {
+        clean_data = {
             key: value
             for key, value in data.items()
-            if key in valid_fields
+            if key in allowed_fields
         }
 
-        return cls(**filtered_data)
+        return cls(**clean_data)
 
-    # --------------------------------------------------------
+    # ========================================================
     # REQUEST FACTORY
-    # --------------------------------------------------------
+    # ========================================================
 
     @classmethod
     def create_request(
         cls,
-        patient_id: str,
+        patient_id: Optional[str],
         sender: str,
         receiver: Optional[str],
         task_type: str,
         message_type: str,
-        request_id: Optional[str] = None,
-        parent_request_id: Optional[str] = None,
+        modality: str = "unknown",
         details: Optional[Dict[str, Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        parent_request_id: Optional[str] = None,
     ) -> "AgentMessage":
-        """
-        Create a Coordinator -> Agent request.
-        """
 
         return cls(
             patient_id=patient_id,
             agent_id=sender,
             task_type=task_type,
+            modality=modality,
             message_type=message_type,
-            request_id=request_id,
-            parent_request_id=parent_request_id,
             sender=sender,
             receiver=receiver,
+            target_agent=receiver,
             details=details or {},
             metadata=metadata or {},
+            parent_request_id=parent_request_id,
         )
 
-    # --------------------------------------------------------
+    # ========================================================
     # RESPONSE FACTORY
-    # --------------------------------------------------------
+    # ========================================================
 
     @classmethod
     def create_response(
         cls,
-        patient_id: str,
-        agent_id: str,
+        patient_id: Optional[str],
+        sender: str,
+        receiver: Optional[str],
         task_type: str,
         prediction: Any = None,
         probability: Any = None,
-        confidence: Optional[float] = None,
-        uncertainty: Optional[float] = None,
-        quality: Optional[float] = None,
-        missing_data_ratio: Optional[float] = None,
-        trust: Optional[float] = None,
+        confidence: float = 0.0,
+        uncertainty: float = 1.0,
+        quality: float = 1.0,
+        missing_data_ratio: float = 0.0,
+        trust: float = 0.0,
         modality: str = "unknown",
-        evidence: Any = None,
+        message_type: str = RESPONSE_PREDICTION,
+        evidence: Optional[Dict[str, Any]] = None,
         details: Optional[Dict[str, Any]] = None,
-        request_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
         parent_request_id: Optional[str] = None,
     ) -> "AgentMessage":
-        """
-        Create an Agent -> Coordinator response.
-        """
 
         return cls(
             patient_id=patient_id,
-            agent_id=agent_id,
+            agent_id=sender,
             task_type=task_type,
             modality=modality,
             prediction=prediction,
@@ -411,60 +281,254 @@ class AgentMessage:
             quality=quality,
             missing_data_ratio=missing_data_ratio,
             trust=trust,
-            message_type="RESPONSE",
-            request_id=request_id,
+            message_type=message_type,
             parent_request_id=parent_request_id,
-            sender=agent_id,
-            receiver="Coordinator",
-            evidence=evidence,
+            sender=sender,
+            receiver=receiver,
+            target_agent=receiver,
+            evidence=evidence or {},
             details=details or {},
+            metadata=metadata or {},
         )
 
-    # --------------------------------------------------------
+    # ========================================================
     # FEEDBACK FACTORY
-    # --------------------------------------------------------
+    # ========================================================
 
     @classmethod
     def create_feedback(
         cls,
-        patient_id: str,
+        patient_id: Optional[str],
         sender: str,
         receiver: Optional[str],
         task_type: str,
         details: Optional[Dict[str, Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        parent_request_id: Optional[str] = None,
     ) -> "AgentMessage":
-        """
-        Create an agent/coordinator feedback message.
-        """
 
         return cls(
             patient_id=patient_id,
             agent_id=sender,
             task_type=task_type,
-            message_type="FEEDBACK",
+            message_type=FEEDBACK,
             sender=sender,
             receiver=receiver,
+            target_agent=receiver,
             details=details or {},
             metadata=metadata or {},
+            parent_request_id=parent_request_id,
         )
 
-    # --------------------------------------------------------
-    # STRING REPRESENTATION
-    # --------------------------------------------------------
+    # ========================================================
+    # REPRESENTATION
+    # ========================================================
 
     def __str__(self) -> str:
 
         return (
             f"AgentMessage("
-            f"agent_id={self.agent_id}, "
-            f"task_type={self.task_type}, "
-            f"message_type={self.message_type}, "
+            f"agent={self.agent_id}, "
+            f"task={self.task_type}, "
+            f"type={self.message_type}, "
             f"prediction={self.prediction}, "
-            f"confidence={self.confidence}"
+            f"confidence={self.confidence:.3f}"
             f")"
         )
 
     def __repr__(self) -> str:
 
         return self.__str__()
+
+
+# ============================================================
+# COMMUNICATION PROTOCOL
+# ============================================================
+
+class CommunicationProtocol:
+    """
+    Compatibility communication layer used by the Coordinator.
+
+    It provides a lightweight protocol for creating, validating,
+    sending and recording AgentMessage objects.
+
+    This class is intentionally independent from the actual
+    transport mechanism. It can therefore be used for:
+        - local orchestration
+        - in-process communication
+        - future asynchronous communication
+        - agent-to-agent delegation
+    """
+
+    def __init__(
+        self,
+        coordinator: Any = None,
+        **kwargs: Any
+    ):
+
+        self.coordinator = coordinator
+
+        self.messages = []
+        self.history = self.messages
+
+        self.requests = []
+        self.responses = []
+        self.feedback = []
+
+    # ========================================================
+    # SEND
+    # ========================================================
+
+    def send(
+        self,
+        message: Any
+    ) -> Dict[str, Any]:
+
+        if isinstance(message, dict):
+            message = AgentMessage.from_dict(message)
+
+        if not isinstance(message, AgentMessage):
+            raise TypeError(
+                "message must be an AgentMessage or dictionary"
+            )
+
+        validation = message.validate()
+
+        if not validation["valid"]:
+            return {
+                "status": "error",
+                "success": False,
+                "message": message.to_dict(),
+                "validation": validation,
+                "error": "Invalid AgentMessage",
+            }
+
+        self.messages.append(message)
+
+        if message.message_type.startswith("REQUEST_"):
+            self.requests.append(message)
+
+        elif message.message_type.startswith("RESPONSE_"):
+            self.responses.append(message)
+
+        elif message.message_type == FEEDBACK:
+            self.feedback.append(message)
+
+        return {
+            "status": "success",
+            "success": True,
+            "message": message.to_dict(),
+        }
+
+    # ========================================================
+    # PUBLISH ALIAS
+    # ========================================================
+
+    def publish(
+        self,
+        message: Any
+    ) -> Dict[str, Any]:
+
+        return self.send(message)
+
+    # ========================================================
+    # SEND REQUEST
+    # ========================================================
+
+    def send_request(
+        self,
+        sender: str,
+        receiver: Optional[str],
+        task_type: str,
+        message_type: str = REQUEST_PREDICTION,
+        patient_id: Optional[str] = None,
+        modality: str = "unknown",
+        details: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        parent_request_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+
+        message = AgentMessage.create_request(
+            patient_id=patient_id,
+            sender=sender,
+            receiver=receiver,
+            task_type=task_type,
+            message_type=message_type,
+            modality=modality,
+            details=details,
+            metadata=metadata,
+            parent_request_id=parent_request_id,
+        )
+
+        return self.send(message)
+
+    # ========================================================
+    # RECORD RESPONSE
+    # ========================================================
+
+    def record_response(
+        self,
+        message: Any
+    ) -> Dict[str, Any]:
+
+        return self.send(message)
+
+    # ========================================================
+    # RECORD FEEDBACK
+    # ========================================================
+
+    def record_feedback(
+        self,
+        message: Any
+    ) -> Dict[str, Any]:
+
+        return self.send(message)
+
+    # ========================================================
+    # HISTORY
+    # ========================================================
+
+    def get_history(self):
+
+        return list(self.messages)
+
+    # Compatibility aliases
+    get_messages = get_history
+    history_messages = get_history
+
+    # ========================================================
+    # CLEAR
+    # ========================================================
+
+    def clear(self):
+
+        self.messages.clear()
+        self.requests.clear()
+        self.responses.clear()
+        self.feedback.clear()
+
+
+# ============================================================
+# MODULE EXPORTS
+# ============================================================
+
+__all__ = [
+    "AgentMessage",
+    "CommunicationProtocol",
+
+    "REQUEST_PREDICTION",
+    "REQUEST_REASSESSMENT",
+    "REQUEST_EXPLANATION",
+    "REQUEST_SEGMENTATION",
+    "REQUEST_ADDITIONAL_EVIDENCE",
+
+    "RESPONSE_PREDICTION",
+    "RESPONSE_REASSESSMENT",
+    "RESPONSE_EXPLANATION",
+    "RESPONSE_SEGMENTATION",
+    "RESPONSE_ADDITIONAL_EVIDENCE",
+
+    "FEEDBACK",
+
+    "SUPPORTED_MESSAGE_TYPES",
+]
