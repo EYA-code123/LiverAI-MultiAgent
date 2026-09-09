@@ -1,320 +1,634 @@
-from collections import defaultdict
-import numpy as np
+# =============================================================================
+# LiverAI-MultiAgent
+# COMMUNICATION / MESSAGE
+# =============================================================================
+#
+# Standardized message exchanged between the Coordinator and specialist agents.
+#
+# Supported requests:
+#   - REQUEST_PREDICTION
+#   - REQUEST_REASSESSMENT
+#   - REQUEST_EXPLANATION
+#   - REQUEST_SEGMENTATION
+#   - REQUEST_ADDITIONAL_EVIDENCE
+#
+# =============================================================================
+
+from datetime import datetime
+from uuid import uuid4
+from typing import Any, Dict, Optional
 
 
-class TrustManager:
+class AgentMessage:
+    """
+    Structured communication message used by LiverAI-MultiAgent.
+
+    The message is intentionally model-independent. It transports:
+        - sender / receiver
+        - patient
+        - medical task
+        - request type
+        - input/output payload
+        - correlation information
+    """
+
+    # -------------------------------------------------------------------------
+    # REQUEST TYPES
+    # -------------------------------------------------------------------------
+
+    REQUEST_PREDICTION = "REQUEST_PREDICTION"
+
+    REQUEST_REASSESSMENT = "REQUEST_REASSESSMENT"
+
+    REQUEST_EXPLANATION = "REQUEST_EXPLANATION"
+
+    REQUEST_SEGMENTATION = "REQUEST_SEGMENTATION"
+
+    REQUEST_ADDITIONAL_EVIDENCE = (
+        "REQUEST_ADDITIONAL_EVIDENCE"
+    )
+
+    # -------------------------------------------------------------------------
+    # MESSAGE TYPES
+    # -------------------------------------------------------------------------
+
+    TYPE_REQUEST = "request"
+
+    TYPE_RESPONSE = "response"
+
+    TYPE_FEEDBACK = "feedback"
+
+    TYPE_NOTIFICATION = "notification"
+
+    # -------------------------------------------------------------------------
+    # INITIALIZATION
+    # -------------------------------------------------------------------------
 
     def __init__(
         self,
-        historical_weight=0.30,
-        current_weight=0.70
+        sender: Optional[str] = None,
+        receiver: Optional[str] = None,
+        message_type: str = TYPE_REQUEST,
+        request_type: Optional[str] = None,
+        task_type: Optional[str] = None,
+        payload: Optional[Dict[str, Any]] = None,
+        patient_id: Optional[str] = None,
+        correlation_id: Optional[str] = None,
+        message_id: Optional[str] = None,
+        timestamp: Optional[str] = None,
+
+        # Compatibility aliases used by some callers
+        agent_id: Optional[str] = None,
+        data: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ):
 
-        self.historical_weight = float(
-            historical_weight
+        # ---------------------------------------------------------------------
+        # Compatibility
+        # ---------------------------------------------------------------------
+
+        if sender is None and agent_id is not None:
+            sender = agent_id
+
+        if payload is None and data is not None:
+            payload = data
+
+        self.message_id = (
+            str(message_id)
+            if message_id is not None
+            else str(uuid4())
         )
 
-        self.current_weight = float(
-            current_weight
+        self.correlation_id = (
+            str(correlation_id)
+            if correlation_id is not None
+            else str(uuid4())
         )
 
-        if abs(
-            self.historical_weight
-            + self.current_weight
-            - 1.0
-        ) > 1e-6:
+        self.sender = sender
 
+        self.receiver = receiver
+
+        self.message_type = (
+            message_type
+            if message_type is not None
+            else self.TYPE_REQUEST
+        )
+
+        self.request_type = request_type
+
+        self.task_type = task_type
+
+        self.patient_id = patient_id
+
+        self.payload = (
+            dict(payload)
+            if isinstance(payload, dict)
+            else {}
+        )
+
+        self.metadata = (
+            dict(metadata)
+            if isinstance(metadata, dict)
+            else {}
+        )
+
+        self.timestamp = (
+            timestamp
+            if timestamp is not None
+            else datetime.now().isoformat()
+        )
+
+    # =========================================================================
+    # VALIDATION
+    # =========================================================================
+
+    def validate(self) -> Dict[str, Any]:
+        """
+        Validate the structure of the message.
+
+        Returns:
+            {
+                "valid": bool,
+                "errors": [...]
+            }
+        """
+
+        errors = []
+
+        if not self.sender:
+            errors.append(
+                "sender is required"
+            )
+
+        if not self.receiver:
+            errors.append(
+                "receiver is required"
+            )
+
+        valid_message_types = {
+            self.TYPE_REQUEST,
+            self.TYPE_RESPONSE,
+            self.TYPE_FEEDBACK,
+            self.TYPE_NOTIFICATION,
+        }
+
+        if self.message_type not in valid_message_types:
+            errors.append(
+                f"invalid message_type: "
+                f"{self.message_type}"
+            )
+
+        valid_request_types = {
+            self.REQUEST_PREDICTION,
+            self.REQUEST_REASSESSMENT,
+            self.REQUEST_EXPLANATION,
+            self.REQUEST_SEGMENTATION,
+            self.REQUEST_ADDITIONAL_EVIDENCE,
+            None,
+        }
+
+        if self.request_type not in valid_request_types:
+            errors.append(
+                f"invalid request_type: "
+                f"{self.request_type}"
+            )
+
+        if not self.correlation_id:
+            errors.append(
+                "correlation_id is required"
+            )
+
+        if not isinstance(
+            self.payload,
+            dict
+        ):
+            errors.append(
+                "payload must be a dictionary"
+            )
+
+        return {
+            "valid": len(errors) == 0,
+            "errors": errors,
+        }
+
+    # =========================================================================
+    # SERIALIZATION
+    # =========================================================================
+
+    def to_dict(self) -> Dict[str, Any]:
+
+        return {
+            "message_id": self.message_id,
+
+            "correlation_id":
+                self.correlation_id,
+
+            "sender":
+                self.sender,
+
+            "receiver":
+                self.receiver,
+
+            "message_type":
+                self.message_type,
+
+            "request_type":
+                self.request_type,
+
+            "task_type":
+                self.task_type,
+
+            "patient_id":
+                self.patient_id,
+
+            "payload":
+                self.payload,
+
+            "metadata":
+                self.metadata,
+
+            "timestamp":
+                self.timestamp,
+        }
+
+    # =========================================================================
+    # DESERIALIZATION
+    # =========================================================================
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: Optional[Dict[str, Any]]
+    ):
+
+        if not isinstance(
+            data,
+            dict
+        ):
+            raise TypeError(
+                "AgentMessage.from_dict expects a dictionary."
+            )
+
+        return cls(
+
+            sender=data.get(
+                "sender"
+            ),
+
+            receiver=data.get(
+                "receiver"
+            ),
+
+            message_type=data.get(
+                "message_type",
+                cls.TYPE_REQUEST
+            ),
+
+            request_type=data.get(
+                "request_type"
+            ),
+
+            task_type=data.get(
+                "task_type"
+            ),
+
+            payload=data.get(
+                "payload",
+                {}
+            ),
+
+            patient_id=data.get(
+                "patient_id"
+            ),
+
+            correlation_id=data.get(
+                "correlation_id"
+            ),
+
+            message_id=data.get(
+                "message_id"
+            ),
+
+            timestamp=data.get(
+                "timestamp"
+            ),
+
+            metadata=data.get(
+                "metadata",
+                {}
+            ),
+        )
+
+    # =========================================================================
+    # REPRESENTATION
+    # =========================================================================
+
+    def __repr__(self):
+
+        return (
+            "AgentMessage("
+            f"sender={self.sender!r}, "
+            f"receiver={self.receiver!r}, "
+            f"message_type={self.message_type!r}, "
+            f"request_type={self.request_type!r}, "
+            f"task_type={self.task_type!r}, "
+            f"patient_id={self.patient_id!r}"
+            ")"
+        )
+
+
+# =============================================================================
+# COMMUNICATION PROTOCOL
+# =============================================================================
+
+
+class CommunicationProtocol:
+    """
+    Communication manager used by LiverCoordinator.
+
+    It stores a structured communication trace so that the orchestration
+    process remains observable and auditable.
+    """
+
+    def __init__(
+        self,
+        coordinator_id="LiverCoordinator"
+    ):
+
+        self.coordinator_id = coordinator_id
+
+        self.messages = []
+
+    # =========================================================================
+    # REQUEST
+    # =========================================================================
+
+    def create_request(
+        self,
+        receiver,
+        request_type,
+        task_type=None,
+        payload=None,
+        patient_id=None,
+        metadata=None,
+    ):
+
+        message = AgentMessage(
+
+            sender=self.coordinator_id,
+
+            receiver=receiver,
+
+            message_type=AgentMessage.TYPE_REQUEST,
+
+            request_type=request_type,
+
+            task_type=task_type,
+
+            payload=payload,
+
+            patient_id=patient_id,
+
+            metadata=metadata,
+        )
+
+        validation = message.validate()
+
+        if not validation["valid"]:
             raise ValueError(
-                "Trust weights must sum to 1."
+                validation["errors"]
             )
 
-        self.historical_performance = {}
-
-        self.trust_history = (
-            defaultdict(list)
+        self.messages.append(
+            message
         )
 
-        self.feedback_history = (
-            defaultdict(list)
-        )
+        return message
 
-    # =========================================================
-    # UTILITY
-    # =========================================================
+    # =========================================================================
+    # RESPONSE
+    # =========================================================================
 
-    @staticmethod
-    def clip(
-        value
-    ):
-
-        return float(
-            np.clip(
-                float(value),
-                0.0,
-                1.0
-            )
-        )
-
-    # =========================================================
-    # REGISTER AGENT
-    # =========================================================
-
-    def register_agent(
+    def create_response(
         self,
-        agent_id,
-        performance=0.5
+        receiver,
+        request_message,
+        payload=None,
+        task_type=None,
+        patient_id=None,
+        metadata=None,
     ):
 
-        self.historical_performance[
-            agent_id
-        ] = self.clip(
-            performance
-        )
-
-    # =========================================================
-    # CURRENT RELIABILITY
-    # =========================================================
-
-    def compute_reliability(
-        self,
-        confidence,
-        uncertainty,
-        quality,
-        missing_data_ratio,
-        agreement,
-        stability,
-        utility,
-        modality_available=True
-    ):
-
-        confidence = self.clip(
-            confidence
-        )
-
-        uncertainty = self.clip(
-            uncertainty
-        )
-
-        quality = self.clip(
-            quality
-        )
-
-        missing_data_ratio = self.clip(
-            missing_data_ratio
-        )
-
-        agreement = self.clip(
-            agreement
-        )
-
-        stability = self.clip(
-            stability
-        )
-
-        utility = self.clip(
-            utility
-        )
-
-        modality = (
-            1.0
-            if modality_available
-            else 0.0
-        )
-
-        reliability = (
-
-            0.25 * confidence
-
-            + 0.20 * (
-                1.0 - uncertainty
-            )
-
-            + 0.20 * quality
-
-            + 0.10 * (
-                1.0 - missing_data_ratio
-            )
-
-            + 0.10 * agreement
-
-            + 0.10 * stability
-
-            + 0.05 * utility
-        )
-
-        reliability *= (
-            0.80
-            + 0.20 * modality
-        )
-
-        return self.clip(
-            reliability
-        )
-
-    # =========================================================
-    # TRUST
-    # =========================================================
-
-    def compute_trust(
-        self,
-        agent_id,
-        confidence,
-        uncertainty,
-        quality,
-        missing_data_ratio,
-        agreement=0.5,
-        stability=0.5,
-        utility=0.5,
-        modality_available=True
-    ):
-
-        if agent_id not in (
-            self.historical_performance
+        if not isinstance(
+            request_message,
+            AgentMessage
         ):
-
-            self.register_agent(
-                agent_id
+            raise TypeError(
+                "request_message must be AgentMessage."
             )
 
-        historical = (
-            self.historical_performance[
-                agent_id
-            ]
+        message = AgentMessage(
+
+            sender=self.coordinator_id,
+
+            receiver=receiver,
+
+            message_type=AgentMessage.TYPE_RESPONSE,
+
+            request_type=request_message.request_type,
+
+            task_type=(
+                task_type
+                if task_type is not None
+                else request_message.task_type
+            ),
+
+            payload=payload,
+
+            patient_id=(
+                patient_id
+                if patient_id is not None
+                else request_message.patient_id
+            ),
+
+            correlation_id=
+                request_message.correlation_id,
+
+            metadata=metadata,
         )
 
-        reliability = (
-            self.compute_reliability(
+        self.messages.append(
+            message
+        )
 
-                confidence=confidence,
+        return message
 
-                uncertainty=uncertainty,
+    # =========================================================================
+    # AGENT RESPONSE
+    # =========================================================================
 
-                quality=quality,
+    def record_agent_response(
+        self,
+        sender,
+        request_message,
+        payload=None,
+        task_type=None,
+        patient_id=None,
+        metadata=None,
+    ):
 
-                missing_data_ratio=
-                    missing_data_ratio,
-
-                agreement=agreement,
-
-                stability=stability,
-
-                utility=utility,
-
-                modality_available=
-                    modality_available
+        if not isinstance(
+            request_message,
+            AgentMessage
+        ):
+            raise TypeError(
+                "request_message must be AgentMessage."
             )
+
+        message = AgentMessage(
+
+            sender=sender,
+
+            receiver=self.coordinator_id,
+
+            message_type=AgentMessage.TYPE_RESPONSE,
+
+            request_type=request_message.request_type,
+
+            task_type=(
+                task_type
+                if task_type is not None
+                else request_message.task_type
+            ),
+
+            payload=payload,
+
+            patient_id=(
+                patient_id
+                if patient_id is not None
+                else request_message.patient_id
+            ),
+
+            correlation_id=
+                request_message.correlation_id,
+
+            metadata=metadata,
         )
 
-        trust = (
-
-            self.historical_weight
-            * historical
-
-            +
-
-            self.current_weight
-            * reliability
+        self.messages.append(
+            message
         )
 
-        trust = self.clip(
-            trust
-        )
+        return message
 
-        self.trust_history[
-            agent_id
-        ].append(
-            trust
-        )
-
-        return trust
-
-    # =========================================================
+    # =========================================================================
     # FEEDBACK
-    # =========================================================
+    # =========================================================================
 
-    def update_from_outcome(
+    def create_feedback(
         self,
-        agent_id,
-        correct,
-        learning_rate=0.10
+        receiver,
+        task_type=None,
+        payload=None,
+        patient_id=None,
+        correlation_id=None,
     ):
 
-        if agent_id not in (
-            self.historical_performance
-        ):
+        message = AgentMessage(
 
-            self.register_agent(
-                agent_id
-            )
+            sender=self.coordinator_id,
 
-        old = (
-            self.historical_performance[
-                agent_id
-            ]
+            receiver=receiver,
+
+            message_type=AgentMessage.TYPE_FEEDBACK,
+
+            request_type=None,
+
+            task_type=task_type,
+
+            payload=payload,
+
+            patient_id=patient_id,
+
+            correlation_id=correlation_id,
         )
 
-        target = (
-            1.0
-            if bool(correct)
-            else 0.0
+        self.messages.append(
+            message
         )
 
-        new = (
+        return message
 
-            (1.0 - learning_rate)
-            * old
+    # =========================================================================
+    # TRACE
+    # =========================================================================
 
-            +
+    def get_trace(self):
 
-            learning_rate
-            * target
+        return [
+            message.to_dict()
+            for message in self.messages
+        ]
+
+    # =========================================================================
+    # SUMMARY
+    # =========================================================================
+
+    def summary(self):
+
+        requests = sum(
+            1
+            for message in self.messages
+            if message.message_type
+            ==
+            AgentMessage.TYPE_REQUEST
         )
 
-        new = self.clip(
-            new
+        responses = sum(
+            1
+            for message in self.messages
+            if message.message_type
+            ==
+            AgentMessage.TYPE_RESPONSE
         )
 
-        self.historical_performance[
-            agent_id
-        ] = new
-
-        self.feedback_history[
-            agent_id
-        ].append({
-
-            "correct":
-                bool(correct),
-
-            "new_performance":
-                new
-        })
-
-        return new
-
-    # =========================================================
-    # HISTORY
-    # =========================================================
-
-    def get_trust_history(
-        self,
-        agent_id
-    ):
-
-        return list(
-            self.trust_history.get(
-                agent_id,
-                []
-            )
+        feedback = sum(
+            1
+            for message in self.messages
+            if message.message_type
+            ==
+            AgentMessage.TYPE_FEEDBACK
         )
 
-    def get_performance(
-        self,
-        agent_id
-    ):
+        return {
 
-        return float(
-            self.historical_performance.get(
-                agent_id,
-                0.5
-            )
-        )
+            "total_messages":
+                len(self.messages),
+
+            "requests":
+                requests,
+
+            "responses":
+                responses,
+
+            "feedback":
+                feedback,
+
+            "trace":
+                self.get_trace(),
+        }
+
+    # =========================================================================
+    # CLEAR
+    # =========================================================================
+
+    def clear(self):
+
+        self.messages.clear()
+
+
+__all__ = [
+    "AgentMessage",
+    "CommunicationProtocol",
+]
