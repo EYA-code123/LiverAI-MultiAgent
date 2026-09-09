@@ -1,3 +1,8 @@
+# =============================================================================
+# LiverAI-MultiAgent
+# ORCHESTRATOR SCHEMAS
+# =============================================================================
+
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
@@ -8,6 +13,8 @@ class AgentResult:
     agent_id: str
 
     task_type: str = "unknown"
+
+    modality: str = "unknown"
 
     prediction: Any = None
 
@@ -25,6 +32,8 @@ class AgentResult:
 
     trust: Optional[float] = None
 
+    agreement: Optional[float] = None
+
     status: str = "success"
 
     details: Dict[str, Any] = field(
@@ -34,6 +43,10 @@ class AgentResult:
     explanation: Optional[str] = None
 
     error: Optional[str] = None
+
+    # =========================================================================
+    # TO DICT
+    # =========================================================================
 
     def to_dict(self):
 
@@ -47,6 +60,9 @@ class AgentResult:
 
             "task_type":
                 self.task_type,
+
+            "modality":
+                self.modality,
 
             "prediction":
                 self.prediction,
@@ -81,8 +97,19 @@ class AgentResult:
 
             "trust":
                 (
-                    float(self.trust)
+                    float(
+                        self.trust
+                    )
                     if self.trust is not None
+                    else None
+                ),
+
+            "agreement":
+                (
+                    float(
+                        self.agreement
+                    )
+                    if self.agreement is not None
                     else None
                 ),
 
@@ -98,6 +125,10 @@ class AgentResult:
             "error":
                 self.error,
         }
+
+    # =========================================================================
+    # FROM DICT
+    # =========================================================================
 
     @classmethod
     def from_dict(
@@ -116,11 +147,40 @@ class AgentResult:
             )
         )
 
-        confidence = float(
+        confidence = cls._safe_float(
             data.get(
                 "confidence",
                 0.0
             )
+        )
+
+        uncertainty = cls._safe_float(
+            data.get(
+                "uncertainty",
+                1.0 - confidence
+            )
+        )
+
+        quality = cls._safe_float(
+            data.get(
+                "quality",
+                1.0
+            )
+        )
+
+        missing_ratio = cls._safe_float(
+            data.get(
+                "missing_data_ratio",
+                0.0
+            )
+        )
+
+        trust = data.get(
+            "trust"
+        )
+
+        agreement = data.get(
+            "agreement"
         )
 
         return cls(
@@ -136,6 +196,13 @@ class AgentResult:
                 )
             ),
 
+            modality=str(
+                data.get(
+                    "modality",
+                    "unknown"
+                )
+            ),
+
             prediction=data.get(
                 "prediction"
             ),
@@ -144,62 +211,36 @@ class AgentResult:
                 "probability"
             ),
 
-            confidence=max(
-                0.0,
-                min(
-                    1.0,
-                    confidence
-                )
-            ),
+            confidence=confidence,
 
-            uncertainty=max(
-                0.0,
-                min(
-                    1.0,
-                    float(
-                        data.get(
-                            "uncertainty",
-                            1.0 -
-                            confidence
-                        )
-                    )
-                )
-            ),
+            uncertainty=uncertainty,
 
-            quality=max(
-                0.0,
-                min(
-                    1.0,
-                    float(
-                        data.get(
-                            "quality",
-                            1.0
-                        )
-                    )
-                )
-            ),
+            quality=quality,
 
-            latency_ms=float(
+            latency_ms=cls._safe_float(
                 data.get(
                     "latency_ms",
                     0.0
-                )
+                ),
+                allow_above_one=True
             ),
 
-            missing_data_ratio=float(
-                data.get(
-                    "missing_data_ratio",
-                    0.0
-                )
-            ),
+            missing_data_ratio=
+                missing_ratio,
 
             trust=(
-                float(
-                    data["trust"]
+                cls._safe_float(
+                    trust
                 )
-                if data.get(
-                    "trust"
-                ) is not None
+                if trust is not None
+                else None
+            ),
+
+            agreement=(
+                cls._safe_float(
+                    agreement
+                )
+                if agreement is not None
                 else None
             ),
 
@@ -221,3 +262,47 @@ class AgentResult:
                 "error"
             ),
         )
+
+    # =========================================================================
+    # SAFE FLOAT
+    # =========================================================================
+
+    @staticmethod
+    def _safe_float(
+        value,
+        default=0.0,
+        allow_above_one=False
+    ):
+
+        try:
+
+            value = float(
+                value
+            )
+
+        except (
+            TypeError,
+            ValueError
+        ):
+
+            value = default
+
+        if allow_above_one:
+
+            return max(
+                0.0,
+                value
+            )
+
+        return max(
+            0.0,
+            min(
+                1.0,
+                value
+            )
+        )
+
+
+__all__ = [
+    "AgentResult",
+]
