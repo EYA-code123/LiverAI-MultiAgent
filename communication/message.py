@@ -1,634 +1,470 @@
-# =============================================================================
-# LiverAI-MultiAgent
-# COMMUNICATION / MESSAGE
-# =============================================================================
-#
-# Standardized message exchanged between the Coordinator and specialist agents.
-#
-# Supported requests:
-#   - REQUEST_PREDICTION
-#   - REQUEST_REASSESSMENT
-#   - REQUEST_EXPLANATION
-#   - REQUEST_SEGMENTATION
-#   - REQUEST_ADDITIONAL_EVIDENCE
-#
-# =============================================================================
+# ============================================================
+# communication/message.py
+# AgentMessage - Communication layer for LiverAI Multi-Agent
+# ============================================================
 
-from datetime import datetime
-from uuid import uuid4
+from dataclasses import dataclass, field, asdict
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 
+@dataclass
 class AgentMessage:
     """
-    Structured communication message used by LiverAI-MultiAgent.
+    Standard message exchanged between an AI agent and the Coordinator.
 
-    The message is intentionally model-independent. It transports:
-        - sender / receiver
-        - patient
-        - medical task
-        - request type
-        - input/output payload
-        - correlation information
+    The message contains:
+        - patient information
+        - task information
+        - prediction/evidence
+        - confidence and uncertainty
+        - quality and missing-data information
+        - trust information
+        - communication metadata
+
+    The class is intentionally flexible so it can be used by
+    heterogeneous biomedical agents.
     """
 
-    # -------------------------------------------------------------------------
-    # REQUEST TYPES
-    # -------------------------------------------------------------------------
+    # --------------------------------------------------------
+    # IDENTIFICATION
+    # --------------------------------------------------------
 
-    REQUEST_PREDICTION = "REQUEST_PREDICTION"
+    patient_id: str = ""
 
-    REQUEST_REASSESSMENT = "REQUEST_REASSESSMENT"
+    agent_id: str = ""
 
-    REQUEST_EXPLANATION = "REQUEST_EXPLANATION"
+    task_type: str = ""
 
-    REQUEST_SEGMENTATION = "REQUEST_SEGMENTATION"
+    modality: str = "unknown"
 
-    REQUEST_ADDITIONAL_EVIDENCE = (
-        "REQUEST_ADDITIONAL_EVIDENCE"
+    # --------------------------------------------------------
+    # PREDICTION / EVIDENCE
+    # --------------------------------------------------------
+
+    prediction: Any = None
+
+    probability: Any = None
+
+    confidence: Optional[float] = None
+
+    uncertainty: Optional[float] = None
+
+    # --------------------------------------------------------
+    # INPUT / QUALITY
+    # --------------------------------------------------------
+
+    quality: Optional[float] = None
+
+    missing_data_ratio: Optional[float] = None
+
+    # --------------------------------------------------------
+    # TRUST
+    # --------------------------------------------------------
+
+    trust: Optional[float] = None
+
+    # --------------------------------------------------------
+    # COMMUNICATION
+    # --------------------------------------------------------
+
+    message_type: str = "PREDICTION"
+
+    request_id: Optional[str] = None
+
+    parent_request_id: Optional[str] = None
+
+    target_agent: Optional[str] = None
+
+    sender: Optional[str] = None
+
+    receiver: Optional[str] = None
+
+    # --------------------------------------------------------
+    # ADDITIONAL INFORMATION
+    # --------------------------------------------------------
+
+    evidence: Any = None
+
+    details: Dict[str, Any] = field(default_factory=dict)
+
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    timestamp: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
 
-    # -------------------------------------------------------------------------
-    # MESSAGE TYPES
-    # -------------------------------------------------------------------------
-
-    TYPE_REQUEST = "request"
-
-    TYPE_RESPONSE = "response"
-
-    TYPE_FEEDBACK = "feedback"
-
-    TYPE_NOTIFICATION = "notification"
-
-    # -------------------------------------------------------------------------
-    # INITIALIZATION
-    # -------------------------------------------------------------------------
-
-    def __init__(
-        self,
-        sender: Optional[str] = None,
-        receiver: Optional[str] = None,
-        message_type: str = TYPE_REQUEST,
-        request_type: Optional[str] = None,
-        task_type: Optional[str] = None,
-        payload: Optional[Dict[str, Any]] = None,
-        patient_id: Optional[str] = None,
-        correlation_id: Optional[str] = None,
-        message_id: Optional[str] = None,
-        timestamp: Optional[str] = None,
-
-        # Compatibility aliases used by some callers
-        agent_id: Optional[str] = None,
-        data: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ):
-
-        # ---------------------------------------------------------------------
-        # Compatibility
-        # ---------------------------------------------------------------------
-
-        if sender is None and agent_id is not None:
-            sender = agent_id
-
-        if payload is None and data is not None:
-            payload = data
-
-        self.message_id = (
-            str(message_id)
-            if message_id is not None
-            else str(uuid4())
-        )
-
-        self.correlation_id = (
-            str(correlation_id)
-            if correlation_id is not None
-            else str(uuid4())
-        )
-
-        self.sender = sender
-
-        self.receiver = receiver
-
-        self.message_type = (
-            message_type
-            if message_type is not None
-            else self.TYPE_REQUEST
-        )
-
-        self.request_type = request_type
-
-        self.task_type = task_type
-
-        self.patient_id = patient_id
-
-        self.payload = (
-            dict(payload)
-            if isinstance(payload, dict)
-            else {}
-        )
-
-        self.metadata = (
-            dict(metadata)
-            if isinstance(metadata, dict)
-            else {}
-        )
-
-        self.timestamp = (
-            timestamp
-            if timestamp is not None
-            else datetime.now().isoformat()
-        )
-
-    # =========================================================================
+    # --------------------------------------------------------
     # VALIDATION
-    # =========================================================================
+    # --------------------------------------------------------
 
     def validate(self) -> Dict[str, Any]:
         """
-        Validate the structure of the message.
+        Validate the communication message.
 
-        Returns:
+        Returns
+        -------
+        dict
             {
                 "valid": bool,
-                "errors": [...]
+                "errors": list,
+                "warnings": list
             }
         """
 
         errors = []
+        warnings = []
 
-        if not self.sender:
-            errors.append(
-                "sender is required"
-            )
+        # ----------------------------------------------------
+        # REQUIRED IDENTIFIERS
+        # ----------------------------------------------------
 
-        if not self.receiver:
-            errors.append(
-                "receiver is required"
-            )
+        if not self.agent_id:
+            errors.append("agent_id is required")
 
-        valid_message_types = {
-            self.TYPE_REQUEST,
-            self.TYPE_RESPONSE,
-            self.TYPE_FEEDBACK,
-            self.TYPE_NOTIFICATION,
+        if not self.task_type:
+            errors.append("task_type is required")
+
+        # patient_id may be optional for some technical tasks,
+        # therefore it generates a warning instead of an error.
+        if not self.patient_id:
+            warnings.append("patient_id is missing")
+
+        # ----------------------------------------------------
+        # CONFIDENCE
+        # ----------------------------------------------------
+
+        if self.confidence is not None:
+
+            try:
+                confidence = float(self.confidence)
+
+                if not 0.0 <= confidence <= 1.0:
+                    errors.append(
+                        "confidence must be between 0 and 1"
+                    )
+
+            except (TypeError, ValueError):
+
+                errors.append(
+                    "confidence must be numeric"
+                )
+
+        # ----------------------------------------------------
+        # UNCERTAINTY
+        # ----------------------------------------------------
+
+        if self.uncertainty is not None:
+
+            try:
+                uncertainty = float(self.uncertainty)
+
+                if not 0.0 <= uncertainty <= 1.0:
+                    errors.append(
+                        "uncertainty must be between 0 and 1"
+                    )
+
+            except (TypeError, ValueError):
+
+                errors.append(
+                    "uncertainty must be numeric"
+                )
+
+        # ----------------------------------------------------
+        # QUALITY
+        # ----------------------------------------------------
+
+        if self.quality is not None:
+
+            try:
+                quality = float(self.quality)
+
+                if not 0.0 <= quality <= 1.0:
+                    errors.append(
+                        "quality must be between 0 and 1"
+                    )
+
+            except (TypeError, ValueError):
+
+                errors.append(
+                    "quality must be numeric"
+                )
+
+        # ----------------------------------------------------
+        # MISSING DATA
+        # ----------------------------------------------------
+
+        if self.missing_data_ratio is not None:
+
+            try:
+                missing_ratio = float(
+                    self.missing_data_ratio
+                )
+
+                if not 0.0 <= missing_ratio <= 1.0:
+                    errors.append(
+                        "missing_data_ratio must be between 0 and 1"
+                    )
+
+            except (TypeError, ValueError):
+
+                errors.append(
+                    "missing_data_ratio must be numeric"
+                )
+
+        # ----------------------------------------------------
+        # TRUST
+        # ----------------------------------------------------
+
+        if self.trust is not None:
+
+            try:
+                trust = float(self.trust)
+
+                if not 0.0 <= trust <= 1.0:
+                    errors.append(
+                        "trust must be between 0 and 1"
+                    )
+
+            except (TypeError, ValueError):
+
+                errors.append(
+                    "trust must be numeric"
+                )
+
+        # ----------------------------------------------------
+        # MESSAGE TYPE
+        # ----------------------------------------------------
+
+        allowed_message_types = {
+            "PREDICTION",
+            "REQUEST_PREDICTION",
+            "REQUEST_REASSESSMENT",
+            "REQUEST_EXPLANATION",
+            "REQUEST_SEGMENTATION",
+            "REQUEST_ADDITIONAL_EVIDENCE",
+            "RESPONSE",
+            "FEEDBACK",
+            "ALERT",
+            "ERROR",
         }
 
-        if self.message_type not in valid_message_types:
-            errors.append(
-                f"invalid message_type: "
-                f"{self.message_type}"
+        if self.message_type not in allowed_message_types:
+
+            warnings.append(
+                f"Unknown message_type: {self.message_type}"
             )
 
-        valid_request_types = {
-            self.REQUEST_PREDICTION,
-            self.REQUEST_REASSESSMENT,
-            self.REQUEST_EXPLANATION,
-            self.REQUEST_SEGMENTATION,
-            self.REQUEST_ADDITIONAL_EVIDENCE,
-            None,
-        }
-
-        if self.request_type not in valid_request_types:
-            errors.append(
-                f"invalid request_type: "
-                f"{self.request_type}"
-            )
-
-        if not self.correlation_id:
-            errors.append(
-                "correlation_id is required"
-            )
-
-        if not isinstance(
-            self.payload,
-            dict
-        ):
-            errors.append(
-                "payload must be a dictionary"
-            )
+        # ----------------------------------------------------
+        # FINAL VALIDATION
+        # ----------------------------------------------------
 
         return {
             "valid": len(errors) == 0,
             "errors": errors,
+            "warnings": warnings,
         }
 
-    # =========================================================================
+    # --------------------------------------------------------
     # SERIALIZATION
-    # =========================================================================
+    # --------------------------------------------------------
 
     def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert the message into a dictionary.
+        """
 
-        return {
-            "message_id": self.message_id,
+        return asdict(self)
 
-            "correlation_id":
-                self.correlation_id,
+    # --------------------------------------------------------
+    # ALIAS
+    # --------------------------------------------------------
 
-            "sender":
-                self.sender,
+    def dict(self) -> Dict[str, Any]:
+        """
+        Compatibility alias for to_dict().
+        """
 
-            "receiver":
-                self.receiver,
+        return self.to_dict()
 
-            "message_type":
-                self.message_type,
-
-            "request_type":
-                self.request_type,
-
-            "task_type":
-                self.task_type,
-
-            "patient_id":
-                self.patient_id,
-
-            "payload":
-                self.payload,
-
-            "metadata":
-                self.metadata,
-
-            "timestamp":
-                self.timestamp,
-        }
-
-    # =========================================================================
-    # DESERIALIZATION
-    # =========================================================================
+    # --------------------------------------------------------
+    # FACTORY FROM DICTIONARY
+    # --------------------------------------------------------
 
     @classmethod
     def from_dict(
         cls,
-        data: Optional[Dict[str, Any]]
-    ):
+        data: Dict[str, Any]
+    ) -> "AgentMessage":
+        """
+        Create an AgentMessage from a dictionary.
+        """
 
-        if not isinstance(
-            data,
-            dict
-        ):
+        if not isinstance(data, dict):
             raise TypeError(
-                "AgentMessage.from_dict expects a dictionary."
+                "AgentMessage.from_dict expects a dictionary"
             )
 
-        return cls(
-
-            sender=data.get(
-                "sender"
-            ),
-
-            receiver=data.get(
-                "receiver"
-            ),
-
-            message_type=data.get(
-                "message_type",
-                cls.TYPE_REQUEST
-            ),
-
-            request_type=data.get(
-                "request_type"
-            ),
-
-            task_type=data.get(
-                "task_type"
-            ),
-
-            payload=data.get(
-                "payload",
-                {}
-            ),
-
-            patient_id=data.get(
-                "patient_id"
-            ),
-
-            correlation_id=data.get(
-                "correlation_id"
-            ),
-
-            message_id=data.get(
-                "message_id"
-            ),
-
-            timestamp=data.get(
-                "timestamp"
-            ),
-
-            metadata=data.get(
-                "metadata",
-                {}
-            ),
-        )
-
-    # =========================================================================
-    # REPRESENTATION
-    # =========================================================================
-
-    def __repr__(self):
-
-        return (
-            "AgentMessage("
-            f"sender={self.sender!r}, "
-            f"receiver={self.receiver!r}, "
-            f"message_type={self.message_type!r}, "
-            f"request_type={self.request_type!r}, "
-            f"task_type={self.task_type!r}, "
-            f"patient_id={self.patient_id!r}"
-            ")"
-        )
-
-
-# =============================================================================
-# COMMUNICATION PROTOCOL
-# =============================================================================
-
-
-class CommunicationProtocol:
-    """
-    Communication manager used by LiverCoordinator.
-
-    It stores a structured communication trace so that the orchestration
-    process remains observable and auditable.
-    """
-
-    def __init__(
-        self,
-        coordinator_id="LiverCoordinator"
-    ):
-
-        self.coordinator_id = coordinator_id
-
-        self.messages = []
-
-    # =========================================================================
-    # REQUEST
-    # =========================================================================
-
-    def create_request(
-        self,
-        receiver,
-        request_type,
-        task_type=None,
-        payload=None,
-        patient_id=None,
-        metadata=None,
-    ):
-
-        message = AgentMessage(
-
-            sender=self.coordinator_id,
-
-            receiver=receiver,
-
-            message_type=AgentMessage.TYPE_REQUEST,
-
-            request_type=request_type,
-
-            task_type=task_type,
-
-            payload=payload,
-
-            patient_id=patient_id,
-
-            metadata=metadata,
-        )
-
-        validation = message.validate()
-
-        if not validation["valid"]:
-            raise ValueError(
-                validation["errors"]
-            )
-
-        self.messages.append(
-            message
-        )
-
-        return message
-
-    # =========================================================================
-    # RESPONSE
-    # =========================================================================
-
-    def create_response(
-        self,
-        receiver,
-        request_message,
-        payload=None,
-        task_type=None,
-        patient_id=None,
-        metadata=None,
-    ):
-
-        if not isinstance(
-            request_message,
-            AgentMessage
-        ):
-            raise TypeError(
-                "request_message must be AgentMessage."
-            )
-
-        message = AgentMessage(
-
-            sender=self.coordinator_id,
-
-            receiver=receiver,
-
-            message_type=AgentMessage.TYPE_RESPONSE,
-
-            request_type=request_message.request_type,
-
-            task_type=(
-                task_type
-                if task_type is not None
-                else request_message.task_type
-            ),
-
-            payload=payload,
-
-            patient_id=(
-                patient_id
-                if patient_id is not None
-                else request_message.patient_id
-            ),
-
-            correlation_id=
-                request_message.correlation_id,
-
-            metadata=metadata,
-        )
-
-        self.messages.append(
-            message
-        )
-
-        return message
-
-    # =========================================================================
-    # AGENT RESPONSE
-    # =========================================================================
-
-    def record_agent_response(
-        self,
-        sender,
-        request_message,
-        payload=None,
-        task_type=None,
-        patient_id=None,
-        metadata=None,
-    ):
-
-        if not isinstance(
-            request_message,
-            AgentMessage
-        ):
-            raise TypeError(
-                "request_message must be AgentMessage."
-            )
-
-        message = AgentMessage(
-
-            sender=sender,
-
-            receiver=self.coordinator_id,
-
-            message_type=AgentMessage.TYPE_RESPONSE,
-
-            request_type=request_message.request_type,
-
-            task_type=(
-                task_type
-                if task_type is not None
-                else request_message.task_type
-            ),
-
-            payload=payload,
-
-            patient_id=(
-                patient_id
-                if patient_id is not None
-                else request_message.patient_id
-            ),
-
-            correlation_id=
-                request_message.correlation_id,
-
-            metadata=metadata,
-        )
-
-        self.messages.append(
-            message
-        )
-
-        return message
-
-    # =========================================================================
-    # FEEDBACK
-    # =========================================================================
-
-    def create_feedback(
-        self,
-        receiver,
-        task_type=None,
-        payload=None,
-        patient_id=None,
-        correlation_id=None,
-    ):
-
-        message = AgentMessage(
-
-            sender=self.coordinator_id,
-
-            receiver=receiver,
-
-            message_type=AgentMessage.TYPE_FEEDBACK,
-
-            request_type=None,
-
-            task_type=task_type,
-
-            payload=payload,
-
-            patient_id=patient_id,
-
-            correlation_id=correlation_id,
-        )
-
-        self.messages.append(
-            message
-        )
-
-        return message
-
-    # =========================================================================
-    # TRACE
-    # =========================================================================
-
-    def get_trace(self):
-
-        return [
-            message.to_dict()
-            for message in self.messages
-        ]
-
-    # =========================================================================
-    # SUMMARY
-    # =========================================================================
-
-    def summary(self):
-
-        requests = sum(
-            1
-            for message in self.messages
-            if message.message_type
-            ==
-            AgentMessage.TYPE_REQUEST
-        )
-
-        responses = sum(
-            1
-            for message in self.messages
-            if message.message_type
-            ==
-            AgentMessage.TYPE_RESPONSE
-        )
-
-        feedback = sum(
-            1
-            for message in self.messages
-            if message.message_type
-            ==
-            AgentMessage.TYPE_FEEDBACK
-        )
-
-        return {
-
-            "total_messages":
-                len(self.messages),
-
-            "requests":
-                requests,
-
-            "responses":
-                responses,
-
-            "feedback":
-                feedback,
-
-            "trace":
-                self.get_trace(),
+        # Keep only fields supported by the dataclass.
+        valid_fields = {
+            "patient_id",
+            "agent_id",
+            "task_type",
+            "modality",
+            "prediction",
+            "probability",
+            "confidence",
+            "uncertainty",
+            "quality",
+            "missing_data_ratio",
+            "trust",
+            "message_type",
+            "request_id",
+            "parent_request_id",
+            "target_agent",
+            "sender",
+            "receiver",
+            "evidence",
+            "details",
+            "metadata",
+            "timestamp",
         }
 
-    # =========================================================================
-    # CLEAR
-    # =========================================================================
+        filtered_data = {
+            key: value
+            for key, value in data.items()
+            if key in valid_fields
+        }
 
-    def clear(self):
+        return cls(**filtered_data)
 
-        self.messages.clear()
+    # --------------------------------------------------------
+    # REQUEST FACTORY
+    # --------------------------------------------------------
 
+    @classmethod
+    def create_request(
+        cls,
+        patient_id: str,
+        sender: str,
+        receiver: Optional[str],
+        task_type: str,
+        message_type: str,
+        request_id: Optional[str] = None,
+        parent_request_id: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> "AgentMessage":
+        """
+        Create a Coordinator -> Agent request.
+        """
 
-__all__ = [
-    "AgentMessage",
-    "CommunicationProtocol",
-]
+        return cls(
+            patient_id=patient_id,
+            agent_id=sender,
+            task_type=task_type,
+            message_type=message_type,
+            request_id=request_id,
+            parent_request_id=parent_request_id,
+            sender=sender,
+            receiver=receiver,
+            details=details or {},
+            metadata=metadata or {},
+        )
+
+    # --------------------------------------------------------
+    # RESPONSE FACTORY
+    # --------------------------------------------------------
+
+    @classmethod
+    def create_response(
+        cls,
+        patient_id: str,
+        agent_id: str,
+        task_type: str,
+        prediction: Any = None,
+        probability: Any = None,
+        confidence: Optional[float] = None,
+        uncertainty: Optional[float] = None,
+        quality: Optional[float] = None,
+        missing_data_ratio: Optional[float] = None,
+        trust: Optional[float] = None,
+        modality: str = "unknown",
+        evidence: Any = None,
+        details: Optional[Dict[str, Any]] = None,
+        request_id: Optional[str] = None,
+        parent_request_id: Optional[str] = None,
+    ) -> "AgentMessage":
+        """
+        Create an Agent -> Coordinator response.
+        """
+
+        return cls(
+            patient_id=patient_id,
+            agent_id=agent_id,
+            task_type=task_type,
+            modality=modality,
+            prediction=prediction,
+            probability=probability,
+            confidence=confidence,
+            uncertainty=uncertainty,
+            quality=quality,
+            missing_data_ratio=missing_data_ratio,
+            trust=trust,
+            message_type="RESPONSE",
+            request_id=request_id,
+            parent_request_id=parent_request_id,
+            sender=agent_id,
+            receiver="Coordinator",
+            evidence=evidence,
+            details=details or {},
+        )
+
+    # --------------------------------------------------------
+    # FEEDBACK FACTORY
+    # --------------------------------------------------------
+
+    @classmethod
+    def create_feedback(
+        cls,
+        patient_id: str,
+        sender: str,
+        receiver: Optional[str],
+        task_type: str,
+        details: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> "AgentMessage":
+        """
+        Create an agent/coordinator feedback message.
+        """
+
+        return cls(
+            patient_id=patient_id,
+            agent_id=sender,
+            task_type=task_type,
+            message_type="FEEDBACK",
+            sender=sender,
+            receiver=receiver,
+            details=details or {},
+            metadata=metadata or {},
+        )
+
+    # --------------------------------------------------------
+    # STRING REPRESENTATION
+    # --------------------------------------------------------
+
+    def __str__(self) -> str:
+
+        return (
+            f"AgentMessage("
+            f"agent_id={self.agent_id}, "
+            f"task_type={self.task_type}, "
+            f"message_type={self.message_type}, "
+            f"prediction={self.prediction}, "
+            f"confidence={self.confidence}"
+            f")"
+        )
+
+    def __repr__(self) -> str:
+
+        return self.__str__()
